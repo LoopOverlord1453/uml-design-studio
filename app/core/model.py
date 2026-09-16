@@ -1,14 +1,14 @@
-"""Veri modeli: UML durum makinesi (hiyerarsik / HSM).
+"""Data model: the UML state machine (hierarchical / HSM).
 
-Bu modul yalnizca *veri* tutar; Qt'ye bagimliligi yoktur. Boylece kod ureteci
-ve testler arayuz olmadan da calisabilir.
+This module holds *data* only; it does not depend on Qt. That lets the code
+generator and the tests run without a user interface.
 
-Semantik dayanak: UML 2.5.1, Bolum 14 (StateMachines) - desteklenen alt kume:
+Semantic basis: UML 2.5.1, clause 14 (StateMachines) - supported subset:
   * Simple state, Composite state (tek bolge / single region)
   * Initial pseudostate, Final state, Choice pseudostate
-  * External / Local / Internal gecisler
-  * entry / exit / do davranislari
-  * Completion (event'siz) gecisleri
+  * External / Local / Internal transitions
+  * entry / exit / do behaviours
+  * Completion (event-less) transitions
 """
 
 from __future__ import annotations
@@ -30,22 +30,22 @@ def new_id(prefix: str) -> str:
 
 
 class StateKind(str, Enum):
-    """UML Vertex turleri (UML 2.5.1, 14.2.3.4 Pseudostates dahil)."""
+    """UML Vertex kinds (UML 2.5.1, 14.2.3.4 Pseudostates included)."""
 
-    SIMPLE = "simple"                    # basit durum
-    COMPOSITE = "composite"              # bilesik durum (icinde alt durumlar var)
-    INITIAL = "initial"                  # initial sozde-durumu
-    FINAL = "final"                      # final durum
-    CHOICE = "choice"                    # choice sozde-durumu (dinamik dallanma)
-    JUNCTION = "junction"                # junction sozde-durumu (statik dallanma)
-    SHALLOW_HISTORY = "shallow_history"  # H  - sig tarih sozde-durumu
-    DEEP_HISTORY = "deep_history"        # H* - derin tarih sozde-durumu
-    TERMINATE = "terminate"              # terminate sozde-durumu (X)
-    FORK = "fork"                        # fork: bir oku bolgelere dagitir
-    JOIN = "join"                        # join: bolgelerden gelenleri birlestirir
-    ENTRY_POINT = "entry_point"          # bilesik durumun ADLANDIRILMIS girisi
-    EXIT_POINT = "exit_point"            # bilesik durumun ADLANDIRILMIS cikisi
-    SUBMACHINE = "submachine"            # baska bir makineye REFERANS
+    SIMPLE = "simple"                    # simple state
+    COMPOSITE = "composite"              # composite state (has substates inside)
+    INITIAL = "initial"                  # initial pseudostate
+    FINAL = "final"                      # final state
+    CHOICE = "choice"                    # choice pseudostate (dynamic branching)
+    JUNCTION = "junction"                # junction pseudostate (static branching)
+    SHALLOW_HISTORY = "shallow_history"  # H  - shallow history pseudostate
+    DEEP_HISTORY = "deep_history"        # H* - deep history pseudostate
+    TERMINATE = "terminate"              # terminate pseudostate (X)
+    FORK = "fork"                        # fork: splits one arrow across regions
+    JOIN = "join"                        # join: merges what arrives from regions
+    ENTRY_POINT = "entry_point"          # NAMED entry of a composite state
+    EXIT_POINT = "exit_point"            # NAMED exit of a composite state
+    SUBMACHINE = "submachine"            # a REFERENCE to another machine
 
     @property
     def is_pseudo(self) -> bool:
@@ -56,25 +56,25 @@ class StateKind(str, Enum):
 
     @property
     def is_sync(self) -> bool:
-        """Bolgeler arasi dagitim/birlestirme sozde-durumu mu?
+        """A fork/join pseudostate that spreads across regions?
 
-        UML 2.5.1, 14.2.3.7 (basili s.313): fork "an incoming Transition
-        into two or more Transitions terminating on Vertices in orthogonal
-        Regions" boler; join ise "two or more Transitions originating from
-        Vertices in different orthogonal Regions" icin ortak hedeftir.
+        UML 2.5.1, 14.2.3.7 (printed p.313): a fork splits "an incoming
+        Transition into two or more Transitions terminating on Vertices in
+        orthogonal Regions"; a join is the shared target for "two or more
+        Transitions originating from Vertices in different orthogonal Regions".
         """
         return self in (StateKind.FORK, StateKind.JOIN)
 
     @property
     def is_connection_point(self) -> bool:
-        """Bilesik durumun SINIRINDAKI adlandirilmis giris/cikis noktasi mi?
+        """A named entry/exit point ON THE BORDER of a composite state?
 
-        UML 2.5.1, 14.2.3.7 (basili s.313): entryPoint "represents an entry
+        UML 2.5.1, 14.2.3.7 (printed p.313): an entryPoint "represents an entry
         point for a StateMachine or a composite State that provides
         encapsulation of the insides of the State or StateMachine";
-        exitPoint da onun cikis karsiligidir. Ikisi de icerinin disaridan
-        gizlenmesini saglar: disaridaki ok ic dugumu degil, SINIRDAKI
-        noktayi hedefler.
+        an exitPoint is its counterpart on the way out. Both hide the inside
+        from the outside: an arrow from outside targets the point ON THE
+        BORDER, not an inner vertex.
         """
         return self in (StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
 
@@ -84,7 +84,7 @@ class StateKind(str, Enum):
 
     @property
     def is_branch(self) -> bool:
-        """Guard'li dallanma sozde-durumu mu (choice/junction)?"""
+        """A guarded branching pseudostate (choice/junction)?"""
         return self in (StateKind.CHOICE, StateKind.JUNCTION)
 
     @property
@@ -93,34 +93,34 @@ class StateKind(str, Enum):
 
     @property
     def is_real_state(self) -> bool:
-        """Kod uretiminde 'icinde kalinabilen' durum mu?
+        """A state the generated code can "stay in"?
 
-        SUBMACHINE de buradadir: UML'de altmakine durumu gercek bir
-        durumdur, entry/exit/do tasiyabilir ve icinde kalinabilir
-        (14.2.3.4.7). Genisletildiginde siradan bir bilesik duruma doner.
+        SUBMACHINE belongs here too: in UML a submachine state is a real
+        state, it can carry entry/exit/do and can be stayed in (14.2.3.4.7).
+        Once expanded it becomes an ordinary composite state.
         """
         return self in (StateKind.SIMPLE, StateKind.COMPOSITE,
                         StateKind.FINAL, StateKind.SUBMACHINE)
 
 
 class TransitionKind(str, Enum):
-    EXTERNAL = "external"  # kaynak durumdan cikilir, hedefe girilir
-    INTERNAL = "internal"  # durum degismez, yalnizca eylem calisir
-    LOCAL = "local"        # kaynak bilesik durumdan cikilmaz
+    EXTERNAL = "external"  # the source state is exited, the target entered
+    INTERNAL = "internal"  # the state does not change, only the effect runs
+    LOCAL = "local"        # the source composite state is not exited
 
 
-#: ZAMAN OLAYI bicimi: ``after(<ifade>)``.
+#: TIME EVENT form: ``after(<expression>)``.
 #:
-#: UML 2.5.1'de TimeEvent, Trigger'in bir turudur (clause 13) ve durum
-#: makinesi gecisleri onu tetikleyici olarak kullanir. Bu arac yalnizca
-#: GORELI bicimi (``after``) destekler: mutlak zaman (``at``) gomulu bir
-#: hedefte takvim saati gerektirir ve yarim destek verilmez.
+#: In UML 2.5.1 a TimeEvent is a kind of Trigger (clause 13) and state
+#: machine transitions use it as one. This tool supports only the
+#: RELATIVE form (``after``): absolute time (``at``) needs a calendar
+#: clock on an embedded target, and half support is not offered.
 TIME_EVENT_RE = re.compile(r"^\s*after\s*\((?P<delay>.*)\)\s*$",
                            re.IGNORECASE)
 
 
 def time_event_delay(name: str) -> Optional[str]:
-    """``after(N)`` ise gecikme IFADESINI dondurur, degilse None."""
+    """Returns the delay EXPRESSION for ``after(N)``, otherwise None."""
     m = TIME_EVENT_RE.match(name or "")
     if m is None:
         return None
@@ -132,33 +132,33 @@ def is_time_event(name: str) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-#  Elemanlar
+#   Elements
 # --------------------------------------------------------------------------- #
 
 @dataclass
 class State:
-    """Bir durum / sozde-durum dugumu."""
+    """A state / pseudostate vertex."""
 
     id: str = field(default_factory=lambda: new_id("s"))
     name: str = "State"
     kind: StateKind = StateKind.SIMPLE
-    parent: Optional[str] = None          # ust bilesik durumun id'si (None = kok)
+    parent: Optional[str] = None          # id of the parent composite state (None = root)
 
-    # -- BOLGELER (UML 2.5.1, 14.2.3.2 Region) ------------------------------ #
+    # -- REGIONS (UML 2.5.1, 14.2.3.2 Region) ------------------------------- #
     #
-    # Bir bilesik durum BIR YA DA DAHA COK bolge sahibidir. Birden cok
-    # bolgesi olan durum ORTOGONALDIR: bolgeler es zamanli etkindir.
-    # Kok (StateMachine) de bolge sahibidir; su an tek bolgesi vardir.
+    # A composite state owns ONE OR MORE regions. A state with several
+    # regions is ORTHOGONAL: its regions are active at the same time.
+    # The root (StateMachine) owns a region too; today it has exactly one.
     #
-    # Eski dosyalar bu alanlari tasimaz; varsayilanlar (1 ve 0) tam olarak
-    # bugunku davranisi verir, dolayisiyla surum yukseltmesi gerekmez.
+    # Older files do not carry these fields; the defaults (1 and 0) give
+    # exactly today's behaviour, so no file upgrade is needed.
     #
-    #: Bu durumun sahip oldugu bolge sayisi (yalnizca COMPOSITE icin anlamli).
+    #: How many regions this state owns (meaningful for COMPOSITE only).
     regions: int = 1
-    #: Bu dugumun, EBEVEYNININ kacinci bolgesinde durdugu (0 tabanli).
+    #: Which region of its PARENT this vertex sits in (0-based).
     region: int = 0
 
-    #: ERTELENEN OLAY turleri (UML deferrableTrigger).
+    #: DEFERRED EVENT types (UML deferrableTrigger).
     #:
     #: UML 2.5.1, 14.2.3.4.4 (basili s.309): "A State may specify a set of
     #: Event types that may be deferred in that State ... these Event
@@ -169,21 +169,21 @@ class State:
     #: option)."
     deferred: List[str] = field(default_factory=list)
 
-    #: ALTMAKINE referansi: calisma alanina gore dosya yolu.
+    #: SUBMACHINE reference: a file path relative to the workspace.
     #:
     #: UML 2.5.1, 14.2.3.4.7 (basili s.311): altmakineler "like programming
     #: language macros, distinct Behavior specifications, which may be
     #: defined in a different context than the one where they are used".
-    #: Bu yuzden referans BASKA BIR DOSYAYA gider ve kod uretiminden once
-    #: yerine konur (bkz. app/core/submachine.py).
+    #: So the reference points to ANOTHER FILE and is substituted before
+    #: code generation (see app/core/submachine.py).
     submachine_ref: str = ""
 
-    # Davranislar (kullanicinin yazdigi C/C++ ifadeleri)
+    # Behaviours (the C/C++ expressions written by the user)
     entry: str = ""
     exit: str = ""
     do: str = ""
 
-    # Gorunum
+    # Appearance
     x: float = 0.0
     y: float = 0.0
     w: float = 170.0
@@ -200,9 +200,9 @@ class State:
     def from_dict(d: dict) -> "State":
         d = dict(d)
         d["kind"] = StateKind(d.get("kind", "simple"))
-        # Liste alanlari KOPYALANIR: dosyadan gelen liste paylasilirsa iki
-        # durum ayni listeyi gosterir ve birinde yapilan degisiklik
-        # otekinde de gorunur.
+        # The list fields are COPIED: if the list loaded from file were shared,
+        # two states would show the same list and a change made in one would
+        # appear in the other as well.
         d["deferred"] = [str(x) for x in (d.get("deferred") or [])]
         allowed = set(State.__dataclass_fields__)
         return State(**{k: v for k, v in d.items() if k in allowed})
@@ -210,18 +210,18 @@ class State:
 
 @dataclass
 class Transition:
-    """Iki dugum arasindaki gecis:  event [guard] / action"""
+    """A transition between two vertices:  event [guard] / action"""
 
     id: str = field(default_factory=lambda: new_id("t"))
     source: str = ""
     target: str = ""
-    event: str = ""     # bos => completion (event'siz) gecisi
-    guard: str = ""     # C/C++ boolean ifadesi
-    action: str = ""    # C/C++ deyim(ler)i
+    event: str = ""     # empty => completion (event-less) transition
+    guard: str = ""     # C/C++ boolean expression
+    action: str = ""    # C/C++ statement(s)
     kind: TransitionKind = TransitionKind.EXTERNAL
-    priority: int = 0   # kucuk sayi once denenir
+    priority: int = 0   # a smaller number is tried first
 
-    # Gorunum
+    # Appearance
     waypoints: List[List[float]] = field(default_factory=list)
     label_dx: float = 0.0
     label_dy: float = -16.0
@@ -240,7 +240,7 @@ class Transition:
         return Transition(**{k: v for k, v in d.items() if k in allowed})
 
     def _raw_label(self) -> str:
-        """Etiketi satir sonlari KORUNARAK kurar."""
+        """Builds the label WITH the line breaks PRESERVED."""
         txt = self.event.strip()
         if self.guard.strip():
             txt = (txt + " " if txt else "") + "[" + self.guard.strip() + "]"
@@ -250,41 +250,41 @@ class Transition:
         return txt
 
     def label(self) -> str:
-        """UML etiketi -- TEK satir.
+        """The UML label -- a SINGLE line.
 
-        PlantUML ciktisi, calisma alani agaci ve ozellik onizlemesi satir
-        sonu TASIYAMAZ; oralarda bu kullanilir. Satir sonu isaretleri
-        (bkz. core/text_layout) bosluga iner.
+        The PlantUML output, the workspace tree and the property preview
+        CANNOT carry a line break; this is what they use. Line-break markers
+        (see core/text_layout) collapse to a space.
         """
         return flatten(self._raw_label())
 
     def label_lines(self) -> List[str]:
-        """Etiketin gorunum satirlari -- tuval icin.
+        """The display lines of the label -- for the canvas.
 
-        Kullanici olay / guard / eylem alanlarina satir sonu isaretini
-        (text_layout.LINE_BREAK_MARKER) yazarak etiketi birden fazla
-        satira boler.
+        The user splits the label over several lines by typing the
+        line-break marker (text_layout.LINE_BREAK_MARKER) into the event /
+        guard / effect fields.
         """
         return split_lines(self._raw_label())
 
 
 # --------------------------------------------------------------------------- #
 #  Dokuman
-# --------------------------------------------------------------------------- #
+#  Document
 
 @dataclass
 class StateMachine:
-    """Tum diyagrami temsil eden dokuman."""
+    """The document representing the whole diagram."""
 
     name: str = "Blinky"
-    prefix: str = "blinky"          # uretilen C sembollerinin on eki
+    prefix: str = "blinky"          # prefix of the generated C symbols
     description: str = ""
-    context_type: str = "void"      # kullanici baglam tipi; "void" => void *ctx
-    user_includes: str = ""         # uretilen basliga aynen eklenecek #include'lar
+    context_type: str = "void"      # user context type; "void" => void *ctx
+    user_includes: str = ""         # #include lines copied verbatim into the header
     states: Dict[str, State] = field(default_factory=dict)
     transitions: Dict[str, Transition] = field(default_factory=dict)
 
-    # -- erisim yardimcilari ------------------------------------------------ #
+    # -- accessors ---------------------------------------------------------- #
 
     def add_state(self, st: State) -> State:
         self.states[st.id] = st
@@ -295,7 +295,7 @@ class StateMachine:
         return tr
 
     def remove_state(self, sid: str) -> None:
-        """Durumu, tum alt agacini ve ilgili gecisleri siler."""
+        """Deletes the state, its whole subtree and the related transitions."""
         for cid in [c.id for c in self.children(sid)]:
             self.remove_state(cid)
         for tid in [t.id for t in self.transitions.values()
@@ -312,14 +312,14 @@ class StateMachine:
     def sorted_children(self, sid: Optional[str]) -> List[State]:
         return sorted(self.children(sid), key=lambda s: (round(s.y, 3), round(s.x, 3), s.name))
 
-    # -- bolgeler ----------------------------------------------------------- #
+    # -- regions ------------------------------------------------------------ #
 
     def region_count(self, sid: Optional[str]) -> int:
-        """Verilen sahibin (kok icin None) bolge sayisi.
+        """The region count of the given owner (None for the root).
 
-        Kok su an TEK bolge tasir; UML birden cok ust duzey bolgeye izin
-        verir ama bu aracin uretecinde karsiligi yoktur ve yarim destek
-        verilmez (bkz. test_uml_conformance 11. bolum).
+        The root currently carries ONE region; UML allows several top-level
+        regions, but this tool's generator has no counterpart for that and
+        half support is not offered (see test_uml_conformance, section 11).
         """
         if sid is None:
             return 1
@@ -329,18 +329,18 @@ class StateMachine:
         return max(1, int(st.regions))
 
     def is_orthogonal(self, sid: Optional[str]) -> bool:
-        """Sahip BIRDEN COK bolge tasiyor mu?"""
+        """Does the owner carry MORE THAN ONE region?"""
         return self.region_count(sid) > 1
 
     def region_of(self, sid: str) -> int:
-        """Dugumun ebeveyninde durdugu bolgenin dizini (kirpilmis)."""
+        """The index of the region the vertex sits in, within its parent."""
         st = self.states.get(sid)
         if st is None:
             return 0
         return max(0, min(int(st.region), self.region_count(st.parent) - 1))
 
     def children_in(self, sid: Optional[str], region: int) -> List[State]:
-        """Sahibin BELIRLI bir bolgesindeki cocuklar, kararli sirada."""
+        """The children in a SPECIFIC region of the owner, in stable order."""
         return [s for s in self.sorted_children(sid)
                 if self.region_of(s.id) == region]
 
@@ -354,7 +354,7 @@ class StateMachine:
         return self.states.get(st.parent)
 
     def ancestors(self, sid: str) -> List[State]:
-        """En yakindan koke dogru ust durumlar."""
+        """The parent states, from the nearest one up to the root."""
         out: List[State] = []
         cur = self.parent_of(sid)
         seen = set()
@@ -376,7 +376,7 @@ class StateMachine:
         return any(a.id == maybe_ancestor for a in self.ancestors(sid))
 
     def lca(self, a: str, b: str) -> Optional[str]:
-        """En yakin ortak ust durum (yoksa None = kok bolge)."""
+        """The nearest common ancestor (None = the root region)."""
         chain_a = [a] + [s.id for s in self.ancestors(a)]
         chain_b = set([b] + [s.id for s in self.ancestors(b)])
         for x in chain_a:
@@ -385,13 +385,13 @@ class StateMachine:
         return None
 
     def outgoing(self, sid: str) -> List[Transition]:
-        """Cikis gecisleri, denenecekleri sirada.
+        """The outgoing transitions, in the order they will be tried.
 
-        Guard'siz / 'else' dallar HER ZAMAN en sona konur -- kullanicinin
-        verdigi oncelik de bunu degistiremez. UML 2.5.1 14.2.3.4.6: 'else'
-        ancak diger butun guard'lar yanlis oldugunda secilebilir. Oncelik,
-        yalnizca guard'LI dallarin kendi aralarindaki sirayi belirler; aksi
-        halde 'else' dalina kucuk bir oncelik vermek guard'li dallarin
+        Unguarded / 'else' branches ALWAYS go last -- the priority the user
+        gave cannot change that. UML 2.5.1 14.2.3.4.6: 'else' may only be
+        taken when every other guard is false. Priority orders the GUARDED
+        branches among themselves; otherwise giving the 'else' branch a low
+        priority would make every guarded branch unreachable.
         tamamini ulasilamaz kilardi.
         """
         def key(t: Transition):
@@ -406,11 +406,11 @@ class StateMachine:
 
     def initial_of(self, parent: Optional[str],
                    region: int = 0) -> Optional[State]:
-        """Verilen sahibin BELIRLI bolgesindeki initial sozde-durumu.
+        """The initial pseudostate in a SPECIFIC region of the given owner.
 
-        UML 2.5.1, 14.2.3.2 (basili s.307): her bolgenin kendi varsayilan
-        giris noktasi vardir. Ortogonal bir durumda bolge basina AYRI bir
-        initial bulunur; tek bolgeli durumlarda davranis degismez.
+        UML 2.5.1, 14.2.3.2 (printed p.307): every region has its own default
+        entry point. In an orthogonal state there is a SEPARATE initial per
+        region; for single-region states the behaviour is unchanged.
         """
         for s in self.children_in(parent, region):
             if s.kind is StateKind.INITIAL:
@@ -418,13 +418,13 @@ class StateMachine:
         return None
 
     def events(self) -> List[str]:
-        """Modelde gecen tum event adlari (alfabetik, tekil)."""
+        """Every event name used in the model (alphabetical, unique)."""
         evs = set()
         for t in self.transitions.values():
             if t.event.strip():
                 evs.add(t.event.strip())
-        # ERTELENEN olay turleri de tabloya girer: hicbir gecis onu
-        # tetiklemese bile makine onu TANIMALI ve havuzda tutmalidir.
+        # DEFERRED event types go into the table too: even when no transition
+        # is triggered by one, the machine must KNOW it and hold it in the pool.
         for st in self.states.values():
             for ad in (st.deferred or []):
                 if str(ad).strip():
@@ -432,13 +432,13 @@ class StateMachine:
         return sorted(evs)
 
     def ordered_states(self) -> List[State]:
-        """Kararli (deterministik) siralama: kokten derinlik-oncelikli.
+        """Stable (deterministic) ordering: depth-first from the root.
 
-        Ust durumu bulunamayan ya da dairesel hiyerarside kalan durumlar bu
-        yurumeyle gezilemez; yine de listeye SONA eklenirler. Aksi halde
-        kaydetme (``to_dict``) ve tuval yeniden cizimi bu durumlari sessizce
-        dusurur, kullanici da modelinin bir parcasini kaybettigini fark etmezdi.
-        Dogrulayici bu durumlari V020/V021 ile hata olarak isaretler.
+        States whose parent cannot be found, or that sit in a circular
+        hierarchy, are unreachable by this walk; they are still appended AT
+        THE END. Otherwise saving (``to_dict``) and canvas redraws would drop
+        them silently, and the user would not notice losing part of the model.
+        The validator reports these as errors, V020/V021.
         """
         out: List[State] = []
         seen: set = set()
@@ -458,12 +458,12 @@ class StateMachine:
         return out
 
     def ordered_transitions(self) -> List[Transition]:
-        """Kaynak durum sirasina, sonra oncelige gore kararli siralama."""
+        """Stable ordering: by source state order, then by priority."""
         order = {s.id: i for i, s in enumerate(self.ordered_states())}
         return sorted(self.transitions.values(),
                       key=lambda t: (order.get(t.source, 1 << 30), t.priority, t.id))
 
-    # -- serilestirme -------------------------------------------------------- #
+    # -- serialisation ------------------------------------------------------- #
 
     def to_dict(self) -> dict:
         return {
@@ -487,14 +487,14 @@ class StateMachine:
             context_type=d.get("context_type", "void") or "void",
             user_includes=d.get("user_includes", ""),
         )
-        # AYNI KIMLIK SESSIZCE EZILMEZ.
+        # THE SAME ID IS NEVER OVERWRITTEN SILENTLY.
         #
-        # Sozluk atamasi, ayni ``id`` ile gelen ikinci ogenin birincisini
-        # -- ve onun altindaki her seyi -- hicbir ileti vermeden yok
-        # etmesine yol aciyordu: elle duzenlenmis ya da iki dosyadan
-        # birlestirilmis bir modelde durumlarin yarisi kayboluyor,
-        # kullanici bunu ancak diyagrama bakinca anliyordu. Bozuk bir
-        # dosyayi ACIK BIR ILETIYLE reddetmek, yarisini sessizce yutup
+        # Dictionary assignment let a second element arriving with the same
+        # ``id`` destroy the first -- and everything beneath it -- without a
+        # single message: in a model edited by hand, or merged from two files,
+        # half the states vanished and the user only noticed by looking at the
+        # diagram. Rejecting a corrupt file WITH A CLEAR MESSAGE is better than
+        # opening it having quietly swallowed half of it.
         # acmaktan iyidir.
         for sd in d.get("states", []):
             st = State.from_dict(sd)
@@ -524,7 +524,7 @@ class StateMachine:
         return StateMachine.from_dict(json.loads(self.to_json()))
 
     def assign_from(self, other: "StateMachine") -> None:
-        """Ayni nesneyi koruyarak icerigi degistirir (undo/yukleme icin)."""
+        """Replaces the content while keeping the same object (undo/load)."""
         self.name = other.name
         self.prefix = other.prefix
         self.description = other.description

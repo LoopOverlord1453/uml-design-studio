@@ -1,28 +1,28 @@
-"""Ad donusumleri -- Qt'den ve uretecten BAGIMSIZ.
+"""Name conversions -- INDEPENDENT of Qt and of the generators.
 
-Ureteclerin kullandigi donusumler ile dogrulayicinin denetledigi donusumler
-AYNI olmak zorundadir: dogrulayici, uretecin gercekte yazacagi sembolu
-bilmiyorsa cakismayi goremez ve derlenmeyen kod uretilir. Bu yuzden her iki
-taraf da bu modulu kullanir; kopya tanim yoktur.
+The conversions the generators use and the ones the validator checks must
+be IDENTICAL: a validator that does not know the symbol the generator will
+actually write cannot see a collision, and code that does not compile gets
+produced. That is why both sides use this module; there is no second copy.
 """
 
 from __future__ import annotations
 
 import re
 
-#: Tanimlayici olamayan her karakter ad ayiricisi sayilir. Bosluk da buna
-#: dahildir: "Traffic Light" -> "TrafficLight". Aksi halde bosluk C++ sinif
-#: adina ve include guard'ina aynen gecer ve dosya derlenmez.
+#: Every character that cannot appear in an identifier counts as a name
+#: separator, the space included: "Traffic Light" -> "TrafficLight". Otherwise
+#: the space reaches the C++ class name and the include guard, and it fails.
 _SEPARATORS = re.compile(r"[^0-9A-Za-z]+")
 
 
 def pascal(name: str, fallback: str = "Sm") -> str:
-    """PascalCase'e cevirir; sonuc her zaman gecerli bir C tanimlayicisidir.
+    """Converts to PascalCase; the result is always a valid C identifier.
 
-    Tamami buyuk harf parcalar kucultulur ("COMPLETION" -> "Completion"),
-    karisik yazilmis parcalarin ic buyuk harfleri korunur ("myEvent" ->
-    "MyEvent"). Rakamla baslayan ya da bos kalan sonuclara ``fallback`` on eki
-    verilir.
+    All-uppercase parts are lowered ("COMPLETION" -> "Completion"), while the
+    inner capitals of mixed-case parts are preserved ("myEvent" ->
+    "MyEvent"). Results starting with a digit, or coming out empty, are given
+    the ``fallback`` prefix.
     """
     parts = [p for p in _SEPARATORS.split(name) if p]
     if not parts:
@@ -45,30 +45,30 @@ def snake(name: str) -> str:
 
 
 def lower_camel(name: str) -> str:
-    """C++ uye adlarinda kullanilan bas harfi kucuk bicim."""
+    """The lower-initial spelling used for C++ member names."""
     if not name:
         return name
     return name[:1].lower() + name[1:]
 
 
 def screaming_snake(name: str, fallback: str = "SM") -> str:
-    """UML adindan C enum/makro sabiti turetir:  ``LedOn`` -> ``LED_ON``.
+    """Derives a C enum/macro constant from a UML name: ``LedOn`` -> ``LED_ON``.
 
-    UML 2.5.1'de durum ve sinyal adlari UpperCamelCase yazilir; C'de karsiligi
-    SCREAMING_SNAKE_CASE'tir ve donusum SOZCUK SINIRLARINI KORUMALIDIR.
+    UML 2.5.1 writes state and signal names in UpperCamelCase; the C equivalent
+    is SCREAMING_SNAKE_CASE, and the conversion MUST PRESERVE WORD BOUNDARIES.
 
-    Ureteci eskiden ``name.upper()`` cagiriyordu. Iki ayri sorun cikariyordu:
+    The generator used to call ``name.upper()``. That caused two problems:
 
-      * SOZCUK SINIRI KAYBI -- ``LedOn`` ve ``LedOff`` sabitleri
-        ``..._LEDON`` / ``..._LEDOFF`` oluyordu; okunmasi zor ve C++ ciktisiyla
-        (``State::LedOn``) ayrisik.
-      * TANIMLAYICI OLMAYAN KARAKTER -- ad bosluk ya da tire tasidiginda
-        ``BLINKY_STATE_LED ON`` gibi DERLENMEYEN bir sabit uretiliyordu.
-        Dogrulayici bunu V010 ile yakalar, ama uretec dogrulayicidan
-        BAGIMSIZ da cagrilabilir; donusum kendi basina guvenli olmalidir.
+      * LOST WORD BOUNDARY -- the constants ``LedOn`` and ``LedOff`` turned
+        into ``..._LEDON`` / ``..._LEDOFF``; hard to read and inconsistent
+        with the C++ output (``State::LedOn``).
+      * NON-IDENTIFIER CHARACTER -- when a name carried a space or a dash it
+        produced a constant such as ``BLINKY_STATE_LED ON``, which DOES NOT
+        COMPILE. The validator catches that with V010, but the generator can
+        also be called INDEPENDENTLY of it; the conversion must be safe alone.
 
-    Bu yuzden ``pascal()`` ile ayni ayirici kumesini kullanir ve sonucu her
-    zaman gecerli bir C tanimlayicisi olarak dondurur.
+    So it uses the same separator set as ``pascal()`` and always returns a
+    valid C identifier.
     """
     out = snake(pascal(name, fallback)).upper()
     if not out:

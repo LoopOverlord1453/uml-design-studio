@@ -1,44 +1,44 @@
-"""Diyagramda gosterilen metinlerin satirlara ayrilmasi.
+"""Breaking the texts shown on the diagram into lines.
 
-Qt'ye BAGIMLI DEGILDIR (app/core kurali): hem tuval cizimi hem kod ureteci
-ayni kurali kullansin diye buradadir.
+It does NOT depend on Qt (the app/core rule): it lives here so the canvas
+drawing and the code generator follow the very same rule.
 
-Satir sonu isareti
-------------------
-Kullanici, herhangi bir metin alaninda ``\\n`` (ters bolu + n) yazarak satiri
-boler. Ayni kural her yerde gecerlidir: durum davranislari (entry / exit / do),
-gecis olayi / guard / eylemi ve not alanlari. Cok satirli alanlarda gercek
-Enter tusu da ayni isi yapar; tek satirlik alanlarda Enter yazilamadigi icin
-isaret gereklidir.
+The line-break marker
+---------------------
+In any text field the user breaks a line by typing ``\\n`` (backslash + n).
+The rule is the same everywhere: state behaviours (entry / exit / do), the
+transition event / guard / effect, and note fields. In multi-line fields the
+real Enter key does the same; in single-line fields Enter cannot be typed,
+so the marker is what makes it possible.
 
-Neden ``\\n``
--------------
-Diyagram araclarinin ortak kuralidir (PlantUML, Graphviz) ve C yazan birine
-aciklama gerektirmez. Tek gercekci carpisma C dizgeleridir::
+Why ``\\n``
+-----------
+It is the shared convention of diagram tools (PlantUML, Graphviz) and needs
+no explaining to anyone who writes C. The only realistic clash is C strings::
 
     printf("Fault\\n");
 
-Bu yuzden isaret YALNIZCA dizge ve karakter sabitlerinin DISINDA satir sonu
-sayilir; yukaridaki satir tek parca kalir.
+That is why the marker counts as a line break ONLY OUTSIDE string and
+character literals; the line above stays in one piece.
 """
 
 from __future__ import annotations
 
 from typing import List
 
-#: Kullanicinin yazacagi iki karakter.  Arayuzde ipucu olarak gosterilir.
+#: The two characters the user types.  Shown as a hint in the interface.
 LINE_BREAK_MARKER = "\\n"
 
 
 def _scan(text: str) -> List[str]:
-    """Metni ham parcalara ayirir; dizge/karakter sabitleri korunur.
+    """Splits the text into raw parts; string/char literals stay intact.
 
-    Dondurulen parcalarda gercek satir sonu ve isaret ayrimi kalmaz --
-    ikisi de parca siniri olmustur.
+    In the returned parts there is no longer a distinction between a real
+    newline and the marker -- both have become part boundaries.
     """
     parts: List[str] = []
     buf: List[str] = []
-    quote = ""          # icinde bulundugumuz sabitin tirnagi ("" = disarida)
+    quote = ""          # quote of the literal we are inside ("" = outside)
     i = 0
     n = len(text)
     while i < n:
@@ -47,8 +47,8 @@ def _scan(text: str) -> List[str]:
         if quote:
             buf.append(ch)
             if ch == "\\" and i + 1 < n:
-                # Kacis dizisi: bir sonraki karakter tirnak olsa bile
-                # sabiti KAPATMAZ.
+                # Escape sequence: the next character does NOT close the
+                # literal, even when it is a quote.
                 buf.append(text[i + 1])
                 i += 2
                 continue
@@ -83,10 +83,10 @@ def _scan(text: str) -> List[str]:
 
 
 def split_lines(text: str) -> List[str]:
-    """Gorunum satirlarini dondurur.
+    """Returns the display lines.
 
-    Her satirin ic bosluklari tek boslua indirilir (kod alanlarindaki
-    girinti tuvalde yalnizca yer kaplar) ve bos satirlar atilir.
+    Runs of whitespace inside each line collapse to a single space (indentation
+    in code fields only takes up room on the canvas) and empty lines are dropped.
     """
     if not text:
         return []
@@ -95,19 +95,19 @@ def split_lines(text: str) -> List[str]:
 
 
 def flatten(text: str) -> str:
-    """Metni TEK satira indirir.
+    """Reduces the text to a SINGLE line.
 
-    PlantUML etiketi, agac satiri gibi satir sonu tasiyamayan yerler icin.
+    For places that cannot carry a line break: PlantUML labels, tree rows.
     """
     return " ".join(split_lines(text))
 
 
 def expand_breaks(text: str) -> str:
-    """Isareti GERCEK satir sonuna cevirir; gerisine dokunmaz.
+    """Turns the marker into a REAL newline; leaves everything else alone.
 
-    Uretilen koda giden metinler bundan gecer: ``\\n`` C'de dizge disinda
-    gecerli degildir, oldugu gibi yazilirsa uretilen kod derlenmez.
-    Girinti ve bosluklar KORUNUR -- kullanicinin yazdigi kod aynen kalmali.
+    Texts that go into the generated code pass through here: ``\\n`` is not
+    valid outside a C string, and written as is the generated code would not
+    compile. Indentation and spacing are PRESERVED -- the code the user wrote
     """
     if not text:
         return text

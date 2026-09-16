@@ -1,9 +1,9 @@
-"""Calisma alani (workspace) cekirdegini sinar -- Qt gerekmez.
+"""Exercises the workspace core -- no Qt required.
 
     python tools/test_workspace.py
 
-Sinananlar: klasor duzeni, kalicilik, kok disina yazma korumasi, uretilen
-dosyalarin yalnizca DEGISTIGINDE yazilmasi, son kullanilanlar listesi.
+Covered: folder layout, persistence, the write-outside-root guard,
+writing generated files ONLY WHEN THEY CHANGED, the recent list.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def main() -> int:
 
 
 def run_all(tmp: str) -> None:
-    # ------------------------------------------------------------------ olustur
+    # ------------------------------------------------------------------- create
     section("1. Olusturma ve klasor duzeni")
     root = os.path.join(tmp, "proje")
     ws = Workspace.create(root, name="Proje")
@@ -76,7 +76,7 @@ def run_all(tmp: str) -> None:
     check("is_workspace olmayan klasorde yanlis",
           not Workspace.is_workspace(tmp))
 
-    # ------------------------------------------------------------------ kalicilik
+    # ---------------------------------------------------------------- persistence
     section("2. Kalicilik")
     ws.auto_write = False
     ws.last_state_model = "model/blinky.usm"
@@ -109,7 +109,7 @@ def run_all(tmp: str) -> None:
     except WorkspaceError:
         check("bozuk isaretci reddedildi", True)
 
-    # ------------------------------------------------------------------ koruma
+    # ------------------------------------------------------------------- guard
     section("3. Kok disina yazma korumasi")
     for bad in ("../kacak.c", "..\\kacak.c", "alt/../../kacak.c"):
         try:
@@ -134,7 +134,7 @@ def run_all(tmp: str) -> None:
         except WorkspaceError:
             check("mutlak yol reddedildi", True)
 
-    # ------------------------------------------------------------------ yazma
+    # ------------------------------------------------------------------ write
     section("4. Uretilen dosyalarin yazilmasi")
     files = {"blinky.h": "#ifndef H\n#define H\n#endif\n",
              "blinky.c": "#include \"blinky.h\"\n"}
@@ -159,7 +159,7 @@ def run_all(tmp: str) -> None:
     check("alt klasor olustu",
           os.path.isfile(os.path.join(ws.generated_path, "test", "t.c")))
 
-    # ------------------------------------------------------------------ yollar
+    # ------------------------------------------------------------------- paths
     section("5. Yol yardimcilari")
     mp = ws.model_file("blinky.usm")
     check("model_file kok altinda", mp.startswith(root))
@@ -167,7 +167,7 @@ def run_all(tmp: str) -> None:
           ws.relative(os.path.join(ws.generated_path, "blinky.c"))
           == "generated/blinky.c")
 
-    # ------------------------------------------------------------------ son kul.
+    # -------------------------------------------------------------------- recent
     section("6. Son kullanilanlar")
     a = os.path.join(tmp, "a")
     b = os.path.join(tmp, "b")

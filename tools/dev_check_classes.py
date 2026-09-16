@@ -1,18 +1,18 @@
-"""Sinif diyagrami ureteclerini derleyerek dogrular (gelistirme araci).
+"""Verifies the class diagram generators by compiling them (dev tool).
 
     python tools/dev_check_classes.py
 
-Uretilen dosyalari gecici bir dizine yazar, adlarini/boyutlarini listeler ve
-her birini -Werror ile derler. Dizini ekrana basar; ciktiya bakmak isteyen
-gelistirici oraya gidebilir.
+Writes the generated files into a temporary directory, lists their names
+and sizes, and compiles each one with -Werror. The directory is printed,
+so a developer who wants to read the output can go there.
 
-BAGLAMA YAPILMAZ: uretilen `<prefix>_main.c` / `<Class>_main.cpp` MCU
-sablonlari tahtaya ozgu board_* kancalarini `extern` bildirir ve bir
-board-support paketi olmadan baglanamaz. Dogru kontrol, uyarisiz DERLENIP
-derlenmedikleridir.
+NOTHING IS LINKED: the generated `<prefix>_main.c` / `<Class>_main.cpp`
+MCU templates declare board-specific board_* hooks as `extern` and cannot
+link without a board support package. The meaningful check is whether
+they COMPILE without warnings.
 
-Ayni kontroller tools/verify_codegen.py adimlarinda da kosar; bu arac
-yalnizca uretilen dosyalari elle incelemek icin vardir.
+The same checks also run as steps of tools/verify_codegen.py; this tool
+exists only for inspecting the generated files by hand.
 """
 import os
 import subprocess
@@ -44,7 +44,7 @@ def run(cmd, cwd):
 
 
 def compile_only(work, label, compiler, flags, source):
-    """Yalnizca derler. Basarili ve UYARISIZ ise True doner."""
+    """Compiles only. Returns True when it succeeds WITHOUT warnings."""
     code, out = run([compiler] + flags + ["-I", work, "-c", source,
                                           "-o", source + ".o"], work)
     if code != 0:

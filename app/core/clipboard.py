@@ -1,20 +1,20 @@
-"""Durum makinesi parcalarinin kopyala / yapistir cekirdegi -- Qt'siz.
+"""Copy / paste core for state machine fragments -- no Qt.
 
-Tuval yalnizca "neyi kopyala" ve "nereye yapistir" bilgisini verir; kimlik
-uretimi, ad tekillestirme ve gecis yeniden baglama BURADA yapilir. Boylece
-davranis arayuz olmadan da test edilebilir.
+The canvas only supplies "what to copy" and "where to paste"; id generation,
+name de-duplication and transition re-binding happen HERE, so the behaviour
+can be tested without a user interface.
 
-KOPYALAMA KURALLARI
--------------------
-1. **Alt agac birlikte gelir.** Bir bilesik durum kopyalaninca icindeki her
-   sey de kopyalanir; aksi halde yapistirilan kopya bos bir kabuk olurdu.
-2. **Yalnizca IC gecisler kopyalanir.** Iki ucu da secimde olan gecis
-   kopyalanir; disariya giden bir gecisin hedefi kopyada YOKTUR ve
-   kopyalanirsa modelde kirik bir gecis olusurdu.
-3. **Kimlikler YENIDEN URETILIR.** Ayni kimlik iki kez bulunursa model
-   sozlugunde biri otekini ezer -- sessiz veri kaybi.
-4. **Adlar tekillestirilir.** Uretilen kodda durum adlari enum sabitine
-   donusur; ayni ad iki kez kullanilirsa kod DERLENMEZ (bkz. V011).
+COPY RULES
+----------
+1. **The subtree comes with it.** Copying a composite state copies everything
+   inside it; otherwise the pasted copy would be an empty shell.
+2. **Only INTERNAL transitions are copied.** A transition with both ends in
+   the selection is copied; one that leaves the selection has no target in
+   the copy, and copying it would leave a broken transition in the model.
+3. **Ids are REGENERATED.** If the same id turns up twice, one entry
+   overwrites the other in the model dictionary -- silent data loss.
+4. **Names are made unique.** In the generated code state names become enum
+   constants; using one name twice means the code DOES NOT COMPILE (see V011).
 """
 
 from __future__ import annotations
@@ -24,13 +24,13 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from .model import SCHEMA_VERSION, State, Transition, new_id
 
-#: Pano yukunun tur imzasi. Baska bir uygulamadan gelen JSON'un sessizce
-#: modele girmesini engeller.
+#: Type signature of the clipboard payload. It stops JSON from another
+#: application from entering the model silently.
 CLIP_TYPE = "uml_state_fragment"
 
 
 def collect_subtree(machine, ids) -> List[str]:
-    """Verilen kimlikleri ve BUTUN alt agaclarini dondurur (tekrarsiz)."""
+    """Returns the given ids and ALL of their subtrees (de-duplicated)."""
     out: List[str] = []
     seen: Set[str] = set()
 
@@ -48,9 +48,9 @@ def collect_subtree(machine, ids) -> List[str]:
 
 
 def copy_fragment(machine, ids) -> Optional[str]:
-    """Secimi JSON parcasina cevirir; kopyalanacak durum yoksa ``None``.
+    """Turns the selection into a JSON fragment; ``None`` if nothing to copy.
 
-    :param ids: secili durum ve gecis kimlikleri (karisik olabilir)
+    :param ids: the selected state and transition ids (they may be mixed)
     """
     state_ids = collect_subtree(
         machine, [i for i in ids if i in machine.states])
@@ -62,14 +62,14 @@ def copy_fragment(machine, ids) -> Optional[str]:
     states = []
     for sid in state_ids:
         d = machine.states[sid].to_dict()
-        # Secimin DISINDA kalan bir ust duruma baglilik tasinmaz: yapistirma
-        # hedefi bambaska bir yer olabilir, o zaman parent kimligi modelde
-        # bulunmaz ve durum agactan dusen bir yetim olurdu (V020).
+        # A link to a parent state OUTSIDE the selection is not carried over:
+        # the paste target may be somewhere else entirely, the parent id would
+        # then not exist in the model, and the state would be an orphan (V020).
         if d.get("parent") not in icinde:
             d["parent"] = None
         states.append(d)
 
-    # Yalnizca iki ucu da secimde olan gecisler (bkz. modul aciklamasi).
+    # Only transitions with both ends in the selection (see the module docstring).
     trans = [t.to_dict() for t in machine.transitions.values()
              if t.source in icinde and t.target in icinde]
 
@@ -82,7 +82,7 @@ def copy_fragment(machine, ids) -> Optional[str]:
 
 
 def _unique_name(base: str, used: Set[str]) -> str:
-    """`base`ten cakismayan bir ad turetir: Alpha -> Alpha_copy -> Alpha_copy2."""
+    """Derives a free name from `base`: Alpha -> Alpha_copy -> Alpha_copy2."""
     aday = "%s_copy" % base
     if aday not in used:
         return aday
@@ -95,11 +95,11 @@ def _unique_name(base: str, used: Set[str]) -> str:
 def paste_fragment(machine, payload: str,
                    parent: Optional[str] = None,
                    dx: float = 0.0, dy: float = 0.0) -> List[str]:
-    """Parcayi modele ekler ve YENI durum kimliklerini dondurur.
+    """Adds the fragment to the model and returns the NEW state ids.
 
-    :param parent: koklerin yerlestirilecegi bilesik durum (None = kok bolge)
-    :param dx, dy: konum kaymasi -- kopya orijinalin uzerine binmesin
-    :raises ValueError: yuk bu uygulamanin parcasi degilse
+    :param parent: the composite state the roots go into (None = root region)
+    :param dx, dy: position offset -- so the copy does not sit on the original
+    :raises ValueError: when the payload is not a fragment of this application
     """
     try:
         data = json.loads(payload)
@@ -123,8 +123,8 @@ def paste_fragment(machine, payload: str,
         used_names.add(st.name)
 
         if st.parent is None:
-            # Parcanin kokleri yapistirma hedefine baglanir ve KAYDIRILIR;
-            # ic dugumler ust duruma gore konumlandigi icin dokunulmaz.
+            # The roots of the fragment attach to the paste target and are SHIFTED;
+            # inner nodes are positioned relative to the parent, so untouched.
             st.parent = parent
             st.x = round(st.x + dx, 2)
             st.y = round(st.y + dy, 2)
@@ -132,7 +132,7 @@ def paste_fragment(machine, payload: str,
 
         machine.add_state(st)
 
-    # Ust kimlikleri ikinci turda esle: ust durum listede SONRA gelmis olabilir.
+    # Map parent ids in a second pass: the parent may come LATER in the list.
     for eski_id, yeni_id in eski_yeni.items():
         st = machine.states[yeni_id]
         if st.parent in eski_yeni:
@@ -152,7 +152,7 @@ def paste_fragment(machine, payload: str,
 
 
 def fragment_summary(payload: str) -> Tuple[int, int]:
-    """Yuk icindeki (durum, gecis) sayisi; gecersiz yukte (0, 0)."""
+    """The (state, transition) count in a payload; (0, 0) when invalid."""
     try:
         data = json.loads(payload)
         if data.get("type") != CLIP_TYPE:

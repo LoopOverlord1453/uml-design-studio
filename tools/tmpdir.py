@@ -1,16 +1,16 @@
-"""Gecici klasorleri GERCEKTEN silen yardimci.
+"""Helper that REALLY removes temporary folders.
 
-NEDEN AYRI BIR MODUL
---------------------
-Testler `shutil.rmtree(tmp, ignore_errors=True)` kullaniyordu. Windows'ta
-git, nesne deposundaki dosyalari (``.git/objects/...``) SALT OKUNUR
-yazar; `os.unlink` bunlarda ``PermissionError`` verir ve `ignore_errors`
-hatayi sessizce yutar. Sonuc: her kosumda bir kalinti. Kullanicinin
-makinesinde 70 adet ``umlui_*`` klasoru birikmisti -- ve bunlardan biri
-(``.../calisma``) hala bir calisma alani gibi durdugu icin uygulamanin
-"son kullanilanlar" listesinde gecerli gorunuyordu.
+WHY THIS IS A SEPARATE MODULE
+-----------------------------
+The tests used `shutil.rmtree(tmp, ignore_errors=True)`. On Windows git
+writes the files of its object store (``.git/objects/...``) READ-ONLY;
+`os.unlink` raises ``PermissionError`` on those and `ignore_errors`
+swallows it silently. The result: one leftover per run. Seventy
+``umlui_*`` folders had piled up on the development machine -- and one
+of them still looked like a workspace, so it kept showing up as valid
+in the application's "recent workspaces" list.
 
-Buradaki `remove_tree` salt okunur bayragini temizleyip yeniden dener.
+The `remove_tree` here clears the read-only flag and tries again.
 """
 
 from __future__ import annotations
@@ -22,19 +22,19 @@ import tempfile
 
 
 def _force_writable(func, path, _exc):
-    """rmtree hata isleyicisi: salt okunur bayragini kaldirip yeniden dener."""
+    """rmtree error handler: clears the read-only flag and retries."""
     try:
         os.chmod(path, stat.S_IWRITE)
         func(path)
     except OSError:
-        pass                    # gercekten silinemiyorsa sessizce birak
+        pass                    # if it truly cannot be removed, let it go
 
 
 def remove_tree(path: str) -> None:
-    """Klasoru siler; salt okunur dosyalar buna engel olamaz."""
+    """Removes a folder; read-only files cannot prevent it."""
     if not path or not os.path.exists(path):
         return
-    # onexc 3.12+, onerror eski surumler. Ikisini de destekle.
+    # onexc is 3.12+, onerror is older. Support both.
     try:
         shutil.rmtree(path, onexc=_force_writable)
     except TypeError:
@@ -42,12 +42,12 @@ def remove_tree(path: str) -> None:
 
 
 def make_tree(prefix: str = "umlui_") -> str:
-    """Gecici klasor acar (silme sorumlulugu cagirana aittir)."""
+    """Opens a temporary folder (the caller must remove it)."""
     return tempfile.mkdtemp(prefix=prefix)
 
 
 def sweep_leftovers(prefix: str = "umlui_") -> int:
-    """Onceki kosumlardan kalan gecici klasorleri toplar; sayisini doner."""
+    """Collects temp folders left by earlier runs; returns the count."""
     kok = tempfile.gettempdir()
     silinen = 0
     try:

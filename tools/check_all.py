@@ -1,22 +1,22 @@
-"""Tum dogrulama adimlarini sirayla kosturur.
+"""Runs every verification step in order.
 
     python tools/check_all.py
 
-  1. tools/verify_codegen.py   - ornek modelin C/C++ kodu derlenip kosturulur
-  2. tools/test_semantics.py   - Python referansi ile C/C++ birebir karsilastirilir
-  3. tools/test_regressions.py - duzeltilmis hatalarin geri gelmedigi dogrulanir
-  4. tools/test_workspace.py   - calisma alani cekirdegi (Qt'siz)
-  5. tools/test_git.py         - git arka ucu, gercek gecici depo uzerinde
-  6. tools/smoke_test.py       - arayuz ekransiz olarak uctan uca kullanilir
-  7. tools/test_git_ui.py      - calisma alani + Git paneli arayuzden uctan uca
-  8. tools/test_functional.py  - aracin HER ozelligi uctan uca denetlenir
-  9. tools/test_standards.py   - arayuz standartlari (UML gosterimi, menu,
-                                 kisayol, erisilebilirlik) denetlenir
+  1. tools/verify_codegen.py   - compiles and runs the sample model C/C++
+  2. tools/test_semantics.py   - matches the Python reference against C/C++
+  3. tools/test_regressions.py - checks that fixed bugs have not come back
+  4. tools/test_workspace.py   - the workspace core (without Qt)
+  5. tools/test_git.py         - the git backend, on a real temporary repo
+  6. tools/smoke_test.py       - drives the interface end to end, headless
+  7. tools/test_git_ui.py      - workspace + Git panel end to end via the UI
+  8. tools/test_functional.py  - exercises EVERY feature of the tool
+  9. tools/test_standards.py   - interface standards (UML notation, menus,
+                                 shortcuts, accessibility)
  10. tools/test_uml_conformance.py
-                               - calisma zamani anlambilimi, UML 2.5.1'in
-                                 NORMATIF cumleleriyle karsilastirilir
+                               - runtime semantics, compared against the
+                                 NORMATIVE sentences of UML 2.5.1
 
-Herhangi biri basarisiz olursa cikis kodu sifirdan farklidir (CI icin uygun).
+If any of them fails the exit code is non-zero (suitable for CI).
 """
 
 from __future__ import annotations
@@ -42,10 +42,10 @@ STEPS = [
 
 
 def main() -> int:
-    # Alt surecler kullanicinin GERCEK ayarlarina yazmasin: arayuz
-    # testleri MainWindow kurar ve calisma alanini 'son kullanilanlar'
-    # ile 'last_workspace'e yazar. Yalitimsiz kosum, testin gecici
-    # klasorunu kullanicinin acilis listesine sokuyordu.
+    # Keep subprocesses out of the user's REAL settings: the interface
+    # tests build a MainWindow and write the workspace into 'recent'
+    # and 'last_workspace'. Without isolation a run pushed the test's
+    # temporary folder into the user's start-up list.
     os.environ.setdefault("UMLSTUDIO_SETTINGS_SCOPE", "check")
 
     failed = []

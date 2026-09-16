@@ -1,25 +1,25 @@
-"""Iki model surumunun ANLAMSAL karsilastirmasi -- Qt'siz.
+"""SEMANTIC comparison of two model versions -- without Qt.
 
-NEDEN
------
-Model dosyalari JSON'dur. `git diff` onlari METIN olarak karsilastirir ve
-sonuc okunamaz: bir durumu 10 piksel tasimak, ilgisiz gorunen bir satir
-degisikligi uretir; bir durum eklemek ise kimlik/koordinat alanlariyla
-birlikte onlarca satir olarak cikar. Kullanicinin sordugu soru
-"diyagramda NE degisti" -- "hangi JSON satiri degisti" degil.
+WHY
+---
+Model files are JSON. `git diff` compares them as TEXT and the result is
+unreadable: moving a state by 10 pixels produces a line change that looks
+unrelated, and adding a state comes out as dozens of lines full of id and
+coordinate fields. The question the user is asking is "WHAT changed on the
+diagram" -- not "which JSON line changed".
 
-Bu modul iki surumu MODEL DUZEYINDE karsilastirir:
+This module compares the two versions AT MODEL LEVEL:
 
-    + State  LedOn                     eklendi
-    - State  Standby                   silindi
-    ~ State  Running       entry: ...  degisti
+    + State  LedOn                     added
+    - State  Standby                   removed
+    ~ State  Running       entry: ...  changed
     + Transition  Off --BUTTON--> Running
 
-Kimlik (id) uzerinden eslestirme yapilir; ad degisikligi "yeniden
-adlandirildi" olarak gorunur, silme + ekleme olarak DEGIL.
+Matching happens by id, so a renamed element shows up as "renamed" and NOT
+as a removal plus an addition.
 
-Cikti (kind, sign, text) uclulerinden olusur; renklendirmeyi arayuz yapar:
-  sign "+" -> eklendi (yesil), "-" -> silindi (kirmizi), "~" -> degisti.
+The output is a list of (kind, sign, text) triples; the interface does the
+colouring: sign "+" -> added (green), "-" -> removed (red), "~" -> changed.
 """
 
 from __future__ import annotations
@@ -27,12 +27,12 @@ from __future__ import annotations
 import json
 from typing import Dict, List, Optional, Tuple
 
-#: (bolum, isaret, metin)
+#: (kind, sign, text)
 DiffRow = Tuple[str, str, str]
 
-#: Karsilastirmada GOZ ARDI EDILEN alanlar. Bunlar diyagramin ANLAMINI
-#: degistirmez; dahil edilirse pencereyi surukleyen her hareket "degisti"
-#: satiri uretir ve gercek degisiklikler kaybolur.
+#: Fields IGNORED in the comparison. They do not change the MEANING of the
+#: diagram; included, every drag of the window would produce a "changed"
+#: row and the real changes would drown.
 _GORSEL_ALANLAR = {"x", "y", "w", "h", "waypoints", "label_dx", "label_dy"}
 
 
@@ -69,7 +69,7 @@ def _gecis_etiketi(d: dict, durumlar: Dict[str, dict]) -> str:
 
 
 def _farklar(eski: dict, yeni: dict) -> List[str]:
-    """Degisen alanlarin 'alan: eski -> yeni' listesi."""
+    """The list of changed fields as 'field: old -> new'."""
     out = []
     for anahtar in sorted(set(eski) | set(yeni)):
         a, b = eski.get(anahtar), yeni.get(anahtar)
@@ -80,7 +80,7 @@ def _farklar(eski: dict, yeni: dict) -> List[str]:
 
 
 def _karsilastir(bolum: str, eski_liste, yeni_liste, etiket_fn) -> List[DiffRow]:
-    """Kimlige gore eslestirip ekle / sil / degistir satirlari uretir."""
+    """Matches by id and produces added / removed / changed rows."""
     eski = {d.get("id"): d for d in eski_liste if isinstance(d, dict)}
     yeni = {d.get("id"): d for d in yeni_liste if isinstance(d, dict)}
 
@@ -104,8 +104,8 @@ def _karsilastir(bolum: str, eski_liste, yeni_liste, etiket_fn) -> List[DiffRow]
         baslik = etiket_fn(y)
         eski_ad, yeni_ad = e.get("name"), y.get("name")
         if eski_ad != yeni_ad:
-            # Ad degisikligi ayrica gosterilir: kimlik ayni oldugu icin
-            # bu bir "sil + ekle" DEGIL, yeniden adlandirmadir.
+            # A name change is reported separately: since the id is the same
+            # this is a rename, NOT a "remove + add".
             baslik = "%s  (renamed from '%s')" % (baslik, eski_ad)
         satirlar.append((bolum, "~", baslik))
         for satir in degisen:
@@ -115,19 +115,19 @@ def _karsilastir(bolum: str, eski_liste, yeni_liste, etiket_fn) -> List[DiffRow]
 
 
 def element_status(eski_metin: str, yeni_metin: str) -> dict:
-    """KIMLIK duzeyinde fark: tuvalde boyanabilecek bicimde.
+    """Diff at ID level: in a form the canvas can paint.
 
-    Metin fark satirlari okumak icindir; diyagrami BOYAMAK icin hangi
-    ELEMANIN eklendigi / silindigi / degistigi gerekir.
+    The textual diff rows are for reading; to PAINT the diagram we need to
+    know which ELEMENT was added / removed / changed.
 
-    Doner::
+    Returns::
 
-        {"added":   {id, ...},          # yeni surumde var, eskisinde yok
-         "removed": {id: eski_sozluk},  # eski surumde vardi, simdi yok
+        {"added":   {id, ...},          # in the new version, not in the old
+         "removed": {id: old_dict},     # was in the old version, gone now
          "changed": {id, ...}}          # ikisinde de var, anlami degismis
 
-    `removed` sozluk TASIR: silinen eleman yeni modelde bulunmadigi icin
-    tuvale ancak eski surumdeki haliyle (hayalet olarak) cizilebilir.
+    `removed` CARRIES the dictionary: a deleted element is not in the new
+    model, so it can only be drawn (as a ghost) the way it was in the old one.
     """
     eski = _yukle(eski_metin) or {}
     yeni = _yukle(yeni_metin) or {}
@@ -150,7 +150,7 @@ def element_status(eski_metin: str, yeni_metin: str) -> dict:
 
 
 def state_machine_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
-    """Iki durum makinesi surumunu karsilastirir."""
+    """Compares two state machine versions."""
     eski = _yukle(eski_metin) or {}
     yeni = _yukle(yeni_metin) or {}
 
@@ -172,7 +172,7 @@ def state_machine_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
 
 
 def _makine_ayarlari(eski: dict, yeni: dict) -> List[DiffRow]:
-    """Makine duzeyindeki alanlar (ad, on ek, baglam tipi, ...)."""
+    """The machine-level fields (name, prefix, context type, ...)."""
     alanlar = ("name", "prefix", "context_type", "user_includes", "description")
     out: List[DiffRow] = []
     for alan in alanlar:
@@ -183,7 +183,7 @@ def _makine_ayarlari(eski: dict, yeni: dict) -> List[DiffRow]:
 
 
 def class_model_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
-    """Iki sinif diyagrami surumunu karsilastirir."""
+    """Compares two class diagram versions."""
     eski = _yukle(eski_metin) or {}
     yeni = _yukle(yeni_metin) or {}
 
@@ -211,10 +211,10 @@ def class_model_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
 
 
 def diff_for(path: str, eski_metin: str, yeni_metin: str) -> Optional[List[DiffRow]]:
-    """Dosya turune gore anlamsal fark; model dosyasi degilse ``None``.
+    """Semantic diff chosen by file type; ``None`` when not a model file.
 
-    ``None`` donmesi "metin farkini goster" demektir -- uretilen C/C++
-    dosyalari icin dogru olan budur, orada satir bazli fark zaten okunur.
+    Returning ``None`` means "show the textual diff" -- which is the right
+    answer for generated C/C++ files, where a line-based diff already reads
     """
     ad = path.lower()
     if ad.endswith(".usm"):
@@ -222,7 +222,7 @@ def diff_for(path: str, eski_metin: str, yeni_metin: str) -> Optional[List[DiffR
     if ad.endswith(".ucd"):
         return class_model_diff(eski_metin, yeni_metin)
     if ad.endswith(".json"):
-        # Uzanti belirsiz: ICERIGE bak.
+        # Extension is ambiguous: look at the CONTENT.
         veri = _yukle(yeni_metin) or _yukle(eski_metin) or {}
         if isinstance(veri.get("classes"), list):
             return class_model_diff(eski_metin, yeni_metin)
@@ -232,10 +232,10 @@ def diff_for(path: str, eski_metin: str, yeni_metin: str) -> Optional[List[DiffR
 
 
 def render(rows: List[DiffRow]) -> str:
-    """Satirlari, arayuzun renklendirebilecegi duz metne cevirir.
+    """Turns the rows into plain text the interface can colour.
 
-    Bicim `git diff` ile UYUMLUDUR: satir basindaki '+' / '-' isaretleri
-    mevcut renklendiriciyi oldugu gibi kullanir; ayri bir renk yolu
+    The format is COMPATIBLE with `git diff`: the leading '+' / '-' signs let
+    the existing highlighter work unchanged; no separate colour path is
     yazmak, iki yerde bakim demek olurdu.
     """
     if not rows:
@@ -253,7 +253,7 @@ def render(rows: List[DiffRow]) -> str:
 
 
 def summary(rows: List[DiffRow]) -> Tuple[int, int, int]:
-    """(eklenen, silinen, degisen) sayilari."""
+    """The (added, removed, changed) counts."""
     art = sum(1 for _b, s, _t in rows if s == "+")
     eksi = sum(1 for _b, s, _t in rows if s == "-")
     degisen = sum(1 for _b, s, _t in rows if s == "~")

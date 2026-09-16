@@ -1,17 +1,17 @@
-"""Calisma alani (workspace) -- Qt'den BAGIMSIZ.
+"""The workspace -- INDEPENDENT of Qt.
 
-Calisma alani, kullanicinin acilista sectigi tek bir klasordur ve uc seyin
-ortak koku olur:
+A workspace is the single folder the user picks at start-up, and it becomes
+the common root of three things:
 
-    <kok>/                       calisma alani koku (ayni zamanda git deposu)
-      umlstudio.workspace        calisma alani tanimi (JSON)
-      model/                     .usm / .ucd model dosyalari
-      generated/                 uretilen C / C++ / test / PlantUML dosyalari
+    <root>/                      the workspace root (also the git repository)
+      umlstudio.workspace        the workspace definition (JSON)
+      model/                     .usm / .ucd model files
+      generated/                 generated C / C++ / test / PlantUML files
 
-Boylece "modeli kurdugun yer" ile "kodu urettigin yer" ayni depo icinde
-kalir; Git paneli de dogrudan bu kok uzerinde calisir.
+That keeps "where you built the model" and "where you generated the code"
+in one repository; the Git panel works directly on this root.
 
-Kok disina yazma girisimleri ``WorkspaceError`` ile reddedilir.
+Attempts to write outside the root are refused with ``WorkspaceError``.
 """
 
 from __future__ import annotations
@@ -27,13 +27,13 @@ SCHEMA = 1
 DEFAULT_MODEL_DIR = "model"
 DEFAULT_GENERATED_DIR = "generated"
 
-#: Calisma alaninda olusturulan varsayilan .gitignore icerigi
+#: Default .gitignore content created inside a workspace
 GITIGNORE = """\
-# UML Design Studio calisma alani
+# UML Design Studio workspace
 __pycache__/
 *.pyc
 
-# derleyici ciktilari
+# compiler output
 *.o
 *.obj
 *.elf
@@ -47,14 +47,14 @@ build/
 
 
 class WorkspaceError(Exception):
-    """Calisma alani islemi basarisiz."""
+    """A workspace operation failed."""
 
 
 @dataclass
 class Workspace:
-    """Acik calisma alani.
+    """An open workspace.
 
-    ``root`` disindaki hicbir yola yazilmaz; ``resolve`` bunu zorlar.
+    Nothing is written outside ``root``; ``resolve`` enforces it.
     """
 
     root: str
@@ -62,18 +62,18 @@ class Workspace:
     model_dir: str = DEFAULT_MODEL_DIR
     generated_dir: str = DEFAULT_GENERATED_DIR
     auto_write: bool = True
-    last_state_model: str = ""      # koke gore bagil
+    last_state_model: str = ""      # relative to the root
     last_class_model: str = ""
     extra: Dict[str, str] = field(default_factory=dict)
 
-    # ------------------------------------------------------------------ kurucu
+    # ------------------------------------------------------------- constructor
 
     def __post_init__(self) -> None:
         self.root = os.path.abspath(self.root)
         if not self.name:
             self.name = os.path.basename(self.root.rstrip(os.sep)) or self.root
 
-    # ------------------------------------------------------------------ yollar
+    # ------------------------------------------------------------------- paths
 
     @property
     def marker_path(self) -> str:
@@ -88,7 +88,7 @@ class Workspace:
         return os.path.join(self.root, self.generated_dir)
 
     def resolve(self, *parts: str) -> str:
-        """Kok altindaki bir yolu verir; kok disina cikilirsa hata yukselir."""
+        """Returns a path under the root; raises if it escapes the root."""
         target = os.path.abspath(os.path.join(self.root, *parts))
         root = os.path.abspath(self.root)
         if os.path.normcase(target) != os.path.normcase(root) and \
@@ -99,17 +99,17 @@ class Workspace:
         return target
 
     def relative(self, path: str) -> str:
-        """Mutlak yolu koke gore bagil, ileri bolu isaretli hale getirir."""
+        """Makes an absolute path root-relative, with forward slashes."""
         try:
             rel = os.path.relpath(os.path.abspath(path), self.root)
         except ValueError:
             return os.path.abspath(path)
         return rel.replace(os.sep, "/")
 
-    # ------------------------------------------------------------------ olustur
+    # ------------------------------------------------------------------- create
 
     def ensure_layout(self) -> None:
-        """Klasor duzenini ve .gitignore'u olusturur (varsa dokunmaz)."""
+        """Creates the folder layout and .gitignore (existing ones untouched)."""
         try:
             os.makedirs(self.root, exist_ok=True)
             os.makedirs(self.model_path, exist_ok=True)
@@ -122,9 +122,9 @@ class Workspace:
                 with open(ignore, "w", encoding="utf-8", newline="\n") as fh:
                     fh.write(GITIGNORE)
             except OSError:
-                pass    # .gitignore yazilamamasi olumcul degil
+                pass    # failing to write .gitignore is not fatal
 
-    # ------------------------------------------------------------------ kalicilik
+    # ---------------------------------------------------------------- persistence
 
     def to_json(self) -> str:
         data = {
@@ -154,7 +154,7 @@ class Workspace:
 
     @classmethod
     def load(cls, root: str) -> "Workspace":
-        """Var olan calisma alanini okur; isaretci yoksa varsayilanlarla acar."""
+        """Reads an existing workspace; with no marker it opens with defaults."""
         root = os.path.abspath(root)
         if not os.path.isdir(root):
             raise WorkspaceError("Folder does not exist: %s" % root)
@@ -186,21 +186,21 @@ class Workspace:
 
     @classmethod
     def create(cls, root: str, name: str = "") -> "Workspace":
-        """Yeni calisma alani olusturur ve diske yazar."""
+        """Creates a new workspace and writes it to disk."""
         ws = cls(root=root, name=name)
         ws.save()
         return ws
 
-    # ------------------------------------------------------------------ yazma
+    # ------------------------------------------------------------------ write
 
     def write_generated(self, files: Dict[str, str],
                         subdir: str = "") -> List[str]:
-        """Uretilen dosyalari ``generated/`` altina yazar.
+        """Writes the generated files under ``generated/``.
 
-        Yalnizca icerigi DEGISEN dosyalar yazilir; boylece git durumu
-        gereksiz "degisti" kayitlariyla kirlenmez.
+        Only files whose content CHANGED are written, so the git status is
+        never polluted with pointless "modified" entries.
 
-        :return: yazilan dosyalarin koke gore bagil yollari
+        :return: the written files, as paths relative to the root
         """
         base = self.resolve(self.generated_dir, subdir) if subdir \
             else self.resolve(self.generated_dir)
@@ -227,18 +227,18 @@ class Workspace:
         return written
 
     def model_file(self, base_name: str) -> str:
-        """``model/`` altindaki bir model dosyasinin tam yolu."""
+        """The full path of a model file under ``model/``."""
         return self.resolve(self.model_dir, base_name)
 
 
 def _same_content(path: str, text: str) -> bool:
-    """Diskteki dosya verilen metinle ayni mi (satir sonu farki yok sayilir).
+    """Is the file on disk identical to this text (line endings ignored).
 
-    Karsilastirma BAYT duzeyindedir: diskteki dosya baska bir kodlamayla
-    (or. Windows-1254) kaydedilmis olabilir ve cozulemeyebilir. Boyle bir
-    dosyayi "ayni degil" saymak dogru davranistir -- uzerine yazilir. Metin
-    olarak okumaya calismak burada UnicodeDecodeError yukseltir, o da
-    write_generated'in WorkspaceError sozlesmesini delerdi.
+    The comparison happens at BYTE level: the file on disk may have been
+    saved in another encoding (e.g. Windows-1254) and may not decode. Treating
+    such a file as "not identical" is the correct behaviour -- it gets
+    overwritten. Trying to read it as text would raise UnicodeDecodeError
+    here, and that would break write_generated's WorkspaceError contract.
     """
     if not os.path.isfile(path):
         return False
@@ -250,13 +250,13 @@ def _same_content(path: str, text: str) -> bool:
     return raw.replace(b"\r\n", b"\n") == text.encode("utf-8").replace(b"\r\n", b"\n")
 
 
-# ============================================================ son kullanilanlar
+# ============================================================ recent workspaces
 
-MAX_RECENT = 10   # kullanici istegi: 10 calisma alanina kadar hatirla
+MAX_RECENT = 10   # requested by the user: remember up to 10 workspaces
 
 
 def normalise_recent(paths: List[str], limit: int = MAX_RECENT) -> List[str]:
-    """Son kullanilan listesini temizler: var olanlar, tekrarsiz, sirali."""
+    """Cleans the recent list: existing entries only, de-duplicated, in order."""
     seen = set()
     out: List[str] = []
     for raw in paths:
@@ -281,7 +281,7 @@ def push_recent(paths: List[str], path: str,
 
 
 def suggest_root(parent_dir: str, name: str) -> str:
-    """Ust klasor + ad'dan cakismayan bir kok yolu onerir."""
+    """Suggests a non-colliding root path from a parent folder and a name."""
     safe = "".join(ch if (ch.isalnum() or ch in "-_ .") else "_"
                    for ch in name).strip() or "workspace"
     candidate = os.path.join(parent_dir, safe)

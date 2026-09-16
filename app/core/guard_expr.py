@@ -1,21 +1,21 @@
-"""Koruma (guard) ifadelerini DEGISKEN DEGERLERINDEN hesaplar.
+"""Evaluates guard expressions FROM VARIABLE VALUES.
 
-Benzetim panelinde her koruma icin elle bir anahtar cevirmek, modelin
-gercekten ne yaptigini gostermez: `ctx->temperature_mdeg >= 30000` gibi
-bir kosul, sicakligi 31000 yazip sonucun kendiliginden cikmasiyla cok
-daha anlasilirdir. Bu modul o hesabi yapar.
+Flipping a switch by hand for every guard in the simulation panel does not
+show what the model really does: a condition such as
+`ctx->temperature_mdeg >= 30000` is far clearer when you type 31000 for the
+temperature and watch the result follow. This module does that evaluation.
 
-Neyi hesaplar:
-  - karsilastirmalar, mantik baglaclari, aritmetik ve bit islemleri;
-  - `ctx->alan`, `ctx.alan`, `me->alan` yazimlarini duz `alan` degiskenine
-    indirger (uretilen kodda baglam hep `ctx` adiyla gelir).
+What it evaluates:
+  - comparisons, logical connectives, arithmetic and bitwise operations;
+  - `ctx->field`, `ctx.field` and `me->field` are reduced to a plain `field`
+    variable (in the generated code the context is always called `ctx`).
 
-Neyi hesaplamaz -- ve BUNU ACIKCA SOYLER:
-  - islev cagrilari (`app_over_limit(ctx)`), isaretci erisimleri, atama,
-    ya da taninmayan her sey. Bu durumda `evaluate()` None doner ve panel
-    kullanicinin elle verdigi degere duser. Sessizce True varsaymak,
-    korumali her gecisin alinmasina ve ekranda yanlisin dogru gorunmesine
-    yol acardi.
+What it does NOT evaluate -- and SAYS SO EXPLICITLY:
+  - function calls (`app_over_limit(ctx)`), pointer accesses, assignment, or
+    anything unrecognised. Then `evaluate()` returns None and the panel falls
+    back to the value the user set by hand. Silently assuming True would take
+    every guarded transition and make something wrong look right on the
+    screen.
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ from typing import Dict, List, Optional, Tuple
 __all__ = ["normalize", "identifiers", "evaluate", "parse_value",
            "format_value"]
 
-#: `ctx->alan`, `ctx.alan`, `me->alan` -> `alan`
+#: `ctx->field`, `ctx.field`, `me->field` -> `field`
 _CONTEXT = re.compile(r"\b(?:ctx|me|self)\s*(?:->|\.)\s*([A-Za-z_]\w*)")
-#: `->` kalanlari (baska bir isaretci): degiskene indirgenemez, isaretle.
+#: A remaining `->` (some other pointer): not reducible, so flag it.
 _ARROW = re.compile(r"->")
 
 _WORDS = (
@@ -43,10 +43,10 @@ _WORDS = (
     (re.compile(r"\bnullptr\b"), "None"),
 )
 
-#: `!` -- ama `!=` DEGIL.
+#: `!` -- but NOT `!=`.
 _NOT = re.compile(r"!(?!=)")
 
-#: Hesaplanmasina izin verilen dugumler.
+#: The node types that are allowed to be evaluated.
 _NODES = (
     ast.Expression, ast.BoolOp, ast.And, ast.Or, ast.UnaryOp, ast.Not,
     ast.USub, ast.UAdd, ast.Invert, ast.BinOp, ast.Add, ast.Sub, ast.Mult,
@@ -57,7 +57,7 @@ _NODES = (
 
 
 def normalize(expr: str) -> str:
-    """C/C++ yazimini Python ifadesine cevirir (deger hesaplamaz)."""
+    """Converts C/C++ spelling into a Python expression (evaluates nothing)."""
     text = expr.strip()
     text = _CONTEXT.sub(r"\1", text)
     for kalip, yerine in _WORDS:
@@ -81,10 +81,10 @@ def _supported(tree: ast.AST) -> bool:
 
 
 def identifiers(expr: str) -> List[str]:
-    """Ifadenin okudugu degisken adlari; hesaplanamiyorsa bos liste.
+    """The variable names the expression reads; empty when not evaluable.
 
-    Sira KORUNUR ve yinelenenler atilir, cunku panel bu listeden bir
-    tablo kurar ve satirlarin her yenilemede yer degistirmesi istenmez.
+    Order is PRESERVED and duplicates are dropped, because the panel builds a
+    table from this list and the rows should not move on every refresh.
     """
     if _ARROW.search(_CONTEXT.sub(r"\1", expr)):
         return []
@@ -99,10 +99,10 @@ def identifiers(expr: str) -> List[str]:
 
 
 def evaluate(expr: str, values: Dict[str, object]) -> Optional[bool]:
-    """Ifadeyi verilen degerlerle hesaplar.
+    """Evaluates the expression with the given values.
 
-    @return True/False, ya da hesaplanamiyorsa None (islev cagrisi,
-            taninmayan sozdizimi, tanimsiz degisken, sifira bolme...).
+    @return True/False, or None when it cannot be evaluated (function call,
+            unrecognised syntax, undefined variable, division by zero...).
     """
     if expr.strip().lower() == "else":
         return True
@@ -126,11 +126,11 @@ def evaluate(expr: str, values: Dict[str, object]) -> Optional[bool]:
 
 
 def parse_value(text: str) -> Tuple[bool, object]:
-    """Kullanicinin yazdigi metni sayiya/mantiksala cevirir.
+    """Converts text typed by the user into a number or a boolean.
 
-    @return (basarili, deger). Basarisizsa deger metnin kendisidir; panel
-            onu kirmizi gosterir, cunku bir koruma icinde ise sonuc
-            hesaplanamaz.
+    @return (ok, value). On failure the value is the text itself; the panel
+            shows it in red, because inside a guard the result then cannot
+            be evaluated.
     """
     ham = text.strip()
     if not ham:
@@ -151,7 +151,7 @@ def parse_value(text: str) -> Tuple[bool, object]:
 
 
 def format_value(value: object) -> str:
-    """parse_value()'nun tersi: degeri kullaniciya gosterilecek metne."""
+    """The inverse of parse_value(): a value as text shown to the user."""
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)

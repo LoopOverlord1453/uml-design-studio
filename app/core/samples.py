@@ -1,8 +1,8 @@
-"""Uygulama acilisinda yuklenen ornek model.
+"""The sample model loaded when the application starts.
 
-Bilerek "gomulu bir LED / hata yonetimi" senaryosu secildi; hiyerarsi, choice,
-guard, internal gecis, completion gecisi ve final durumun tamamini kullanir.
-Bu model `tools/verify_codegen.py` tarafindan gercekten derlenip kosturulur.
+An "embedded LED / fault handling" scenario was chosen deliberately; it uses
+hierarchy, choice, guards, an internal transition, a completion transition
+and a final state. tools/verify_codegen.py really compiles and runs it.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def demo_machine() -> StateMachine:
     def tr(tid, src, dst, **kw):
         return sm.add_transition(Transition(id=tid, source=src, target=dst, **kw))
 
-    # ------------------------------------------------------------- kok bolge #
+    # ----------------------------------------------------------- root region #
     st("s_init", "Start", StateKind.INITIAL, None, 106, 30, 24, 24)
 
     st("s_off", "Off", StateKind.SIMPLE, None, 40, 90,
@@ -46,25 +46,25 @@ def demo_machine() -> StateMachine:
        exit="fault_signal(false);",
        note="Repeated faults: waiting for RESET.")
 
-    # UML 2.5.1: final durum entry/exit/do tasiyamaz; kapatma islemi buraya
-    # goturen gecisin eylemindedir (t_shutdown).
+    # UML 2.5.1: a final state carries no entry/exit/do; the shutdown work
+    # belongs to the effect of the transition leading here (t_shutdown).
     st("s_done", "Done", StateKind.FINAL, None, 1020, 150, 30, 30)
 
-    # ------------------------------------------------- Running'in ic bolgesi #
-    # Alt durumlarin koordinatlari ust duruma GORELIDIR.
-    # LedOn / LedOff genis araliklarla yan yana durur; iki TICK gecisi
-    # birbirinden yay ile ayrilir, etiketleri aradaki bosluga oturur.
+    # ----------------------------------------------- inner region of Running #
+    # Substate coordinates are RELATIVE to the parent state.
+    # LedOn / LedOff sit side by side with wide gaps; the two TICK transitions
+    # are pulled apart by an arc so their labels land in the space between.
     #
-    # Y KONUMLARI, ust durumun DAVRANIS SERIDININ ALTINDAN baslar: bilesik
-    # durum artik entry/exit/do satirlarinin ucunu de yaziyor (uc satir,
-    # ~40 px) ve alt durumlar o seridin uzerine binmemeli.
+    # THE Y POSITIONS start BELOW the parent BEHAVIOUR STRIP: a composite
+    # state now prints its entry/exit/do lines too (three lines, ~40 px) and
+    # the substates must not overlap that strip.
     st("s_run_init", "RunStart", StateKind.INITIAL, "s_run", 46, 92, 24, 24)
     st("s_on", "LedOn", StateKind.SIMPLE, "s_run", 30, 140, 170, 78,
        entry="led_write(true);")
     st("s_offled", "LedOff", StateKind.SIMPLE, "s_run", 360, 140, 170, 78,
        entry="led_write(false);")
 
-    # ---------------------------------------------------------------- gecisler #
+    # ------------------------------------------------------------- transitions #
     tr("t_init", "s_init", "s_off")
     tr("t_run_init", "s_run_init", "s_on")
 
@@ -88,7 +88,7 @@ def demo_machine() -> StateMachine:
 
 
 def empty_machine() -> StateMachine:
-    """Yeni bos dokuman: yalnizca baslangic + tek durum."""
+    """A new empty document: only the initial pseudostate and one state."""
     sm = StateMachine(name="NewMachine", prefix="sm",
                       description="", context_type="void", user_includes="")
     sm.add_state(State(id="s_init", name="Start", kind=StateKind.INITIAL,
@@ -100,12 +100,12 @@ def empty_machine() -> StateMachine:
 
 
 # --------------------------------------------------------------------------- #
-#  Sinif diyagrami ornekleri
+#  Class diagram samples
 # --------------------------------------------------------------------------- #
 
 def demo_class_model():
-    """Klasik 'Room' sinif diyagrami: arayuz, soyut sinif, kalitim,
-    gerceklestirme ve iki composition iliskisini birlikte gosterir."""
+    """The classic 'Room' class diagram: shows an interface, an abstract
+    class, inheritance, realization and two composition relationships."""
     from .class_model import (Attribute, ClassModel, Operation, Parameter,
                               Relation, RelationKind, Stereotype, UmlClass)
 
@@ -122,8 +122,8 @@ def demo_class_model():
                          params=[Parameter(name=n, type=t) for n, t in params],
                          abstract=abstract, const=const)
 
-    # Iliskiler asagida SABIT KIMLIKLERLE kuruluyor; donen nesneleri
-    # degiskene almak gereksiz.
+    # The relationships below are built with FIXED IDS; assigning the
+    # returned objects to variables would be pointless.
     cm.add_class(UmlClass(
         id="c_drawable", name="Drawable", stereotype=Stereotype.INTERFACE,
         x=40, y=60, w=220, h=110,
@@ -181,7 +181,7 @@ def demo_class_model():
 
 
 def empty_class_model():
-    """Yeni bos sinif diyagrami."""
+    """A new empty class diagram."""
     from .class_model import ClassModel, UmlClass
     cm = ClassModel(name="NewDesign", prefix="design")
     cm.add_class(UmlClass(id="c_first", name="NewClass", x=60, y=60))
