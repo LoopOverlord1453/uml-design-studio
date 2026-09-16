@@ -36,7 +36,7 @@ if not git_available():
     sys.exit(2)
 
 tmp = tempfile.mkdtemp(prefix="umlshot_")
-ws = Workspace.create(os.path.join(tmp, "surus-kontrol"), name="surus-kontrol")
+ws = Workspace.create(os.path.join(tmp, "version-control"), name="version-control")
 repo = Repo(ws.root)
 repo.init()
 
@@ -57,40 +57,40 @@ def commit(message: str) -> None:
     repo.commit(message, author_name=AUTHOR[0], author_email=AUTHOR[1])
 
 
-commit("ilk: uretilen durum makinesi")
+commit("initial: generated state machine")
 
 # ikinci commit
 gen = ws.generated_path
 first = sorted(n for n in os.listdir(gen) if n.endswith(".c"))[0]
 with open(os.path.join(gen, first), "a", encoding="utf-8") as fh:
-    fh.write("\n/* gozden gecirme notu */\n")
-commit("guard kosullari gozden gecirildi")
+    fh.write("\n/* review note */\n")
+commit("review guard conditions")
 
 # bir dal + birlesme -> agacta ikinci serit gorunsun.
 # Dal AYRI bir dosyaya dokunur; boylece birlesme cakismadan tamamlanir.
-repo.create_branch("ozellik/kalibrasyon", checkout=True)
-with open(os.path.join(gen, "kalibrasyon.h"), "w", encoding="utf-8") as fh:
-    fh.write("#ifndef KALIBRASYON_H\n#define KALIBRASYON_H\n#endif\n")
-commit("kalibrasyon kancasi eklendi")
+repo.create_branch("feature/calibration", checkout=True)
+with open(os.path.join(gen, "calibration.h"), "w", encoding="utf-8") as fh:
+    fh.write("#ifndef CALIBRATION_H\n#define CALIBRATION_H\n#endif\n")
+commit("add calibration hook")
 base = repo.branches()[0] if repo.branches() else "main"
 for name in repo.branches():
-    if name != "ozellik/kalibrasyon":
+    if name != "feature/calibration":
         base = name
         break
 repo.checkout(base)
 with open(os.path.join(gen, first), "a", encoding="utf-8") as fh:
-    fh.write("\n/* ana dalda duzeltme */\n")
-commit("ana dalda kucuk duzeltme")
-subprocess.run(["git", "merge", "--no-ff", "-m", "ozellik/kalibrasyon birlestirildi",
-                "ozellik/kalibrasyon"], cwd=ws.root,
+    fh.write("\n/* fix on main */\n")
+commit("small fix on main")
+subprocess.run(["git", "merge", "--no-ff", "-m", "merge feature/calibration",
+                "feature/calibration"], cwd=ws.root,
                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 # calisma agacinda birkac degisiklik biraksin ki listeler dolu gorunsun
 with open(os.path.join(gen, first), "a", encoding="utf-8") as fh:
-    fh.write("\n/* hazirlanmamis degisiklik */\n")
-with open(os.path.join(ws.root, "NOTLAR.md"), "w", encoding="utf-8") as fh:
-    fh.write("# Notlar\n\nYeni dosya.\n")
-repo.stage(["NOTLAR.md"])
+    fh.write("\n/* unstaged change */\n")
+with open(os.path.join(ws.root, "NOTES.md"), "w", encoding="utf-8") as fh:
+    fh.write("# Notes\n\nNew file.\n")
+repo.stage(["NOTES.md"])
 
 win.show()
 win.show_git_tab()
