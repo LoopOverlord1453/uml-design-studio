@@ -256,6 +256,34 @@ Validation runs continuously as you edit; code is written to disk only on
 Useful keys: `F5` build · `F7` validate · `F8` repository · `F9` code panel ·
 `F10` simulation · `F1` all shortcuts.
 
+### State diagrams
+
+The default mode, and the one in the screenshot at the top of this page. You get
+the full UML 2.5.1 vocabulary — **State**, **Composite State**, **Initial**,
+**Final**, **Choice**, **Junction**, **Shallow History** (H), **Deep History**
+(H\*) and **Terminate**, with external, internal and local transitions — compiled
+into a table-driven hierarchical state machine.
+
+Each tool has a one-key shortcut: `S` state · `G` composite · `I` initial ·
+`F` final · `C` choice · `J` junction · `H` history · `D` deep history ·
+`X` terminate · `T` transition (click source, then target) · `V` back to select.
+Drop a state inside a composite and the hierarchy updates itself.
+
+The parts that are easy to get wrong by hand are exactly the parts the generator
+handles for you:
+
+| | Behaviour |
+|---|---|
+| **Junction** | *Static* branch — guards are evaluated **before** leaving the source state |
+| **Choice** | *Dynamic* branch — guards are evaluated **after** the transition's effect has run |
+| **History** | Restores the last active substate; cleared when the region completed through a final state |
+| **Terminate** | The machine exits no state, so no exit actions run, and nothing executes afterwards |
+| **Completion** | A composite completes only when **its own** region reaches a final state |
+| **`else`** | Always tried last, whatever priority it was given |
+
+Each of these is pinned down by a test that quotes the clause of the
+specification it comes from.
+
 ### Class diagrams
 
 Classes, abstract classes and `«interface»`, with association, aggregation,
