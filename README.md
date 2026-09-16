@@ -87,24 +87,151 @@ the header, so a missing driver call is a compile error rather than a silent gap
 
 ## Install
 
+### What you need
+
+| | Package | Needed for |
+|---|---|---|
+| **Required** | Python 3 (developed on 3.13) | running the app |
+| **Required** | `PyQt6` ≥ 6.5 | the entire user interface |
+| Optional | `git` | the Repository tab; without it the tab explains that and everything else keeps working |
+| Optional | `gcc` / `g++` | the test suite, which compiles the generated C/C++; skipped if absent |
+| Optional | `pyinstaller` | building a standalone executable |
+
+Only PyQt6 is a Python dependency — there is nothing else in `requirements.txt`.
+
+### Platform support
+
+The application itself is plain Python + PyQt6 and uses no OS-specific APIs
+beyond a small "open this folder in the file manager" helper, which already has
+Windows, macOS and Linux branches.
+
+| Platform | Notes |
+|---|---|
+| **Windows 10 / 11** | Primary development platform |
+| **Linux** (X11 or Wayland) | Runs from source; see the Qt system libraries below |
+| **macOS** | Runs from source |
+
+Packaging is per-platform: PyInstaller builds a binary for the OS it runs on, so
+a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
+
+### Windows — step by step
+
+1. Install **Python 3** from [python.org](https://www.python.org/downloads/) and
+   tick **"Add Python to PATH"** during setup.
+2. *(Optional)* Install [Git for Windows](https://git-scm.com/download/win) to
+   enable the Repository tab.
+3. *(Optional)* Install a GCC toolchain — [MSYS2](https://www.msys2.org/) or
+   MinGW-w64 — if you want to run the test suite.
+4. In the project folder, create the environment and install the dependency:
+
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\python.exe -m pip install --upgrade pip
+   .venv\Scripts\python.exe -m pip install -r requirements.txt
+   ```
+
+5. Run it:
+
+   ```powershell
+   .venv\Scripts\python.exe main.py
+   ```
+
+   or just double-click **`run.bat`**, which finds the environment itself.
+
+> If your Python came from the Microsoft Store, `pip install PyQt6` can fail
+> because of path length. The in-project virtual environment above avoids it.
+
+### Linux — step by step
+
+1. Install Python, the venv module and the Qt runtime libraries. PyQt6 ships Qt
+   itself in the wheel, but Qt still needs a few system libraries:
+
+   **Debian / Ubuntu**
+
+   ```bash
+   sudo apt update
+   sudo apt install -y python3 python3-venv python3-pip git build-essential \
+       libgl1 libegl1 libfontconfig1 libdbus-1-3 libxkbcommon-x11-0 \
+       libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 \
+       libxcb-randr0 libxcb-render-util0 libxcb-xinerama0
+   ```
+
+   **Fedora**
+
+   ```bash
+   sudo dnf install -y python3 python3-pip git gcc gcc-c++ \
+       mesa-libGL mesa-libEGL fontconfig dbus-libs libxkbcommon-x11 \
+       xcb-util-cursor xcb-util-wm xcb-util-keysyms xcb-util-renderutil
+   ```
+
+   **Arch**
+
+   ```bash
+   sudo pacman -S --needed python python-pip git base-devel \
+       libglvnd fontconfig dbus libxkbcommon-x11 xcb-util-cursor \
+       xcb-util-wm xcb-util-keysyms xcb-util-renderutil
+   ```
+
+   On a normal desktop install most of these are already present; `libxcb-cursor0`
+   is the one Qt 6.5+ most often finds missing.
+
+2. Create the environment and install the dependency:
+
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/python -m pip install --upgrade pip
+   .venv/bin/python -m pip install -r requirements.txt
+   ```
+
+3. Run it:
+
+   ```bash
+   .venv/bin/python main.py
+   ```
+
+   or use the launcher:
+
+   ```bash
+   chmod +x run.sh
+   ./run.sh
+   ```
+
+> On a headless machine or over plain SSH there is no display, and Qt will exit
+> with `could not connect to display`. Use X11 forwarding (`ssh -X`), a desktop
+> session, or a virtual display such as `xvfb-run`.
+
+### macOS — step by step
+
+1. Install Python 3 and git (via [Homebrew](https://brew.sh/), for example):
+
+   ```bash
+   brew install python git
+   ```
+
+2. Then exactly as on Linux:
+
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/python -m pip install --upgrade pip
+   .venv/bin/python -m pip install -r requirements.txt
+   .venv/bin/python main.py
+   ```
+
+### Building a standalone executable
+
 ```bash
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe main.py
-```
-
-Or just run `run.bat`, which finds the virtual environment itself. Developed and
-tested on Python 3.13 with PyQt6.
-
-> **Windows note.** If Python came from the Microsoft Store, `pip install PyQt6`
-> can fail on path length. The in-project virtual environment above avoids it.
-
-To build a standalone executable:
-
-```bash
+# Windows
 .venv\Scripts\python.exe -m pip install pyinstaller
 .venv\Scripts\python.exe -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
+
+# Linux / macOS
+.venv/bin/python -m pip install pyinstaller
+.venv/bin/python -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
 ```
+
+The result lands in `dist/`. The spec is single-file and windowed; the GPL text
+and the sample diagram are embedded. The Windows version resource and the `.ico`
+icon are applied only on Windows and skipped elsewhere.
 
 ---
 
@@ -163,7 +290,11 @@ of becoming a broken build.
 ## Tests
 
 ```bash
+# Windows
 .venv\Scripts\python.exe tools\check_all.py
+
+# Linux / macOS
+.venv/bin/python tools/check_all.py
 ```
 
 The suite generates code, compiles it with `-Werror`, runs it, and compares the
@@ -178,6 +309,7 @@ and the workspace/git layer against real temporary repositories. Steps that need
 
 ```
 main.py                 entry point
+run.bat / run.sh        launchers (Windows / Linux + macOS)
 app/core/               model, validation, simulation, workspace, git   (no Qt)
 app/codegen/            C / C++ / PlantUML generators
 app/ui/                 canvas, panels, dialogs, theme

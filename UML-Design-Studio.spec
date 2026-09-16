@@ -1,10 +1,23 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller paketleme tarifi.
 
+Windows disinda da calisir: surum kaynagi ve .ico simgesi yalnizca Windows
+ozellikleridir, bu yuzden dosya yoksa ya da platform Windows degilse
+sessizce atlanirlar (aksi halde PyInstaller "version resource not found"
+ile durur).
+
     .venv\\Scripts\\python.exe -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
 
 Cikti: dist/UML-Design-Studio.exe  (tek dosya, konsolsuz, GPL metni gomulu)
 """
+
+import os
+import sys
+
+_IS_WIN = sys.platform.startswith("win")
+# Surum kaynagi ve .ico YALNIZCA Windows'ta anlamlidir; ikisi de istege bagli.
+_version_file = "version_info.txt" if (_IS_WIN and os.path.exists("version_info.txt")) else None
+_icon_file = "docs/app.ico" if (_IS_WIN and os.path.exists("docs/app.ico")) else None
 
 a = Analysis(
     ["main.py"],
@@ -67,6 +80,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon="docs/app.ico",
-    version="version_info.txt",
+    icon=_icon_file,
+    version=_version_file,
 )

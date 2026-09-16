@@ -1,0 +1,15 @@
+# Normalise line endings so the repository behaves the same on every platform.
+* text=auto
+
+# Shell scripts must keep LF: a CRLF shebang makes Linux/macOS fail with
+# "bad interpreter: /usr/bin/env sh^M".
+*.sh text eol=lf
+
+# Batch files must keep CRLF: cmd.exe mis-parses LF-only labels and blocks.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets must never be touched by end-of-line conversion.
+*.png binary
+*.ico binary
+*.pdf binary
