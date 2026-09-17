@@ -1,7 +1,7 @@
-"""Model dogrulayici.
+"""The model validator.
 
-Kod uretmeden ONCE calisir. Amac: uretilen C/C++ kodunun her zaman derlenebilir
-ve anlamsal olarak tutarli olmasi. Bir tek ERROR varsa kod uretimi durdurulur.
+Runs BEFORE any code is generated. The goal: the generated C/C++ must always
+compile and be semantically consistent. A single ERROR stops code generation.
 """
 
 from __future__ import annotations
@@ -16,20 +16,20 @@ from .naming import pascal, screaming_snake
 
 IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-# Uretecin kendi sembolleriyle cakisan adlar. Liste tahmine degil, her adayin
-# GERCEKTEN derlenip derlenmedigine bakan bir olcume dayanir; buradaki her
-# giris icin tools/test_reserved_names.py bir regresyon vakasi tutar.
+# Names that clash with the symbols the generator emits. The list is not
+# guesswork but a measurement of whether each candidate ACTUALLY compiles;
+# tools/test_reserved_names.py keeps a regression case for every entry.
 #
-#   <PREFIX>_STATE_COUNT / <PREFIX>_STATE_NONE  makrolari, ayni prefixli durum
-#   enum sabitleriyle cakisir; olay tarafinda ayrica EVENT_COUNT / EVENT_INVALID
-#   / EVENT_COMPLETION vardir.
+#     The <PREFIX>_STATE_COUNT / <PREFIX>_STATE_NONE macros clash with the state
+#     enum constants of the same prefix; on the event side there are also
+#     EVENT_COUNT / EVENT_INVALID / EVENT_COMPLETION.
 RESERVED_STATE_NAMES = {"NONE", "COUNT"}
 RESERVED_EVENT_NAMES = {"COUNT", "INVALID", "COMPLETION"}
 
-#: C++ 'enum class Event' icinde ureteci tarafindan zaten tanimli uyeler
+#: Members the generator already defines inside the C++ 'enum class Event'
 RESERVED_EVENT_PASCAL = {"Completion", "Invalid"}
 
-# C ve C++ anahtar kelimeleri - durum/olay adi olarak kullanilamaz.
+# C and C++ keywords - they cannot be used as a state/event name.
 C_KEYWORDS: Set[str] = {
     "auto", "break", "case", "char", "const", "continue", "default", "do",
     "double", "else", "enum", "extern", "float", "for", "goto", "if", "inline",
@@ -47,9 +47,9 @@ SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
 @dataclass
 class Issue:
     severity: str           # "error" | "warning" | "info"
-    code: str               # V001 gibi kararli bir kod
+    code: str               # a stable code such as V001
     message: str
-    element_id: Optional[str] = None   # tiklaninca secilecek eleman
+    element_id: Optional[str] = None   # the element to select when clicked
 
     @property
     def is_error(self) -> bool:
@@ -64,7 +64,7 @@ def _valid_ident(name: str) -> bool:
 
 
 def _balanced(expr: str) -> bool:
-    """Parantez/kose/kume dengesini ve tirnak kapanisini kabaca dogrular."""
+    """Roughly checks bracket balance and that quotes are closed."""
     stack: List[str] = []
     pairs = {")": "(", "]": "[", "}": "{"}
     i = 0
@@ -82,7 +82,7 @@ def _balanced(expr: str) -> bool:
                     break
                 i += 1
             if i >= n:
-                return False           # kapanmamis tirnak
+                return False           # an unclosed quote
         elif ch in "([{":
             stack.append(ch)
         elif ch in ")]}":
@@ -93,27 +93,27 @@ def _balanced(expr: str) -> bool:
 
 
 def _baglamli(tip: str) -> bool:
-    """Makine bir KULLANICI BAGLAMI tasiyor mu (`void` tasimaz)."""
+    """Does the machine carry a USER CONTEXT (`void` does not)."""
     return (tip or "").strip() not in ("", "void")
 
 
 def _submachine_flatten(sm, resolve):
-    """Duzlestirmeyi DENER; hata varsa yukseltir (dongu, derinlik, eksik).
+    """TRIES to flatten; raises on an error (cycle, depth, missing).
 
-    Girdi degistirilmez; `flatten` genisletilmis bir KOPYA dondurur.
+    The input is not changed; `flatten` returns an expanded COPY.
     """
     from .submachine import flatten
     return flatten(sm, resolve)
 
 
 def _sorumlu_altmakine(sm, genis_id: str):
-    """Genisletilmis bir durumu URETEN altmakine durumunun kimligi.
+    """The id of the submachine state that PRODUCED an expanded state.
 
-    Yerine koyma, ic durumlara `<disId>__<icId>` bicimli kimlikler verir
-    ve ic ice gecmede bu ONE eklenmeye devam eder. Ilk parca, daima
-    KULLANICININ modelindeki altmakine durumudur.
+    Substitution gives inner states ids of the form `<outerId>__<innerId>`,
+    and nesting keeps prefixing. The first part is always the submachine
+    state in the USER's model.
 
-    :return: kimlik, ya da bu durum genisletmeden gelmiyorsa None
+    :return: the id, or None when the state does not come from an expansion
     """
     if "__" not in genis_id:
         return None
@@ -124,13 +124,13 @@ def _sorumlu_altmakine(sm, genis_id: str):
 
 
 def _hatanin_sahibi(sm, metin: str):
-    """Duzlestirme hatasinin metninde ADI GECEN altmakine durumu.
+    """The submachine state NAMED in the text of a flattening error.
 
-    `SubmachineError` iletileri sucluyu tirnak icinde adlandirir. Tuval
-    hatayi bir ogeye baglayarak kirmiziya boyadigi icin, dogru ogeyi
-    bulmak kullaniciyi masum bir duruma yollamamak demektir.
+    `SubmachineError` messages name the culprit in quotes. Because the canvas
+    binds the error to an element and paints it red, finding the right element
+    means not sending the user to an innocent state.
 
-    :return: kimlik, ya da ad tek basina secilemiyorsa None
+    :return: the id, or None when the name alone is not enough
     """
     adaylar = [x.id for x in sm.ordered_states()
                if x.kind is StateKind.SUBMACHINE and x.name
@@ -141,25 +141,25 @@ def _hatanin_sahibi(sm, metin: str):
 
 
 def _genisletilmis_ad_sorunlari(sm, duz):
-    """Duzlestirmeden SONRA dogan ad cakismalarini dondurur.
+    """The name collisions that appear only AFTER flattening.
 
-    Altmakine yerine kondugunda ic durumlar `Disari_Iceri` bicimine
-    cevrilir. Bu ad, ana makinede ZATEN VAR OLAN bir durumun adiyla ayni
-    C sabitine dusebilir. Kullanicinin iki diyagrami da tek basina
-    kusursuz gorunur; cakisma yalnizca genisletilmis modelde vardir.
+    When a submachine is substituted, the inner states are renamed to
+    `Outer_Inner`. That name can fall on the same C constant as a state that
+    ALREADY EXISTS in the main machine. Both of the user's diagrams look
+    perfect on their own; the collision exists only in the expanded model.
 
-    Eskiden bu model HIC DOGRULANMIYORDU: dogrulayici yalnizca
-    duzlestirmenin BASARILI OLDUGUNA bakiyor, sonucuna bakmiyordu.
-    Cakisma, musterinin derleyicisinde "redeclaration of enumerator"
-    olarak ortaya cikiyordu -- aracin hicbir uyarisi olmadan.
+    This model USED NOT TO BE VALIDATED AT ALL: the validator only checked
+    that flattening SUCCEEDED, never its result. The collision surfaced in the
+    customer's compiler as "redeclaration of enumerator" -- without a single
+    warning from the tool.
 
-    SORUMLU OGE de dondurulur. Tuval her hatayi bir ogeye baglayip
-    kirmiziya boyar; sorun hangi altmakine durumunun genisletilmesinden
-    dogduysa o isaretlenmelidir. Once hepsi DOSYADAKI ILK altmakine
-    durumuna baglaniyordu ve kullanici, kusursuz olan bir ogeye
+    THE RESPONSIBLE ELEMENT is returned too. The canvas binds every error to
+    an element and paints it red; whichever submachine state the problem came
+    from is the one to mark. They all used to be bound to the FIRST submachine
+    state in the file, sending the user to an element that was perfectly fine.
     yonlendiriliyordu.
 
-    :return: (kod, mesaj, sorumlu_id) uclulari; sorumlu_id None olabilir
+    :return: (code, message, culprit_id) triples; culprit_id may be None
     """
     sorunlar = []
     gorulen = {}
@@ -177,9 +177,9 @@ def _genisletilmis_ad_sorunlari(sm, duz):
         anahtar = screaming_snake(st.name)
         onceki = gorulen.get(anahtar)
         if onceki is not None:
-            # Cakismanin iki tarafindan GENISLETMEDEN GELENI isaretle:
-            # kullanicinin duzeltecegi sey odur (ya ic durumun adi, ya
-            # da onu niteleyen altmakine durumunun adi).
+            # Of the two sides of the collision, mark the one that DOES NOT COME
+            # FROM AN EXPANSION: that is what the user will fix (either the name of
+            # the inner state or the name of the submachine state qualifying it).
             hedef = sorumlu if sorumlu is not None else onceki[1]
             if onceki[0] != st.name:
                 sorunlar.append((
@@ -203,11 +203,11 @@ def _genisletilmis_ad_sorunlari(sm, duz):
 
 
 def _bolge_ayrimi(sm, dugum, idler, ne: str):
-    """Verilen dugumler AYNI ortogonal durumun FARKLI bolgelerinde mi?
+    """Are the given vertices in DIFFERENT regions of the SAME orthogonal state?
 
-    UML 2.5.1, 14.5.6.7 (basili s.350-351): fork'tan cikan gecisler
-    "must target states in different regions of an orthogonal state",
-    join'e giren gecisler ise "must originate in different Regions of an
+    UML 2.5.1, 14.5.6.7 (printed p.350-351): transitions leaving a fork
+    "must target states in different regions of an orthogonal state", while
+    transitions entering a join "must originate in different Regions of an
     orthogonal State".
     """
     idler = [x for x in idler if x in sm.states]
@@ -233,7 +233,7 @@ def _bolge_ayrimi(sm, dugum, idler, ne: str):
 
 
 def _bolge_dizini(sm, sid: str, sahip: str):
-    """`sid`in, `sahip` altindaki hangi bolgeye dustugu (yoksa None)."""
+    """Which region under `owner` `sid` falls into (None if none)."""
     cur = sid
     n = 0
     while cur is not None and n <= len(sm.states) + 1:
@@ -248,24 +248,24 @@ def _bolge_dizini(sm, sid: str, sahip: str):
 
 
 def validate(sm: StateMachine, resolve=None) -> List[Issue]:
-    """Modeli dogrular ve sorun listesini onem sirasina gore dondurur.
+    """Validates the model and returns the problems in order of severity.
 
-    ``resolve``: altmakine referanslarini cozen islev. Verilmezse
-    referansin VARLIGI sinanmaz -- yalnizca yapisal kurallar bakilir.
-    Boylece arac calisma alani disinda da (testler, hizli onizleme)
-    calisabilir ama uygulama gercek cozumleyiciyi verdiginde eksik ya da
-    dongusel bir referans YAKALANIR.
+    ``resolve``: the function that resolves submachine references. Without it
+    the EXISTENCE of a reference is not checked -- only the structural rules
+    are applied. That lets the tool run outside a workspace too (tests, a
+    quick preview), while the application, which passes a real resolver, still
+    CATCHES a missing or cyclic reference.
     """
     issues: List[Issue] = []
-    #: Genisletme sorunlari YALNIZCA BIR KEZ bildirilir.
+    #: Expansion problems are reported ONLY ONCE.
     _genisletme_bildirildi: List[bool] = []
-    #: Duzlestirme SONUCU: [(genisletilmis_makine, hata)] -- en fazla bir oge.
+    #: The flattening RESULT: [(expanded_machine, error)] -- at most one item.
     #:
-    #: Duzlestirme, altmakine durumu BASINA bir kez yapiliyordu ve her
-    #: cagri makinenin TAMAMINI deepcopy ile kopyaliyor. Maliyet karesel
-    #: buyuyordu: 8 altmakine durumunda dogrulama 0.067 sn, 32'de bir
-    #: saniyeyi asiyordu -- ve dogrulama HER DUZENLEMEDEN sonra kosar.
-    #: Makine dogrulama boyunca degismedigi icin sonuc paylasilabilir.
+    #: Flattening used to run once PER submachine state, and every call
+    #: deep-copied the WHOLE machine. The cost grew quadratically: with 8
+    #: submachine states validation took 0.067 s, with 32 it passed a second
+    #: -- and validation runs after EVERY edit. Since the machine does not
+    #: change during validation, the result can be shared.
     _duz_sonuc: List = []
 
     def err(code, msg, eid=None):
@@ -278,11 +278,11 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         issues.append(Issue("info", code, msg, eid))
 
     def _genisletilmis():
-        """Genisletilmis modeli BIR KEZ hesaplar.
+        """Computes the expanded model ONCE.
 
-        :return: (makine, hata) -- makine None ise ya altmakine yoktur,
-                 ya cozumleyici verilmemistir, ya da genisletme
-                 basarisiz olmustur (o zaman `hata` doludur).
+        :return: (machine, error) -- a None machine means either there is no
+                 submachine, or no resolver was given, or the expansion
+                 failed (and then `error` is set).
         """
         if not _duz_sonuc:
             altmakine_var = any(x.kind is StateKind.SUBMACHINE
@@ -296,24 +296,24 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                     _duz_sonuc.append((None, exc))
         return _duz_sonuc[0]
 
-    # ---------------------------------------------------------------- makine #
+    # --------------------------------------------------------------- machine #
     if not _valid_ident(sm.prefix):
         err("V001", "Symbol prefix '%s' is not a valid C identifier." % sm.prefix)
     if not sm.states:
         err("V002", "Diagram is empty: at least one initial pseudostate and one state are required.")
         return issues
 
-    # ------------------------------------------------------------- adlandirma #
-    # Initial disindaki her dugum uretilen enum'a girer; adi C tanimlayicisi olmali.
+    # ----------------------------------------------------------------- naming #
+    # Every vertex except initial enters the generated enum; its name must be a C id.
     real_states = [s for s in sm.ordered_states()
                    if s.kind is not StateKind.INITIAL]
     seen_names = {}
     for s in real_states:
         if not _valid_ident(s.name):
             err("V010", "'%s' is not a valid C identifier (state name)." % s.name, s.id)
-        # Anahtar, uretecin YAZACAGI sabittir (naming.screaming_snake).
-        # Duz .upper() ile bakmak yanlis cevap verir: 'LedOn' ile 'Led_On'
-        # ayni '..._LED_ON' sabitini uretir ama .upper() farkli gorunur.
+        # The key is the constant the generator WILL WRITE (naming.screaming_snake).
+        # Looking at a plain .upper() gives the wrong answer: 'LedOn' and 'Led_On'
+        # produce the same '..._LED_ON' constant but look different under .upper().
         key = screaming_snake(s.name)
         if key in seen_names:
             err("V011", "States '%s' and '%s' generate the same "
@@ -321,7 +321,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 % (seen_names[key][1], s.name, key), s.id)
         seen_names[key] = (s.id, s.name)
 
-    # Uretecin kendi urettigi sembollerle cakismalar
+    # Clashes with the symbols the generator emits itself
     for s in real_states:
         sym = screaming_snake(s.name)
         if sym in RESERVED_STATE_NAMES:
@@ -329,16 +329,16 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         "'<PREFIX>_STATE_%s' constant; choose another name."
                 % (s.name, sym), s.id)
 
-    # OLAY KURALLARI GENISLETILMIS MODEL UZERINDE KOSAR.
+    # THE EVENT RULES RUN ON THE EXPANDED MODEL.
     #
-    # Altmakine yerine kondugunda ic makinenin olaylari da uretilen
-    # enum'a girer -- ve ADLARI NITELENMEZ (durumlar `Disari_Iceri`
-    # olur, olaylar oldugu gibi kalir). Denetim genisletilmemis modele
-    # bakinca disaridaki `DO_IT` ile icerideki `DoIt` HIC KARSILASMIYOR:
-    # dogrulama tertemiz geciyor, uretilen baslikta ayni sabit iki kez
-    # tanimlaniyor ve musterinin derleyicisi "redeclaration of
-    # enumerator" diyordu. Ayni acik V012/V014/V017 ile zaman olayi
-    # kurallarini da (V190/V191) altmakineden gelen olaylar icin
+    # When a submachine is substituted, the events of the inner machine enter
+    # the generated enum too -- and THEIR NAMES ARE NOT QUALIFIED (states
+    # become `Outer_Inner`, events stay as they are). Looking at the
+    # unexpanded model, the outer `DO_IT` and the inner `DoIt` NEVER MEET:
+    # validation passes clean, the same constant is defined twice in the
+    # generated header, and the customer's compiler says "redeclaration of
+    # enumerator". The same gap also disabled V012/V014/V017 and the time
+    # event rules (V190/V191) for events coming from a submachine.
     # devre disi birakiyordu.
     _genis_model, _ = _genisletilmis()
     if _genis_model is not None:
@@ -347,11 +347,11 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         olay_kaynagi = sm
 
     def tran_of(event_name: str):
-        """Olayi tasiyan gecisin kimligi.
+        """The id of the transition that carries the event.
 
-        Genisletmeden gelen olaylarin gecis kimligi KULLANICININ
-        modelinde yoktur; tuval o kimligi isaretleyemez. Boyle bir
-        durumda sorun, olayi getiren altmakine durumuna baglanir.
+        Events coming from an expansion have no transition id in the
+        USER's model; the canvas cannot mark that id. In such a case the
+        problem is bound to the submachine state that brought the event in.
         """
         kendi = next((t.id for t in sm.transitions.values()
                       if t.event.strip() == event_name), None)
@@ -368,15 +368,15 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     seen_events = {}
     seen_pascal = {}
     for ev in olay_kaynagi.events():
-        # ZAMAN OLAYI ayri bir bicimdedir: `after(<ifade>)`.
+        # A TIME EVENT has a separate form: `after(<expression>)`.
         #
-        # MUAFIYET YALNIZCA TANIMLAYICI KURALINA AITTIR. Zaman olayi
-        # once tumden atlaniyordu (`continue`) ve asagidaki cakisma
-        # denetimlerine hic girmiyordu. Oysa uretilen sabit ayni yoldan
-        # gecer: `after(50)` ile `AFTER50` da, `after(1.5)` ile
-        # `after(15)` de AYNI `<PREFIX>_EVENT_...` sabitini uretir.
-        # Sonuc, uretilen baslikta CIFT ENUM SABITI ve derlenmeyen bir
-        # dosyaydi -- arac hicbir sey soylemeden.
+        # THE EXEMPTION APPLIES ONLY TO THE IDENTIFIER RULE. A time event used to
+        # be skipped entirely (`continue`) and never reached the collision checks
+        # below. But the generated constant goes through the same path:
+        # `after(50)` and `AFTER50` produce the same `<PREFIX>_EVENT_...`
+        # constant, and so do `after(1.5)` and `after(15)`. The result was a
+        # DUPLICATE ENUM CONSTANT in the generated header and a file that would
+        # not compile -- with the tool saying nothing.
         gecikme = time_event_delay(ev)
         if gecikme is not None:
             if not gecikme:
@@ -397,8 +397,8 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 tran_of(ev))
         seen_events[esym] = ev
 
-        # C++ olay sabitleri PascalCase'e cevrilir; 'MY_EVENT' ile 'MyEvent'
-        # ayni uyeye duser ve uretilen .hpp derlenmez.
+        # C++ event constants are converted to PascalCase; 'MY_EVENT' and 'MyEvent'
+        # fall on the same member and the generated .hpp does not compile.
         pev = pascal(ev)
         if pev in RESERVED_EVENT_PASCAL:
             err("V017", "Event name '%s' conflicts with the generator's own "
@@ -410,7 +410,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 % (seen_pascal[pev], ev, pev), tran_of(ev))
         seen_pascal[pev] = ev
 
-    # --------------------------------------------------------------- yapisal #
+    # ------------------------------------------------------------ structural #
     for s in sm.states.values():
         if s.parent is not None and s.parent not in sm.states:
             err("V020", "The parent state of '%s' was not found." % s.name, s.id)
@@ -424,7 +424,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         if s.kind is StateKind.COMPOSITE and not sm.children(s.id):
             warn("V023", "Composite state '%s' is empty; convert it to a simple state." % s.name, s.id)
 
-    # ------------------------------------------------------------- gecisler  #
+    # ---------------------------------------------------------- transitions  #
     for t in sm.transitions.values():
         src = sm.states.get(t.source)
         tgt = sm.states.get(t.target)
@@ -470,12 +470,12 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             err("V038", "An internal transition must have the same source and target "
                         "('%s' -> '%s')." % (src.name, tgt.name), t.id)
         if t.kind is TransitionKind.INTERNAL and not t.event.strip():
-            # ESKI METIN YANLISTI: "never fires" deniyordu, oysa boyle bir
-            # gecis durumun tamamlanma olayiyla tetiklenir ve TAM BIR KEZ
-            # calisir (UML 2.5.1, 14.2.3.8.3 -- tamamlanma olayi duruma
-            # GIRILDIGINDE dogar). Onceki motor onu 16 kez calistiriyordu;
-            # bu duzeltildi, ama yapinin kendisi gecerlidir ve yalnizca
-            # kolayca giris davranisiyla karistirildigi icin bildirilir.
+            # THE OLD TEXT WAS WRONG: it said "never fires", whereas such a
+            # transition is triggered by the completion event of the state and runs
+            # EXACTLY ONCE (UML 2.5.1, 14.2.3.8.3 -- the completion event is born
+            # WHEN THE STATE IS ENTERED). The previous engine ran it 16 times; that
+            # is fixed, but the construct itself is valid and is reported only
+            # because it is easily confused with an entry behaviour.
             info("V039", "This internal transition is triggered by the state's "
                          "completion event, so it runs exactly once, right after "
                          "the entry behavior.", t.id)
@@ -483,17 +483,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             err("V040", "The target of a local transition ('%s') must be inside the source ('%s')."
                 % (tgt.name, src.name), t.id)
 
-        # ORTOGONAL BOLGELER ARASINDA DUZ GECIS OLMAZ.
+        # THERE IS NO PLAIN TRANSITION BETWEEN ORTHOGONAL REGIONS.
         #
-        # UML 2.5.1, 14.2.3.7 (basili s.313): bolgeler arasina dallanmak
-        # fork, birlestirmek join sozde-durumunun isidir. Duz bir ok iki
-        # bolgeyi birbirine baglarsa kaynak bolge kapanir ama hedef bolge
-        # halen etkindir; konfigurasyon tutarsiz kalir.
-        # FORK / JOIN ve baglanti noktalari BU KURALDAN MUAFTIR: bolgeler
-        # arasini gecmek zaten ONLARIN isidir. Muafiyet olmayinca, aracin
-        # "fork ya da join kullanin" diyen mesaji tam da kullanici fork
-        # cizdiginde beliriyor ve uc ozellik birden kullanilamaz hale
-        # geliyordu. Ayrimi V120-V127 ile V140-V149 zaten denetler.
+        # UML 2.5.1, 14.2.3.7 (printed p.313): branching into regions is the job
+        # of a fork, merging them the job of a join. If a plain arrow joins two
+        # regions, the source region closes while the target region is still
+        # active; the configuration stays inconsistent.
+        # FORK / JOIN and the connection points are EXEMPT FROM THIS RULE:
+        # crossing between regions is exactly THEIR job. Without the exemption,
+        # the tool's "use a fork or a join" message appeared precisely when the
+        # user drew a fork, and three features became unusable at once. V120-V127
+        # and V140-V149 already check the distinction.
         _MUAF = (StateKind.FORK, StateKind.JOIN,
                  StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
         ortak = sm.lca(t.source, t.target)
@@ -511,13 +511,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if expr.strip() and not _balanced(expr):
                 err("V041", "The transition's %s expression has unbalanced brackets/quotes." % label, t.id)
 
-    # ---------------------------------------------------------- initial/bolge #
+    # --------------------------------------------------------- initial/region #
     #
-    # KURALLAR BOLGE BASINADIR, durum basina degil. UML 2.5.1, 14.2.3.2
-    # (basili s.307): bir bilesik durum bir ya da daha cok BOLGE sahibidir
-    # ve HER bolgenin kendi varsayilan girisi vardir. Ortogonal bir durumda
-    # iki initial bulunmasi dogrudur; onlari tek bir kaba koyup saymak
-    # gecerli bir modeli reddederdi.
+    # THE RULES ARE PER REGION, not per state. UML 2.5.1, 14.2.3.2 (printed
+    # p.307): a composite state owns one or more REGIONS and EVERY region has
+    # its own default entry. Having two initials in an orthogonal state is
+    # correct; putting them in one bucket and counting them would reject a
+    # valid model.
     sahipler: List[Optional[str]] = [None]
     sahipler += [s.id for s in sm.states.values()
                  if s.kind is StateKind.COMPOSITE]
@@ -526,19 +526,19 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             continue
         bolge_sayisi = sm.region_count(sahip)
 
-        # BILDIRILEN BOLGE SAYISININ DISINDA COCUK OLMAMALI.
+        # THERE MUST BE NO CHILD OUTSIDE THE DECLARED REGION COUNT.
         #
-        # `build_ir`, bir cocugun `region` alanini oldugu gibi kullanir:
-        # iki bolgeli bir duruma `region=5` tasiyan bir cocuk konursa
-        # uretilen tabloda DIYAGRAMDA HIC GORUNMEYEN bir bolge acilir,
-        # `active[]` buyur ve o cocuk hicbir zaman etkinlesemeyecegi
-        # halde koda girer. Hicbir kural bunu yakalamiyordu.
+        # `build_ir` uses a child's `region` field as it is: put a child carrying
+        # `region=5` into a two-region state and the generated table opens a
+        # region THAT APPEARS NOWHERE ON THE DIAGRAM, `active[]` grows, and that
+        # child enters the code even though it can never become active. No rule
+        # was catching this.
         #
-        # Arayuz artik boyle bir model URETEMEZ (bolge, ogenin cizildigi
-        # seritten okunur ve kucultme dolu bolgeyi silmeyi reddeder), ama
-        # elle duzenlenmis ya da baska bir surumden gelen bir dosya
-        # tasiyabilir. Cizim ile uretilen kod arasindaki her sessiz
-        # ayrilik bildirilmelidir.
+        # The interface can no longer PRODUCE such a model (the region is read
+        # from the band the element is drawn in, and shrinking refuses to delete
+        # a populated region), but a file edited by hand or coming from another
+        # version may carry it. Every silent divergence between the drawing and
+        # the generated code has to be reported.
         if sahip is not None:
             for cocuk in sm.children(sahip):
                 bolge_no = int(getattr(cocuk, "region", 0) or 0)
@@ -590,7 +590,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                     "default entry must stay inside it."
                             % (rname, tgt.name), outs[0].id)
 
-    # ------------------------------------------------- sozde-durum kisitlari #
+    # ----------------------------------------------- pseudostate constraints #
     for s in sm.states.values():
         if s.kind is StateKind.INITIAL and sm.incoming(s.id):
             err("V060", "An initial pseudostate cannot have an incoming transition.", s.id)
@@ -606,17 +606,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             has_else = any(not t.guard.strip() or t.guard.strip().lower() == "else"
                            for t in outs)
             if outs and not has_else:
-                # CHOICE ile JUNCTION AYNI SEY DEGILDIR.
+                # A CHOICE AND A JUNCTION ARE NOT THE SAME THING.
                 #
-                # UML 2.5.1, 14.2.3.7 (basili s.313) choice icin: "If none of
+                # UML 2.5.1, 14.2.3.7 (printed p.313) on a choice: "If none of
                 # the guards evaluates to true, then the model is considered
-                # ill formed." -- bu bir HATADIR.
+                # ill formed." -- that is an ERROR.
                 #
-                # Ayni bolum junction icin bunu SOYLEMEZ; tam tersine:
+                # The same clause DOES NOT SAY this for a junction; on the contrary:
                 # "the entire compound transition is disabled even though its
-                # Triggers are enabled." Yani yol bulunamazsa bilesik gecis
-                # devre disi kalir, model bozuk olmaz. Junction'i hata saymak,
-                # gecerli bir modelin kod uretimini engelliyordu.
+                # Triggers are enabled." So when no path is found the compound
+                # transition is disabled and the model is not ill formed. Treating a
+                # junction as an error blocked code generation for a valid model.
                 if s.kind is StateKind.CHOICE:
                     err("V062", "The '%s' choice node has no default (else / "
                                 "unguarded) branch; if no guard holds the model "
@@ -628,9 +628,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                  % s.name, s.id)
             if not sm.incoming(s.id):
                 warn("V063", "The '%s' %s node has no incoming transitions." % (s.name, kname), s.id)
-        # ------------------------------------------------ fork / join kurallari
+        # fork / join rules
         #
-        # Alintilarin tamami OMG UML 2.5.1'den birebir alinmistir; bkz.
+        # Every quotation is taken verbatim from OMG UML 2.5.1; see
         # app/core/uml_spec.py.
         if s.kind is StateKind.FORK:
             gelen = sm.incoming(s.id)
@@ -648,9 +648,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 if t.guard.strip() or t.event.strip():
                     err("V122", "A transition leaving fork '%s' cannot carry a "
                                 "guard or a trigger." % s.name, t.id)
-            # Kod BURADA, cagri yerinde, DUZ YAZI olarak durur: atif
-            # tablosunun eksiksizligini sinayan test kaynakta birebir
-            # "V123" arar ve degiskenle verilen bir kodu goremez.
+            # The code sits HERE, at the call site, as PLAIN TEXT: the test that
+            # checks the reference table for completeness looks for the literal
+            # "V123" in the source and cannot see a code passed in a variable.
             sorun = _bolge_ayrimi(sm, s, [t.target for t in giden],
                                   "target states in different regions of an "
                                   "orthogonal state")
@@ -678,14 +678,14 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if sorun:
                 err("V127", sorun, s.id)
 
-        # --------------------------------------------- ertelenen olaylar
+        # deferred events
         if s.deferred:
             if not s.kind.is_real_state:
                 err("V180", "'%s' is a pseudostate; only a state can defer "
                             "events." % s.name, s.id)
-            # GECISLERDE kullanilan olaylar. `sm.events()` ertelenenleri de
-            # icerdigi icin onu kullanmak, hicbir gecisin tuketmedigi bir
-            # olayi "bilinen" sayar ve uyari HIC calismazdi.
+            # The events used IN TRANSITIONS. Because `sm.events()` includes the
+            # deferred ones, using it would count an event no transition consumes as
+            # "known" and the warning would NEVER fire.
             bilinen = {t.event.strip() for t in sm.transitions.values()
                        if t.event.strip()}
             gorulen = set()
@@ -700,9 +700,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                     warn("V182", "'%s' is listed twice in the deferred events "
                                  "of '%s'." % (ad, s.name), s.id)
                 gorulen.add(ad)
-                # Bir durumun KENDI cikis gecisi ayni olayi tasiyorsa, UML
-                # gecise oncelik verir ("a kind of override option"). Bu
-                # GECERLIDIR ama kolayca yanlis anlasilir, bu yuzden
+                # When a state's OWN outgoing transition carries the same event, UML
+                # gives the transition priority ("a kind of override option"). That is
+                # VALID but easily misread, so it IS REPORTED.
                 # BILDIRILIR.
                 for t in sm.outgoing(s.id):
                     if t.event.strip() == ad:
@@ -715,7 +715,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 warn("V184", "'%s' defers %s, which no transition uses."
                      % (s.name, ", ".join(sorted(bos))), s.id)
 
-        # ------------------------------------------------------ altmakine
+        # submachine
         if s.kind is StateKind.SUBMACHINE:
             ref = (s.submachine_ref or "").strip()
             if not ref:
@@ -727,8 +727,8 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                             "own; its contents come from the referenced "
                             "machine. Move them out or make it a composite "
                             "state." % s.name, s.id)
-            # BAGLANTI NOKTASI BAGLAMA (ConnectionPointReference) su an
-            # DESTEKLENMEZ ve acikca reddedilir; bkz. core/submachine.py.
+            # CONNECTION POINT BINDING (ConnectionPointReference) is NOT SUPPORTED
+            # for now and is refused explicitly; see core/submachine.py.
             if ref and resolve is not None:
                 try:
                     hedef = resolve(ref)
@@ -740,16 +740,16 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 elif (_baglamli(hedef.context_type)
                       and hedef.context_type.strip()
                       != sm.context_type.strip()):
-                    # BAGLAM TIPI SESSIZCE ATILIYORDU.
+                    # THE CONTEXT TYPE WAS BEING DROPPED SILENTLY.
                     #
-                    # Yerine koyma, ic makinenin entry/exit/do ve koruma
-                    # metinlerini AYNEN tasir; o metinlerdeki `ctx`,
-                    # genisletilmis makinenin baglam tipiyle derlenir.
-                    # Iki tip farkliysa ic makinenin kodu YANLIS YAPIYA
-                    # karsi derleniyor -- dogrulama tertemiz gecerken.
+                    # Substitution carries the entry/exit/do and guard texts of the inner
+                    # machine VERBATIM; the `ctx` in those texts compiles against the context
+                    # type of the expanded machine. If the two types differ, the code of the
+                    # inner machine is compiled against THE WRONG STRUCT -- while validation
+                    # passes perfectly clean.
                     #
-                    # Ic makinenin baglami 'void' ise sorun yoktur: o
-                    # kod `ctx`e hic dokunmaz.
+                    # If the inner machine's context is 'void' there is no problem: that
+                    # code never touches `ctx`.
                     err("V166",
                         "The submachine state '%s' references '%s', whose "
                         "context type '%s' differs from this machine's "
@@ -760,24 +760,24 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         % (s.name, hedef.name, hedef.context_type.strip(),
                            sm.context_type.strip()), s.id)
                 elif not _genisletme_bildirildi:
-                    # Genisletme ve onun denetimi TUM MAKINE icindir, tek
-                    # bir altmakine durumu icin degil: bir kez yapilir ve
-                    # sonuc paylasilir. Aksi halde ayni cakisma her
-                    # altmakine durumu icin yeniden bildirilirdi.
+                    # The expansion and its checks are for the WHOLE MACHINE, not for a
+                    # single submachine state: it happens once and the result is shared.
+                    # Otherwise the same collision would be reported again for every
+                    # submachine state.
                     _genisletme_bildirildi.append(True)
                     genis, hata = _genisletilmis()
                     if hata is not None:
-                        # Ileti sucluyu ZATEN adlandirir; hatayi o ogeye
-                        # bagla. Bulunamazsa HICBIR ogeye baglama --
-                        # rastgele bir altmakine durumunu kirmiziya
-                        # boyamak kullaniciyi yanlis yere gonderir.
+                        # The message ALREADY names the culprit; bind the error to that
+                        # element. If it cannot be found, bind it to NO element -- painting
+                        # an arbitrary submachine state red sends the user to the wrong
+                        # place.
                         err("V163", "A submachine reference cannot be "
                                     "expanded: %s" % hata,
                             _hatanin_sahibi(sm, str(hata)))
                     elif genis is not None:
-                        # Kodlar DEGISKENLE degil, duz yaziyla verilir:
-                        # atif testi kaynakta `err("Vxxx"` kalibini arar
-                        # ve degiskenle gecilen kod "olu kayit" gorunur.
+                        # The codes are given as plain text, not through a VARIABLE: the
+                        # reference test looks for the `err("Vxxx"` pattern in the source and
+                        # a code passed in a variable looks like a "dead entry".
                         for kod, mesaj, hedef in _genisletilmis_ad_sorunlari(
                                 sm, genis):
                             if kod == "V164":
@@ -785,7 +785,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                             else:
                                 err("V165", mesaj, hedef)
 
-        # -------------------------------------------- baglanti noktalari
+        # connection points
         if s.kind.is_connection_point:
             ad = ("entry point" if s.kind is StateKind.ENTRY_POINT
                   else "exit point")
@@ -811,7 +811,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                             err("V143", "A transition leaving entry point "
                                         "'%s' must end inside '%s'."
                                 % (s.name, sahip.name), t.id)
-                    # 14.2.3.7 (basili s.313): "In each Region ... there is
+                    # 14.2.3.7 (printed p.313): "In each Region ... there is
                     # at most a single Transition from the entry point to a
                     # Vertex within that Region."
                     kullanilan = {}
@@ -866,13 +866,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         if s.kind.is_pseudo and (s.entry.strip() or s.exit.strip() or s.do.strip()):
             err("V067", "'%s' is a pseudostate; it cannot carry entry/exit/do behavior."
                 % s.name, s.id)
-        # YALNIZCA EXIT YASAKTIR.
+        # ONLY EXIT IS FORBIDDEN.
         #
-        # UML 2.5.1, 14.5.2.5 FinalState Constraints (basili s.346) tam olarak
-        # UC kisit sayar: no_exit_behavior, no_outgoing_transitions,
-        # no_regions. ENTRY ya da doActivity hakkinda HICBIR kisit yoktur.
-        # Onceki surum ucunu birden reddediyor ve gecerli bir modelin kod
-        # uretimini engelliyordu.
+        # UML 2.5.1, 14.5.2.5 FinalState Constraints (printed p.346) lists exactly
+        # THREE constraints: no_exit_behavior, no_outgoing_transitions and
+        # no_regions. There is NO constraint at all about entry or doActivity.
+        # The previous version rejected all three and blocked code generation for
+        # a valid model.
         if s.kind is StateKind.FINAL and s.exit.strip():
             err("V069", "'%s' is a final state; it cannot carry exit behavior. "
                         "Move it into the action of the incoming transition."
@@ -883,17 +883,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                     err("V070", "Pseudostate '%s' cannot transition to itself; the "
                                 "machine would hang on this node." % s.name, t.id)
 
-    # ------------------------------------------------- junction zincirleri -- #
-    # Junction STATIK bir dallanmadir: kod uretiminde zincir duzlestirilir ve
-    # her yol tek bir gecise doner. Zincir bir duruma varmiyorsa (dongu) ya da
-    # cok derinse yol uretilemez; kullaniciya BURADA soylenmezse gecis sessizce
-    # kaybolur ve olay hicbir uyari olmadan yok sayilir.
+    # ----------------------------------------------------- junction chains -- #
+    # A junction is a STATIC branch: the chain is flattened during code
+    # generation and every path becomes one transition. If the chain does not
+    # reach a state (a cycle) or is too deep, no path can be produced; unless
+    # the user is told HERE, the transition vanishes and the event is ignored.
     MAX_JUNCTION_CHAIN = 8
     junction_ids = {j.id for j in sm.states.values()
                     if j.kind is StateKind.JUNCTION}
 
     def junction_chain_fault(start: str):
-        """Zincirdeki ilk sorunu (kod, mesaj) olarak verir; saglamsa None."""
+        """The first problem in the chain as (code, message); None if sound."""
         stack = [(start, 0, frozenset())]
         while stack:
             node, depth, seen = stack.pop()
@@ -916,17 +916,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if fault is not None:
                 err(fault[0], fault[1], tran.id)
 
-    # BOLGE BASINA ayni turden en fazla bir tarih sozde-durumu.
+    # At most one history pseudostate of each kind PER REGION.
     #
-    # UML 2.5.1, 14.2.3.7 (basili s.312-313): "A deepHistory Pseudostate can
+    # UML 2.5.1, 14.2.3.7 (printed p.312-313): "A deepHistory Pseudostate can
     # only be defined for composite States and, at most one such Pseudostate
-    # can be contained in a Region of a composite State." Sinir REGION
-    # basinadir, DURUM basina degil.
+    # can be contained in a Region of a composite State." The limit is PER
+    # REGION, not per STATE.
     #
-    # Anahtar bolgeyi yok sayiyordu: uc bolgeli bir ortogonal duruma her
-    # bolge icin birer derin tarih koymak -- UML'in acikca izin verdigi ve
-    # aracin kendi paletinin tesvik ettigi sey -- ikinciden itibaren
-    # reddediliyor ve model HIC kod uretemiyordu.
+    # The key ignored the region: putting one deep history per region into a
+    # three-region orthogonal state -- something UML explicitly allows and the
+    # tool's own palette encourages -- was rejected from the second one on,
+    # and the model could generate NO code at all.
     hist_seen: dict = {}
     for s in sm.states.values():
         if s.kind.is_history:
@@ -937,7 +937,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                        else "shallow history (H)", s.name), s.id)
             hist_seen[key] = s.id
 
-    # ------------------------------------------------------------ erisilebilirlik #
+    # --------------------------------------------------------------- reachability #
     start = sm.initial_of(None)
     if start is not None:
         reachable: Set[str] = set()
@@ -947,27 +947,27 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if cur in reachable:
                 continue
             reachable.add(cur)
-            # UST DURUMLAR DA ERISILMISTIR.
+            # PARENT STATES HAVE BEEN REACHED TOO.
             #
-            # Bir alt duruma girmek, onu KAPSAYAN butun durumlara girmek
-            # demektir. Yuruyus asagi (cocuklar) ve yana (gecisler)
-            # gidiyor ama yukari gitmiyordu: fork'tan dogrudan bir alt
-            # duruma giren model, kapsayan bilesik durumu "erisilmez"
-            # gosteriyordu -- ve o bilesik erisilmez sayilinca cocuklari
-            # da hic taranmadigi icin ONLAR da erisilmez cikiyordu.
+            # Entering a substate means entering every state that CONTAINS it. The
+            # walk went down (children) and sideways (transitions) but not up: a
+            # model entering a substate directly from a fork showed the containing
+            # composite state as "unreachable" -- and once that composite counted as
+            # unreachable, its children were never scanned and came out unreachable
+            # as well. A textbook fork drawing warned about all three.
             # Ders kitabi bir fork ciziminde ucu birden uyariliyordu.
             for a in sm.ancestors(cur):
                 if a.id not in reachable:
                     stack.append(a.id)
-            # alt durumlara inis
+            # descend into the substates
             for c in sm.children(cur):
                 if c.id not in reachable:
                     stack.append(c.id)
-            # cikis gecisleri
+            # outgoing transitions
             for t in sm.outgoing(cur):
                 if t.target and t.target not in reachable:
                     stack.append(t.target)
-            # ust durumlarin gecisleri de gecerlidir
+            # the transitions of the parent states count too
             for a in sm.ancestors(cur):
                 for t in sm.outgoing(a.id):
                     if t.target and t.target not in reachable:
@@ -976,7 +976,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if s.id not in reachable and s.kind is not StateKind.INITIAL:
                 warn("V072", "State '%s' is unreachable by any path." % s.name, s.id)
 
-    # ----------------------------------------------------------- cikmaz sokak #
+    # --------------------------------------------------------------- dead end #
     for s in sm.states.values():
         if s.kind is StateKind.SIMPLE:
             has_out = bool(sm.outgoing(s.id))
@@ -984,17 +984,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             if not has_out and not has_ancestor_out:
                 warn("V071", "State '%s' has no outgoing transition (deadlock state)." % s.name, s.id)
 
-    # ------------------------------------------------------- belirsiz gecisler #
+    # --------------------------------------------------- ambiguous transitions #
     for s in sm.states.values():
-        # FORK'UN DALLARI SECENEK DEGIL, HEPSI BIRDEN ALINIR.
+        # THE BRANCHES OF A FORK ARE NOT ALTERNATIVES; ALL OF THEM ARE TAKEN.
         #
-        # UML 2.5.1, 14.2.3.7: fork gelen bir gecisi "two or more
-        # Transitions terminating on Vertices in orthogonal Regions"
-        # haline boler ve o gecisler tetikleyici ya da koruma TASIYAMAZ.
-        # Yani ayni (olay, koruma, oncelik) ucusu fork icin KURALIN
-        # KENDISIDIR, ihlali degil -- ama denetim bunu siradan bir
-        # dallanma sanip her gecerli fork icin uyari veriyordu. Cok
-        # bolgeye giden bir GIRIS NOKTASI da "acts as a fork" (ayni
+        # UML 2.5.1, 14.2.3.7: a fork splits an incoming transition into "two or
+        # more Transitions terminating on Vertices in orthogonal Regions", and
+        # those transitions CANNOT carry a trigger or a guard. So the same
+        # (event, guard, priority) triple IS THE RULE ITSELF for a fork, not a
+        # violation -- but the check mistook it for ordinary branching and warned
+        # on every valid fork. An ENTRY POINT leading into several regions also
+        # "acts as a fork" (same clause), so it is exempt too.
         # madde), o da muaftir.
         if s.kind in (StateKind.FORK, StateKind.ENTRY_POINT):
             continue
