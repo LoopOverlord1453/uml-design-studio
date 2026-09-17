@@ -1,31 +1,31 @@
-"""PlantUML disa aktarimi -- TUVALDEKI CIZIMIN AYNISI.
+"""PlantUML export -- IDENTICAL TO THE DRAWING ON THE CANVAS.
 
-Diyagrami dokumanlara gomulebilecek metinsel bir bicime cevirir. Kod
-uretimiyle ayni modelden beslendigi icin dokuman ile kod arasinda kayma
-olmaz.
+Turns the diagram into a textual form that can be embedded in documents.
+Because it is fed by the same model as the code generation, the document and
+the code cannot drift apart.
 
-YASANAN IKI HATA:
+TWO MISTAKES WE ACTUALLY MADE:
 
-1. Her gecis icin yalnizca `-->` yaziliyordu. PlantUML yon bilgisi
-   olmayan gecisleri yukaridan asagiya dizer; kullanici YATAY cizdigi
-   makineyi DIKEY ve karisik bir sekilde geri aliyordu.
-2. Duzeltmenin ilk halinde genis modellere `left to right direction`
-   ekledik ve cizim bu kez 90 DERECE DONDU. Cunku PlantUML bu
-   yonergeyi GraphViz'e `rankdir=LR` diye gecirir, `-right->` oku ise
-   "ayni rank" demektir: dikey akista ayni rank yan yanadir, yatay
-   akista ALT ALTA. Yan yana cizilen LedOn/LedOff alt alta indi.
-   Kuresel yon yonergesi ile ok yonu ipuclari BIRLIKTE KULLANILMAZ.
-Ayrica tarih/junction/terminate sozde-durumlari duz kutu olarak, ic
-gecisler ise ok olarak ciziliyordu -- ikisi de UML'e ve uretilen koda
-aykiri; serbest `note` de yerlesimi daginitiyordu.
+1. Only `-->` was written for every transition. PlantUML stacks transitions
+   that carry no direction from top to bottom; the user drew the machine
+   HORIZONTALLY and got it back VERTICAL and tangled.
+2. The first fix added `left to right direction` for wide models, and this
+   time the drawing ROTATED 90 DEGREES -- because PlantUML passes that
+   directive to GraphViz as `rankdir=LR`, while a `-right->` arrow means
+   "the same rank": in a vertical flow the same rank is side by side, in a
+   horizontal flow it is ONE BELOW THE OTHER. LedOn/LedOff, drawn side by
+   side, ended up stacked. A global directive and per-arrow hints DO NOT MIX.
+History/junction/terminate pseudostates were also drawn as plain boxes and
+internal transitions as arrows -- both contrary to UML and to the generated
+code; a free-floating `note` scattered the layout too.
 
-Bu surum modeldeki KONUMLARI kullanir:
+This version uses the POSITIONS in the model:
 
-  * her gecis icin kaynak ve hedefin gercek koordinatlarindan bir yon
-    secilir (`-right->`, `-down->`, ...),
-  * durumlar tuvaldeki okuma sirasina gore yayimlanir.
+  * for each transition a direction is chosen from the real coordinates of
+    the source and the target (`-right->`, `-down->`, ...),
+  * states are emitted in the reading order of the canvas.
 
-Boylece PlantUML'in urettigi resim tuvaldeki yerlesimi izler.
+So the picture PlantUML produces follows the layout on the canvas.
 """
 
 from __future__ import annotations
@@ -36,19 +36,19 @@ from typing import Dict, List, Optional, Tuple
 from ..core.model import (State, StateKind, StateMachine, Transition,
                           TransitionKind)
 
-#: PlantUML'de tirnaksiz yazilabilecek ad.
+#: A name that can be written without quotes in PlantUML.
 _SADE_AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-#: Sozde-durumlarin PlantUML karsiliklari.
+#: The PlantUML counterparts of the pseudostates.
 #:
-#: PlantUML'de junction icin ayri bir gosterim yoktur; choice ile ayni
-#: elmas kullanilir. Ayrimi kaybetmemek icin govdeye bir satir dusulur.
+#: PlantUML has no separate notation for a junction; it uses the same
+#: diamond as a choice. A body line keeps the distinction visible.
 _STEREOTIP = {
     StateKind.CHOICE: "<<choice>>",
     StateKind.JUNCTION: "<<choice>>",
     StateKind.TERMINATE: "<<end>>",
-    # PlantUML fork/join icin ayri bir bicem tasir; kalin cubuk olarak
-    # cizer ve boylece resim, tuvaldeki gosterimle ortusur.
+    # PlantUML carries a separate style for fork/join; it draws them as a
+    # thick bar, so the picture matches what the canvas shows.
     StateKind.FORK: "<<fork>>",
     StateKind.JOIN: "<<join>>",
     StateKind.ENTRY_POINT: "<<entryPoint>>",
@@ -56,7 +56,7 @@ _STEREOTIP = {
     StateKind.SUBMACHINE: "<<sdlreceive>>",
 }
 
-#: Ok ucu olarak gorunen, ayrica BILDIRILMEYEN sozde-durumlar.
+#: Pseudostates that appear as an arrow end and are NOT declared separately.
 _UC_OLARAK = (StateKind.INITIAL, StateKind.FINAL,
               StateKind.SHALLOW_HISTORY, StateKind.DEEP_HISTORY)
 
@@ -66,7 +66,7 @@ def _esc(text: str) -> str:
 
 
 def _kimlik(name: str, used: Dict[str, str]) -> str:
-    """Ad -> PlantUML tanimlayicisi (bosluklu adlar da calissin)."""
+    """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
     if _SADE_AD.match(name):
@@ -84,10 +84,10 @@ def _kimlik(name: str, used: Dict[str, str]) -> str:
 
 
 def _abs_center(sm: StateMachine, s: State) -> Tuple[float, float]:
-    """Durumun SAHNEDEKI merkezi.
+    """The centre of the state ON THE SCENE.
 
-    Alt durumlarin x/y'si ust durumun icine goredir; yon hesabi mutlak
-    konum ister, yoksa ic ice yapilarda yonler yanlis cikardi.
+    Substate x/y is relative to the inside of the parent; the direction
+    calculation needs absolute positions, or nesting gets the directions wrong.
     """
     x, y = s.x, s.y
     ust = sm.parent_of(s.id)
@@ -101,30 +101,30 @@ def _abs_center(sm: StateMachine, s: State) -> Tuple[float, float]:
 
 
 def _dikey_aralik(sm: StateMachine, s: State):
-    """Durumun SAHNEDEKI dikey araligi (ust, alt)."""
+    """The vertical range of the state ON THE SCENE (top, bottom)."""
     _cx, cy = _abs_center(sm, s)
     return cy - s.h / 2.0, cy + s.h / 2.0
 
 
-#: Kutunun "orta bandi": yuksekliginin ortadaki bu kadarlik dilimi.
+#: The "middle band" of a box: this much of the middle of its height.
 #:
-#: Tam aralik kullanmak, 290 piksellik bir bilesik durumun ekrandaki
-#: hemen her seyle ortusmesine yol aciyordu; Check elmasi Running'in ALT
-#: KENARINA degdigi icin "ayni bant" sayiliyordu. Orta band, "gozle ayni
-#: satirda mi" sorusunun daha iyi bir karsiligidir.
+#: Using the full range made a 290 pixel composite state overlap almost
+#: everything on screen; the Check diamond counted as "the same band"
+#: because it touched the BOTTOM EDGE of Running. The middle band is a
+#: better answer to "does this look like the same row".
 _ORTA_BAND = 0.6
 
 
 def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
-    """Iki kutu AYNI YATAY BANTTA mi duruyor?
+    """Do the two boxes sit in the SAME HORIZONTAL BAND?
 
-    PlantUML'de `-right->`/`-left->` "ayni rank", `-down->`/`-up->` ise
-    "sonraki rank" demektir. Bu yuzden dogru soru "hangi eksende daha
-    uzak" degil, "ayni satirda mi" sorusudur.
+    In PlantUML `-right->`/`-left->` means "the same rank", while
+    `-down->`/`-up->` means "the next rank". So the right question is not
+    "which axis is farther" but "are they on the same row".
 
-    Yanlis cevap CELISKILI KISIT uretir: Off ile Running ayni rank,
-    Running ile Check ayni rank, ama Check'in bir ust ranki Off deniyordu.
-    GraphViz boyle bir kisit kumesinde birini atar ve yerlesim bozulur.
+    A wrong answer produces CONTRADICTORY CONSTRAINTS: Off and Running on the
+    same rank, Running and Check on the same rank, but Check one rank above
+    Off. GraphViz drops one of them and the layout falls apart.
     """
     def band(ust: float, alt: float):
         orta = (ust + alt) / 2.0
@@ -137,7 +137,7 @@ def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
 
 
 def _yon(sm: StateMachine, src: State, tgt: State) -> str:
-    """Iki durum arasindaki oku TUVALDEKI yone gore isaretler."""
+    """Marks the arrow between two states with the direction ON THE CANVAS."""
     x0, y0 = _abs_center(sm, src)
     x1, y1 = _abs_center(sm, tgt)
     ust0, alt0 = _dikey_aralik(sm, src)
@@ -153,17 +153,17 @@ def _label(t: Transition) -> str:
 
 
 def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
-    # ALTMAKINE REFERANSLARI RESIMDE DE ACILIR.
+    # SUBMACHINE REFERENCES ARE EXPANDED IN THE PICTURE TOO.
     #
-    # Kapali bir kutu cizmek, resmin uretilen koddan BASKA bir seyi
-    # anlatmasi demek olurdu: kod genisletilmis makineyi uretir. UML de
-    # altmakineyi "macro-like insertion" olarak tanimlar (14.2.3.4.7).
+    # Drawing a closed box would make the picture tell a DIFFERENT story from
+    # the generated code: the code generates the expanded machine. UML also
+    # defines a submachine as a "macro-like insertion" (14.2.3.4.7).
     from ..core.submachine import has_submachine, flatten
     if resolve is not None and has_submachine(sm):
         try:
             sm = flatten(sm, resolve)
         except Exception:                       # noqa: BLE001
-            pass                                # cizim uretimi engellenmez
+            pass                                # drawing generation is never blocked
 
     kimlikler: Dict[str, str] = {}
 
@@ -172,20 +172,20 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         if s.kind in (StateKind.INITIAL, StateKind.FINAL):
             alias[s.id] = "[*]"
         elif s.kind.is_history:
-            continue            # ikinci turda: SAHIBIYLE nitelenir
+            continue            # second pass: qualified BY ITS OWNER
         else:
             alias[s.id] = _kimlik(s.name, kimlikler)
 
-    # TARIH DUGUMU SAHIBIYLE NITELENIR.
+    # A HISTORY NODE IS QUALIFIED BY ITS OWNER.
     #
-    # Ciplak `[H]`, PlantUML'de ICINDE YAZILDIGI bolgenin tarihidir. Oklar
-    # en ust duzeyde yayimlandigi icin her tarih ayni KOK dugume
-    # baglaniyordu: iki ayri bilesik durumun tarihi tek bir daireye
-    # cokuyor ve resim modeli YANLIS anlatiyordu. `GrpA[H]` bicimi
-    # her yerde gecerlidir ve hangi durumun tarihi oldugunu soyler.
+    # A bare `[H]` is the history of the region it is WRITTEN IN. Because the
+    # arrows are emitted at the top level, every history was attaching to the
+    # same ROOT node: the histories of two different composite states
+    # collapsed into one circle and the picture told the model WRONG. The
+    # `GrpA[H]` form is valid everywhere and says whose history it is.
     #
-    # Ikinci tur sart: sahibin takma adi ilk turda uretilir ve durumlar
-    # sozlukte herhangi bir sirada gelebilir.
+    # The second pass is required: the alias of the owner is produced in the
+    # first pass and the states may arrive in any order in the dictionary.
     for s in sm.states.values():
         if not s.kind.is_history:
             continue
@@ -194,21 +194,21 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         if sahip:
             alias[s.id] = "%s%s" % (sahip, isaret)
         else:
-            # Kok bolgede tarih UML'de gecersizdir (V064); yine de
-            # cizime bir sey koymak, sessizce atmaktan iyidir.
+            # A history in the root region is invalid in UML (V064); still, putting
+            # something into the drawing beats dropping it silently.
             alias[s.id] = isaret
 
-    # -- Yerlesim yonu ------------------------------------------------------- #
+    # -- Layout direction # -------------------------------------------------- #
     #
-    # `left to right direction` YAZILMAZ. Ilk denemede yazmistik ve cizim
-    # 90 derece DONDU: PlantUML bu yonergeyi GraphViz'e `rankdir=LR` diye
-    # gecirir; `-right->` oku ise "ayni rank" demektir. Dikey akista ayni
-    # rank yan yanadir, yatay akista ALT ALTA. Sonucta yan yana cizilen
-    # LedOn/LedOff alt alta dizildi, Fault sol altta iken sag uste cikti.
-    #
-    # Yon bilgisini zaten HER OK kendisi tasiyor (bkz. _yon); kuresel
-    # yonerge hem gereksiz hem zararli. `yatay` yalnizca BILDIRIM SIRASI
-    # icin kullanilir: PlantUML esit kosullarda yazim sirasini korur.
+    # `left to right direction` IS NOT WRITTEN. We tried it once and the
+    # drawing ROTATED 90 degrees: PlantUML passes the directive to GraphViz
+    # as `rankdir=LR`, while the `-right->` arrow means "the same rank". In a
+    # vertical flow the same rank is side by side, in a horizontal flow ONE
+    # BELOW THE OTHER. LedOn/LedOff ended up stacked and Fault moved from the
+    #bottom left to the top right.
+    # EVERY ARROW already carries its own direction (see _direction); a global
+    # directive is both unnecessary and harmful. `horizontal` is used only for
+    # the DECLARATION ORDER: all else being equal PlantUML keeps writing order.
     kutular = [s for s in sm.states.values()
                if s.kind.is_real_state or s.kind.is_branch]
     yatay = False
@@ -238,8 +238,8 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         "",
     ]
 
-    # Bir bolgenin ICINDE kalan gecisler o blogun icine yazilir; disarida
-    # ikinci kez yayimlanmamalari icin onceden isaretlenir.
+    # Transitions that stay INSIDE a region are written into that block; they
+    # are marked beforehand so they are not emitted a second time outside.
     ic_bolge = set()
     for t in sm.transitions.values():
         src = sm.states.get(t.source)
@@ -250,11 +250,11 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
             ic_bolge.add(t.id)
 
     def ic_gecis_satirlari(s: State) -> List[str]:
-        """Durumun IC gecisleri: ok degil, govdede bir satir.
+        """The INTERNAL transitions of a state: not an arrow, a body line.
 
-        UML 2.5.1'e gore ic gecis ne cikis ne giris eylemi calistirir;
-        uretilen C/C++ kodu da boyle davranir. Ok olarak cizmek resmi
-        kodla CELISKIYE dusururdu.
+        Per UML 2.5.1 an internal transition runs neither the exit nor the entry
+        behaviour, and the generated C/C++ behaves the same way. Drawing it as
+        an arrow would put the picture in CONFLICT with the code.
         """
         out = []
         for t in sm.outgoing(s.id):
@@ -271,7 +271,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
             L.append("%s%s" % (pad, satir))
 
     def bas_satiri(s: State, pad: str, acik: bool) -> str:
-        """`state X` / `state "Ad" as X` satirini kurar."""
+        """Builds the `state X` / `state "Name" as X` line."""
         if alias[s.id] == s.name:
             metin = "%sstate %s" % (pad, s.name)
         else:
@@ -285,10 +285,10 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
 
     def cizim_sirasi(parent: Optional[str],
                      bolge: Optional[int] = None) -> List[State]:
-        """Cocuklari TUVALDEKI okuma sirasina gore verir.
+        """The children in the reading order of the CANVAS.
 
-        `bolge` verilirse YALNIZCA o bolgedekiler dondurulur; ortogonal
-        bir durumun bolgeleri PlantUML'de "--" ile ayri ayri yazilir.
+        With ``region`` given, ONLY the ones in that region are returned; the
+        regions of an orthogonal state are written separately with "--".
         """
         if bolge is None:
             cocuklar = list(sm.sorted_children(parent))
@@ -302,22 +302,22 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                     bolge: Optional[int] = None) -> None:
         for s in cizim_sirasi(parent, bolge):
             if s.kind in _UC_OLARAK:
-                # Bunlarin PlantUML'de ayri bir bildirimi yoktur; yalnizca
-                # ok ucu olarak ([*], [H], [H*]) gorunurler.
+                # These have no separate declaration in PlantUML; they only appear as
+                # arrow ends ([*], [H], [H*]).
                 continue
             if s.kind is StateKind.COMPOSITE:
                 L.append(bas_satiri(s, pad, acik=True))
-                # ORTOGONAL durumun bolgeleri "--" ile ayrilir; PlantUML
-                # bunu es zamanli bolge olarak cizer. Tek bolgeli durumda
-                # ayirici yazilmaz ve cikti eskisiyle ayni kalir.
+                # The regions of an ORTHOGONAL state are separated with "--"; PlantUML
+                # draws that as concurrent regions. For a single-region state no
+                # separator is written and the output stays as it was.
                 bolge_sayisi = sm.region_count(s.id)
 
                 def ic_gecisler(sahip: str, hangi: Optional[int]) -> None:
-                    """Sahibin (istege bagli olarak bir bolgesinin) ic oklari.
+                    """The inner arrows of an owner (optionally of one region).
 
-                    Oklar KENDI bolge blogunda yazilmalidir: hepsi en sona
-                    yazilsaydi PlantUML onlari SON bolgeye koyar ve resim
-                    modeli yanlis anlatirdi.
+                    The arrows must be written INSIDE THEIR OWN region block: if
+                    they were all written at the end, PlantUML would put them in
+                    the LAST region and the picture would misrepresent the model.
                     """
                     for t in sm.ordered_transitions():
                         if t.id not in ic_bolge:
@@ -345,7 +345,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
             else:
                 L.append(bas_satiri(s, pad, acik=False))
                 if s.kind is StateKind.JUNCTION:
-                    # Elmas choice ile ayni; ayrimi yazi ile koru.
+                    # The diamond is the same as a choice; keep the distinction in text.
                     L.append("%s%s : <<junction>>" % (pad, alias[s.id]))
             govde(s, pad)
 
@@ -363,8 +363,8 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                                  alias[tgt.id], _label(t)))
 
     if sm.description:
-        # Serbest bir `note` yerlesimi bozuyordu: PlantUML onu rastgele bir
-        # kosede tutup oklari uzatiyordu. `caption` resmin ALTINA yazilir.
+        # A free-floating `note` broke the layout: PlantUML kept it in a random
+        # corner and stretched the arrows. A `caption` goes BELOW the picture.
         L += ["", "caption %s" % _esc(sm.description)]
 
     L += ["", "@enduml", ""]

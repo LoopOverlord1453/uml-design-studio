@@ -1,21 +1,21 @@
-"""UML sinif diyagramindan C11+GNU kodu ureteci (gomulu hedefler icin).
+"""C11+GNU generator from a UML class diagram (for embedded targets).
 
-Nesne yonelimli esleme kurallari (uretilen basligin girisinde de belgelenir):
-  * Sinif             -> typedef struct + <ad>_init() kurucusu
-  * Generalization    -> temel struct ILK uye olarak gomulur ('base');
-                         (temel_t *)ptr donusumu her zaman gecerlidir
-  * <<interface>>     -> islev gostericisi tablosu (vtable) + self gostericisi;
-                         gerceklestiren sinif <ad>_as_<arayuz>() saglar
-  * Composition       -> deger uyesi; '*' cokluklarinda sabit kapasiteli dizi
-  * Aggregation       -> gosterici uyesi (sahiplik yok)
-  * Association       -> gosterici uyesi
-  * Dependency        -> yalnizca yorum satiri (baglanti bilgisi)
-  * Islem             -> <sinif>_<islem>(<sinif>_t *self, ...) islevi
-  * Statik nitelik    -> .c icinde dosya kapsamli static degisken
-  * cokluk '0..*'     -> T uye[CAPACITY] + sayac  (dinamik bellek YOK)
+Object-oriented mapping rules (documented in the generated header as well):
+  * Class             -> typedef struct + a <name>_init() constructor
+  * Generalization    -> the base struct is embedded as the FIRST member
+                         ('base'); the (base_t *)ptr conversion is always valid
+  * <<interface>>     -> function pointer table (vtable) + a self pointer;
+                         the implementing class provides <name>_as_<iface>()
+  * Composition       -> value member; for '*' multiplicities a fixed array
+  * Aggregation       -> pointer member (no ownership)
+  * Association       -> pointer member
+  * Dependency        -> a comment line only (link information)
+  * Operation         -> a <class>_<operation>(<class>_t *self, ...) function
+  * Static attribute  -> a file-scope static variable inside the .c
+  * multiplicity '0..*' -> T member[CAPACITY] + a counter  (NO dynamic memory)
 
-Dinamik bellek, ozyineleme ve VLA kullanilmaz; MISRA C:2012 zorunlu
-kurallari gozetilir (islev gostericileri R.8-9 kapsaminda bilinclidir).
+No dynamic memory, no recursion and no VLAs; the mandatory rules of
+MISRA C:2012 are respected (function pointers are a conscious R.8-9 case).
 """
 
 from __future__ import annotations
@@ -32,19 +32,19 @@ from .class_cpp_generator import fixed_count, is_many
 CAPACITY_DEFAULT = 8
 
 
-#: Ad donusumu cekirdekte tanimlidir; dogrulayici da AYNI islevi kullanir.
+#: The name conversion lives in the core; the validator uses the SAME function.
 snake = _snake
 
 
 def banner_c(cm: ClassModel, filename: str, kind: str) -> List[str]:
-    # URETIM ZAMANI YAZILMAZ.
+    # THE GENERATION TIME IS NOT WRITTEN.
     #
-    # Basliktaki saniyelik damga, model HIC DEGISMESE bile her uretimde
-    # dosyayi farkli kiliyordu: calisma alanina yazma adimi dosyayi
-    # yeniden yaziyor, git calisma agacinda butun uretilen dosyalar
-    # "degismis" gorunuyor ve fark ekraninda tek satirlik bir tarih
-    # degisikliginden baska bir sey olmuyordu. Ayni modelden AYNI kaynak
-    # uretilmesi surum kontrolu icin sart.
+    # A second-resolution stamp in the header made the file different on every
+    # run even when the model had NOT changed at all: the write-to-workspace
+    # step rewrote the file, every generated file looked "modified" in the git
+    # working tree, and the diff view showed nothing but a one-line date
+    # change. Producing THE SAME source from the same model is essential for
+    # version control.
     lines = [
         "/*" + "*" * 76,
         " * @file    %s" % filename,
@@ -101,7 +101,7 @@ def c_default_return(rtype: str) -> Optional[str]:
         return "0.0"
     if _is_scalar_c(t):
         return "(%s)0" % t
-    # Birlesik (struct) tip: sifirlanmis statik kopya dondur.
+    # Compound (struct) type: return a zeroed static copy.
     return None
 
 
@@ -110,14 +110,14 @@ class ClassCGenerator:
         self.cm = cm
         self.p = cm.prefix
         self.P = cm.prefix.upper()
-        # Diyagram sinif adi -> C tip adi eslemesi
+        # Diagram class name -> C type name mapping
         self.ctype: Dict[str, str] = {c.name: "%s_t" % snake(c.name)
                                       for c in cm.classes.values()}
 
-    # ------------------------------------------------------------ yardimci #
+    # ------------------------------------------------------------- helpers #
 
     def map_type(self, t: str) -> str:
-        """Kullanici tipi diyagramdaki bir sinifsa C tipine cevrilir."""
+        """A user type that is a class in the diagram becomes a C type."""
         base = t.strip()
         suffix = ""
         while base.endswith("*"):
@@ -134,10 +134,10 @@ class ClassCGenerator:
         return rel.target_role.strip() or snake(part.name)
 
     def _iface_all_ops(self, iface: UmlClass) -> List[Operation]:
-        """Arayuzun islemleri + Generalization ile turedigi arayuzlerinkiler.
+        """The operations of an interface plus those it inherits via Generalization.
 
-        Temel arayuz islemleri once gelir; ayni adli islem turetilende yeniden
-        tanimlanmissa turetilen imza kullanilir (islev tablosu duzlestirilir).
+        Base interface operations come first; when an operation of the same
+        name is redefined, the derived signature wins (the table is flattened).
         """
         out: List[Operation] = []
         pos: Dict[str, int] = {}
@@ -204,11 +204,11 @@ class ClassCGenerator:
                 L += ["typedef struct %s_s %s_t;" % (sn, sn)]
         L += [""]
 
-        # once arayuzler (vtable tipleri)
+        # interfaces first (vtable types)
         for c in ordered:
             if c.is_interface:
                 L += self._iface_decl(c)
-        # sonra siniflar
+        # then the classes
         for c in ordered:
             if not c.is_interface:
                 L += self._class_decl(c)
@@ -249,7 +249,7 @@ class ClassCGenerator:
 
         for a in c.attributes:
             if a.static:
-                continue        # .c icinde dosya kapsamli
+                continue        # file-scope inside the .c
             t = self.map_type(a.type)
             vis_note = " (UML %s)" % a.visibility \
                 if a.visibility != Visibility.PRIVATE.value else ""
@@ -276,7 +276,7 @@ class ClassCGenerator:
             by_value = (rel.kind is RelationKind.COMPOSITION
                         and not part.is_abstract)
             if part.is_interface:
-                # Arayuz tipli uc: vtable kopyasi tutulur
+                # Interface-typed end: a copy of the vtable is kept
                 if is_many(rel.target_mult):
                     L += ["    %-18s %s[%s_CAPACITY];  /* %s -> %s [%s] */"
                           % (self.ctype[part.name], name, self.P, kind_note,
@@ -305,11 +305,11 @@ class ClassCGenerator:
             else:
                 L += ["    %-18s *%s;  /* %s -> %s */" % (t, name, kind_note, part.name)]
         if len(L) == member_start:
-            # ISO C bos struct'a izin vermez; yer tutucu ekle.
+            # ISO C does not allow an empty struct; add a placeholder.
             L += ["    uint8_t reserved_;  /* placeholder: ISO C forbids an empty struct */"]
         L += ["};", ""]
 
-        # kurucu + islemler
+        # constructor + operations
         L += ["/** @brief Initialises a %s instance with every field zeroed. */"
               % c.name]
         L += ["void %s_init(%s_t *self);" % (sn, sn), ""]
@@ -347,7 +347,7 @@ class ClassCGenerator:
         L: List[str] = []
         L += ["/* %s %s %s */" % ("=" * 20, c.name, "=" * max(1, 50 - len(c.name)))]
 
-        # statik nitelikler
+        # static attributes
         for a in c.attributes:
             if a.static:
                 t = self.map_type(a.type)
@@ -358,7 +358,7 @@ class ClassCGenerator:
         if any(a.static for a in c.attributes):
             L += [""]
 
-        # kurucu
+        # constructor
         L += ["void %s_init(%s_t *self)" % (sn, sn), "{"]
         L += ["    if (self == NULL) {", "        return;", "    }"]
         base = cm.generalization_parent(c.id)
@@ -415,17 +415,17 @@ class ClassCGenerator:
                 L += ["    self->%s = NULL;" % name]
         L += ["}", ""]
 
-        # islemler
+        # operations
         for o in c.operations:
             L += self._op_impl(c, o)
 
-        # arayuz gerceklestirmeleri
+        # interface realizations
         for iface in cm.realized_interfaces(c.id):
             L += self._iface_impl(c, iface)
         return L
 
     def _class_ctor_of(self, ctype: str) -> Optional[str]:
-        """Tip diyagramdaki bir sinifsa onun kurucusunun adi, degilse None."""
+        """The constructor name if the type is a class in the diagram, else None."""
         for cls_name, mapped in self.ctype.items():
             if mapped == ctype.strip():
                 return "%s_init" % snake(cls_name)
@@ -433,9 +433,9 @@ class ClassCGenerator:
 
     def _zero_field(self, c: UmlClass, name: str, ctype: str,
                     mult: str, default: str) -> List[str]:
-        # Tipi diyagramdaki bir sinif olan nitelik, o sinifin KURUCUSUYLA
-        # kurulmalidir; sifir kopyasi kullanmak ic sinifin UML varsayilan
-        # degerlerini yok eder ve C ciktisini C++ ciktisindan ayirir.
+        # An attribute whose type is a class in the diagram must be built with
+        # that class's CONSTRUCTOR; using a zero copy destroys the inner class's
+        # UML default values and makes the C output differ from the C++ one.
         ctor = self._class_ctor_of(ctype)
         if is_many(mult):
             out = ["    self->%s_count = 0U;" % name]
@@ -479,7 +479,7 @@ class ClassCGenerator:
             return "0.0"
         if _is_scalar_c(t):
             return "(%s)0" % t
-        return "{0}"            # bilinmeyen/birlesik tip: static const sifir kopyasi
+        return "{0}"            # unknown/compound type: static const zero copy
 
     def _op_impl(self, c: UmlClass, o: Operation) -> List[str]:
         rt = self.map_type(o.return_type or "void")
@@ -499,7 +499,7 @@ class ClassCGenerator:
             if ret is not None:
                 L += ["    return %s;" % ret]
             elif rt != "void":
-                # Birlesik (struct) donus tipi: sifirlanmis statik kopya.
+                # Compound (struct) return type: a zeroed static copy.
                 L += ["    {",
                       "        static const %s zero_result;" % rt,
                       "        return zero_result;",
@@ -548,10 +548,10 @@ class ClassCGenerator:
         L += ["    return itf;", "}", ""]
         return L
 
-    # ----------------------------------------------------- MCU tumlestirme #
+    # ----------------------------------------------------- MCU integration #
 
     def demo_source(self) -> str:
-        """Uretilen siniflari bir MCU super dongusunde kullanan ornek."""
+        """An example that uses the generated classes in an MCU super loop."""
         cm = self.cm
         L: List[str] = []
         L += banner_c(cm, "%s_main.c" % self.p, "bare-metal integration example")
@@ -623,10 +623,10 @@ class ClassCGenerator:
 
 
 def generate_class_c(cm: ClassModel, with_demo: bool = True) -> Dict[str, str]:
-    """Modelden {dosya_adi: icerik} sozlugu uretir.
+    """Produces a {file_name: content} dictionary from the model.
 
-    ``with_demo`` acikken ucuncu dosya bir BIRIM TEST degil, siniflari bir MCU
-    super dongusunde kullanan tumlestirme ornegidir.
+    With ``with_demo`` on, the third file is not a UNIT TEST but an integration
+    example that uses the classes in an MCU super loop.
     """
     gen = ClassCGenerator(cm)
     files = {"%s.h" % cm.prefix: gen.header(),

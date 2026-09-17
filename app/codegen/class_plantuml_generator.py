@@ -1,15 +1,15 @@
-"""Sinif diyagrami PlantUML disa aktarimi -- TUVALDEKI CIZIMIN AYNISI.
+"""Class diagram PlantUML export -- IDENTICAL TO THE DRAWING ON THE CANVAS.
 
-Durum makinesi ureteciyle AYNI kurallar gecerlidir (bkz.
-plantuml_generator.py): yon bilgisi olmayan bir PlantUML metni, tuvalde
-yatay cizilmis bir diyagrami dikey ve karisik bir resme cevirir. Burada
-da iliski oklari modeldeki KONUMLARDAN yon alir, diyagram genisse
-`left to right direction` yazilir ve siniflar tuvaldeki okuma sirasina
-gore yayimlanir.
+The SAME rules apply as in the state machine generator (see
+plantuml_generator.py): PlantUML text without direction information turns a
+diagram drawn horizontally on the canvas into a vertical, tangled picture.
+Here too the relationship arrows take their direction from the POSITIONS in
+the model, `left to right direction` is written when the diagram is wide, and
+the classes are emitted in the reading order of the canvas.
 
-Ayrica: bosluklu sinif adlari tirnaklanir (aksi halde PlantUML metni
-ayristiramaz), uc adlari (role) ve `{static}` isaretleri kaybolmaz,
-serbest `note` yerine yerlesimi bozmayan `caption` kullanilir.
+Also: class names containing spaces are quoted (PlantUML cannot parse the
+text otherwise), end names (roles) and `{static}` markers are not lost, and
+a layout-friendly `caption` is used instead of a free-floating `note`.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from typing import Dict, List, Tuple
 from ..core.class_model import ClassModel, RelationKind, Stereotype, UmlClass
 from .plantuml_generator import yatay_mi
 
-#: Iliski turu -> PlantUML ok govdesi (yon eki ayrica eklenir).
+#: Relationship kind -> PlantUML arrow body (the direction is added later).
 _ARROWS = {
     RelationKind.ASSOCIATION: "-->",
     RelationKind.AGGREGATION: "o--",
@@ -30,11 +30,11 @@ _ARROWS = {
     RelationKind.DEPENDENCY: "..>",
 }
 
-#: Ok govdesine yon eki yerlestirme kaliplari.
+#: Patterns for placing the direction infix into the arrow body.
 #:
-#: PlantUML'de yon, cizginin ORTASINA yazilir: `-->` -> `-right->`,
-#: `o--` -> `o-right-`, `..|>` -> `.right.|>`. Duz bir metin eki yeterli
-#: degildir, bu yuzden her tur icin kalip ayri tutulur.
+#: In PlantUML the direction goes in the MIDDLE of the line: `-->` ->
+#: `-right->`, `o--` -> `o-right-`, `..|>` -> `.right.|>`. A plain text
+#: suffix is not enough, so each kind keeps its own pattern.
 _YONLU = {
     RelationKind.ASSOCIATION: "-%s->",
     RelationKind.AGGREGATION: "o-%s-",
@@ -52,7 +52,7 @@ def _esc(text: str) -> str:
 
 
 def _kimlik(name: str, used: Dict[str, str]) -> str:
-    """Ad -> PlantUML tanimlayicisi (bosluklu adlar da calissin)."""
+    """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
     if _SADE_AD.match(name):
@@ -74,11 +74,11 @@ def _center(c: UmlClass) -> Tuple[float, float]:
 
 
 def _yon(src: UmlClass, tgt: UmlClass, kind: RelationKind) -> str:
-    """Iliski okunu TUVALDEKI yone gore isaretler.
+    """Marks the relationship arrow with the direction ON THE CANVAS.
 
-    PlantUML'de yatay yon "ayni rank", dikey yon "sonraki rank" demektir;
-    bu yuzden olcut "hangi eksende daha uzak" degil, iki kutunun AYNI
-    BANTTA olup olmadigidir (bkz. plantuml_generator._yatay_mi).
+    In PlantUML a horizontal direction means "the same rank" and a vertical
+    one means "the next rank"; so the criterion is not "which axis is farther"
+    but whether the two boxes sit in the SAME BAND (see _is_horizontal there).
     """
     x0, y0 = _center(src)
     x1, y1 = _center(tgt)
@@ -101,10 +101,10 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         ys = [_center(c)[1] for c in siniflar]
         yatay = (max(xs) - min(xs)) > (max(ys) - min(ys))
 
-    # `left to right direction` YAZILMAZ -- durum diyagramindaki ile ayni
-    # gerekce: PlantUML onu `rankdir=LR` diye gecirir ve `-right-` ("ayni
-    # rank") yatay olmaktan cikip DIKEY olur; cizim 90 derece doner.
-    # Yon bilgisi zaten her okun kendisindedir (bkz. _yon).
+    # `left to right direction` IS NOT WRITTEN -- same reason as in the state
+    # diagram: PlantUML turns it into `rankdir=LR`, and `-right-` ("the same
+    # rank") stops being horizontal and becomes VERTICAL; the drawing rotates
+    # 90 degrees. The direction is already carried by each arrow (see _direction).
     L: List[str] = ["@startuml"]
     if cm.name:
         L.append("title %s" % _esc(cm.name))
@@ -124,8 +124,8 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         "",
     ]
 
-    # Siniflari TUVALDEKI okuma sirasina gore yayimla: PlantUML esit
-    # kosullarda bildirim sirasini korur, bu da resmi cizime yaklastirir.
+    # Emit the classes in the reading order of the CANVAS: all else being equal
+    # PlantUML keeps the declaration order, which brings the picture closer.
     sirali = sorted(siniflar,
                     key=(lambda c: (c.x, c.y)) if yatay
                     else (lambda c: (c.y, c.x)))
@@ -160,7 +160,7 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         tgt = cm.classes.get(r.target)
         if src is None or tgt is None:
             continue
-        # PlantUML'de butun-parca oklari "Butun *-- Parca" yonundedir.
+        # In PlantUML whole-part arrows point "Whole *-- Part".
         sol = "%s " % alias[src.id]
         if r.source_mult:
             sol += '"%s" ' % _esc(r.source_mult)
@@ -170,8 +170,8 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         sag += alias[tgt.id]
         satir = sol + _yon(src, tgt, r.kind) + sag
 
-        # Uc adlari (role) ve etiket TEK bir ":" bolumunde toplanir;
-        # PlantUML ikinci bir ":" kabul etmez.
+        # End names (roles) and the label are collected into ONE ":" section;
+        # PlantUML does not accept a second ":".
         parcalar = []
         if r.label:
             parcalar.append(_esc(r.label))

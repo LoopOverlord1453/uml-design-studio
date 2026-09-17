@@ -1,18 +1,18 @@
-"""UML sinif diyagramindan C++11 kodu ureteci (gomulu hedefler icin).
+"""C++11 generator from a UML class diagram (for embedded targets).
 
-Esleme kurallari (uretilen basligin girisinde de belgelenir):
-  * <<interface>>      -> saf sanal sinif (= 0), sanal yikici, govdesiz
-  * soyut sinif        -> soyut islemler saf sanal, digerleri sanal
-  * Generalization     -> public kalitim
-  * Realization        -> public kalitim (arayuz gerceklestirme)
-  * Composition        -> deger uyesi; '*' cokluklarinda sabit kapasiteli dizi
-  * Aggregation        -> gosterici uyesi (sahiplik yok)
-  * Association        -> gosterici uyesi
-  * Dependency         -> yalnizca on bildirim
-  * cokluk '0..*'/'*'  -> T uye[K_MAX] + sayac  (dinamik bellek YOK)
+Mapping rules (documented in the generated header as well):
+  * <<interface>>      -> pure virtual class (= 0), virtual destructor, no body
+  * abstract class     -> abstract operations pure virtual, the rest virtual
+  * Generalization     -> public inheritance
+  * Realization        -> public inheritance (interface realization)
+  * Composition        -> value member; for '*' multiplicities a fixed array
+  * Aggregation        -> pointer member (no ownership)
+  * Association        -> pointer member
+  * Dependency         -> a forward declaration only
+  * multiplicity '0..*'/'*' -> T member[K_MAX] + a counter  (NO dynamic memory)
 
-Istisna, RTTI ve dinamik bellek kullanilmaz; MISRA C++/AUTOSAR C++14
-yaklasimina uygun uretilir.
+No exceptions, no RTTI and no dynamic memory; the output follows the
+MISRA C++ / AUTOSAR C++14 approach.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ CAPACITY_MACRO_DEFAULT = 8
 
 
 def pascal(name: str) -> str:
-    """Sinif modeli adlari icin PascalCase (bkz. app/core/naming.py)."""
+    """PascalCase for class model names (see app/core/naming.py)."""
     return _pascal(name, fallback="Design")
 
 
@@ -40,7 +40,7 @@ def is_many(mult: str) -> bool:
 
 
 def fixed_count(mult: str) -> Optional[int]:
-    """'3' ya da '2..4' gibi sabit ust sinirli cokluklar icin kapasite."""
+    """Capacity for multiplicities with a fixed upper bound, e.g. '3' or '2..4'."""
     m = mult.strip()
     if m.isdigit() and int(m) > 1:
         return int(m)
@@ -64,7 +64,7 @@ _SCALAR_CPP = {
 
 
 def default_return(rtype: str) -> Optional[str]:
-    """Bos govdeli islemler icin guvenli varsayilan donus ifadesi."""
+    """A safe default return expression for operations with an empty body."""
     t = rtype.strip()
     if not t or t == "void":
         return None
@@ -78,18 +78,18 @@ def default_return(rtype: str) -> Optional[str]:
         return "0.0"
     if t in _SCALAR_CPP:
         return "static_cast<%s>(0)" % t
-    return "%s()" % t           # bilesik tip: deger-baslatma
+    return "%s()" % t           # compound type: value-initialisation
 
 
 def banner_cpp(cm: ClassModel, filename: str, kind: str) -> List[str]:
-    # URETIM ZAMANI YAZILMAZ.
+    # THE GENERATION TIME IS NOT WRITTEN.
     #
-    # Basliktaki saniyelik damga, model HIC DEGISMESE bile her uretimde
-    # dosyayi farkli kiliyordu: calisma alanina yazma adimi dosyayi
-    # yeniden yaziyor, git calisma agacinda butun uretilen dosyalar
-    # "degismis" gorunuyor ve fark ekraninda tek satirlik bir tarih
-    # degisikliginden baska bir sey olmuyordu. Ayni modelden AYNI kaynak
-    # uretilmesi surum kontrolu icin sart.
+    # A second-resolution stamp in the header made the file different on every
+    # run even when the model had NOT changed at all: the write-to-workspace
+    # step rewrote the file, every generated file looked "modified" in the git
+    # working tree, and the diff view showed nothing but a one-line date
+    # change. Producing THE SAME source from the same model is essential for
+    # version control.
     lines = [
         "//" + "=" * 76,
         "// @file    %s" % filename,
@@ -123,7 +123,7 @@ class ClassCppGenerator:
         self.file_base = pascal(cm.name)
         self.capacity = "k%sCapacity" % self.file_base
 
-    # ------------------------------------------------------------ yardimci #
+    # ------------------------------------------------------------- helpers #
 
     def _has_polymorphism(self, c: UmlClass) -> bool:
         return (c.is_interface or c.is_abstract
@@ -133,9 +133,9 @@ class ClassCppGenerator:
         return rel.target_role.strip() or lower_camel(part.name)
 
     def _part_decl(self, rel: Relation, part: UmlClass) -> List[str]:
-        """Composition/aggregation/association uyesinin bildirimi.
+        """The declaration of a composition/aggregation/association member.
 
-        Soyut/arayuz parcalar deger olarak tutulamaz; gostericiyle tutulur.
+        Abstract/interface parts cannot be held by value; they are held by pointer.
         """
         name = self._member_name(rel, part)
         by_value = (rel.kind is RelationKind.COMPOSITION
@@ -171,7 +171,7 @@ class ClassCppGenerator:
 
         ordered = self.cm.topo_sorted()
 
-        # On bildirimler (association/dependency donguleri icin)
+        # Forward declarations (for association/dependency cycles)
         L += ["// -- forward declarations ------------------------------------------------"]
         for c in ordered:
             L += ["class %s;" % c.name]
@@ -199,7 +199,7 @@ class ClassCppGenerator:
             L += ["/// %s" % c_comment(c.note)]
         L += ["class %s%s" % (c.name, self._bases(c)), "{", "public:"]
 
-        # --- kurucu / yikici
+        # --- constructor / destructor
         if c.is_interface:
             L += ["    virtual ~%s() = default;" % c.name, ""]
         else:
@@ -208,11 +208,11 @@ class ClassCppGenerator:
                 L += ["    virtual ~%s() = default;" % c.name]
             L += [""]
 
-        # --- islemler (gorunurluge gore)
-        # Her bolum kendi etiketini ACIKCA yazar. Etiket atlanirsa islem bir
-        # onceki bolumun (or. 'private:') altinda kalir; UML '~' (package)
-        # gorunurlugunun C++ karsiligi public'tir, bu yuzden 'public:' etiketi
-        # yeniden acilmak zorundadir.
+        # --- operations (grouped by visibility)
+        # Every section writes its label EXPLICITLY. Skipping it leaves the
+        # operation under the previous section (e.g. 'private:'); the C++
+        # counterpart of UML '~' (package) visibility is public, so the
+        # 'public:' label has to be reopened.
         for vis, section in ((Visibility.PUBLIC.value, "public:"),
                              (Visibility.PROTECTED.value, "protected:"),
                              (Visibility.PRIVATE.value, "private:"),
@@ -227,7 +227,7 @@ class ClassCppGenerator:
                 L += ["    %s" % self._op_decl(c, o)]
             L += [""]
 
-        # --- otomatik uretilen arayuz gerceklestirmeleri (stub)
+        # --- automatically generated interface realizations (stubs)
         missing = self._missing_overrides(c)
         if missing:
             L += ["    // Generated stubs for the inherited abstract operations:"]
@@ -237,7 +237,7 @@ class ClassCppGenerator:
                 L += ["    %s %s%s override;" % (rt, self._op_sig(o), constness)]
             L += [""]
 
-        # --- nitelik ve iliski uyeleri
+        # --- attribute and relationship members
         priv_attrs = self._attr_decls(c)
         part_decls: List[str] = []
         for rel in cm.owned_parts(c.id) + cm.associations_of(c.id):
@@ -292,9 +292,9 @@ class ClassCppGenerator:
         return "%s %s%s;" % (rt, sig, constness)
 
     def _missing_overrides(self, c: UmlClass) -> List[Operation]:
-        """Ust arayuz/soyut siniflardan gelen ama yerelde gerceklestirilmeyen
-        soyut islemler. Somut siniflarda otomatik stub uretilir; boylece sinif
-        gercekten somut olur."""
+        """Abstract operations inherited from parent interfaces/abstract classes
+        but not realized locally. Concrete classes get an automatic stub, so the
+        class really is concrete."""
         if c.is_interface or c.stereotype is Stereotype.ABSTRACT:
             return []
         local = {o.name for o in c.operations}
@@ -317,7 +317,7 @@ class ClassCppGenerator:
         return out
 
     def _overrides(self, c: UmlClass, o: Operation) -> bool:
-        """Ust siniflarin herhangi birinde ayni adli sanal islem var mi?"""
+        """Does any parent class have a virtual operation with the same name?"""
         stack = [p.id for p in self.cm.parents_of(c.id)]
         seen = set()
         while stack:
@@ -382,7 +382,7 @@ class ClassCppGenerator:
         L: List[str] = []
         L += ["// %s %s %s" % ("-" * 24, c.name, "-" * max(1, 44 - len(c.name)))]
 
-        # statik nitelik tanimlari
+        # static attribute definitions
         for a in c.attributes:
             if a.static:
                 init = a.default.strip() or "0"
@@ -398,7 +398,7 @@ class ClassCppGenerator:
             if c.is_interface:
                 continue
             if o.abstract and not self._overrides(c, o):
-                continue        # saf sanal: govde yok
+                continue        # pure virtual: no body
             L += self._op_impl(c, o)
         for o in self._missing_overrides(c):
             L += self._op_impl(c, o)
@@ -424,10 +424,10 @@ class ClassCppGenerator:
         L += ["}", ""]
         return L
 
-    # ----------------------------------------------------- MCU tumlestirme #
+    # ----------------------------------------------------- MCU integration #
 
     def demo_source(self) -> str:
-        """Uretilen siniflari bir MCU super dongusunde kullanan ornek."""
+        """An example that uses the generated classes in an MCU super loop."""
         cm = self.cm
         L: List[str] = []
         L += banner_cpp(cm, "%s_main.cpp" % self.file_base,
@@ -489,10 +489,10 @@ class ClassCppGenerator:
 
 
 def generate_class_cpp(cm: ClassModel, with_demo: bool = True) -> Dict[str, str]:
-    """Modelden {dosya_adi: icerik} sozlugu uretir.
+    """Produces a {file_name: content} dictionary from the model.
 
-    ``with_demo`` acikken ucuncu dosya bir BIRIM TEST degil, siniflari bir MCU
-    super dongusunde kullanan tumlestirme ornegidir.
+    With ``with_demo`` on, the third file is not a UNIT TEST but an integration
+    example that uses the classes in an MCU super loop.
     """
     gen = ClassCppGenerator(cm)
     files = {"%s.hpp" % gen.file_base: gen.header(),
