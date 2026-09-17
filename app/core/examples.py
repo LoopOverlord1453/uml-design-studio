@@ -68,14 +68,14 @@ def _fit(nm, w, h, kind, kw):
     if kind not in (StateKind.SIMPLE, StateKind.COMPOSITE,
                     StateKind.SUBMACHINE):
         return w, h
-    satirlar = [onek + kw[alan] for alan, onek in
+    rows = [onek + kw[alan] for alan, onek in
                 (("entry", "entry / "), ("exit", "exit  / "),
                  ("do", "do    / ")) if kw.get(alan)]
     gerek = [len(nm) * _CH_TITLE + 20.0]
-    gerek += [len(t) * _CH_BODY + 20.0 for t in satirlar]
+    gerek += [len(t) * _CH_BODY + 20.0 for t in rows]
     w = max(w, max(gerek))
-    if satirlar:
-        h = max(h, 34.0 + len(satirlar) * _LINE_H + 12.0)
+    if rows:
+        h = max(h, 34.0 + len(rows) * _LINE_H + 12.0)
     return w, h
 
 

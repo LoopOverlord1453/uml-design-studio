@@ -1203,10 +1203,10 @@ class MainWindow(QMainWindow):
         it is is written in the tooltip, in the Tool menu and in the status bar.
         """
         for act in self._state_tool_actions + self._class_tool_actions:
-            dugme = self.top_bar.widgetForAction(act)
-            if dugme is None:
+            button = self.top_bar.widgetForAction(act)
+            if button is None:
                 continue
-            dugme.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 
     def _show_tools_for(self, mode: str) -> None:
         """Leaves ONLY the tools of the active mode on the top bar.
@@ -1310,10 +1310,10 @@ class MainWindow(QMainWindow):
         """
         try:
             acik = None
-            hedef = os.path.normcase(os.path.abspath(path))
+            target = os.path.normcase(os.path.abspath(path))
             for doc in (self.doc, self.class_doc):
                 if doc.path and os.path.normcase(
-                        os.path.abspath(doc.path)) == hedef:
+                        os.path.abspath(doc.path)) == target:
                     acik = doc
                     break
             if acik is None:
@@ -1328,16 +1328,16 @@ class MainWindow(QMainWindow):
             if repo is None:
                 return
             goreli = os.path.relpath(path, repo.root).replace(os.sep, "/")
-            eski = (repo.staged_text(goreli) if taban == "staged"
+            old = (repo.staged_text(goreli) if taban == "staged"
                     else repo.file_at("HEAD", goreli))
-            if not eski:
+            if not old:
                 return
-            marks = element_status(eski, acik.machine.to_json())
+            marks = element_status(old, acik.machine.to_json())
             tuval = (self.class_canvas if acik is self.class_doc
                      else self.canvas)
-            diger = (self.canvas if tuval is self.class_canvas
+            other = (self.canvas if tuval is self.class_canvas
                      else self.class_canvas)
-            diger.set_diff_marks(None)
+            other.set_diff_marks(None)
             tuval.set_diff_marks(marks)
             self.flash("%s — %d added, %d removed, %d changed (vs %s)."
                        % (os.path.basename(path), len(marks["added"]),
@@ -1398,9 +1398,9 @@ class MainWindow(QMainWindow):
             return
 
         acik_doc = None
-        hedef = os.path.normcase(os.path.abspath(path))
+        target = os.path.normcase(os.path.abspath(path))
         for doc in (self.doc, self.class_doc):
-            if doc.path and os.path.normcase(os.path.abspath(doc.path)) == hedef:
+            if doc.path and os.path.normcase(os.path.abspath(doc.path)) == target:
                 acik_doc = doc
                 break
 
@@ -1412,34 +1412,34 @@ class MainWindow(QMainWindow):
                        % os.path.basename(path))
             return
 
-        yeni = acik_doc.machine.to_json()
-        eski = self._head_version(path)
-        if eski is not None:
+        new = acik_doc.machine.to_json()
+        old = self._head_version(path)
+        if old is not None:
             # THE TYPO WAS HERE: with HEAD as the base the marks were computed but
             # `None` was sent to the canvas; that is why the "what I have not
             # committed" view WAS NEVER DRAWN.
-            kaynak = ("uncommitted changes" if yeni == diskteki
+            source = ("uncommitted changes" if new == diskteki
                       else "uncommitted + unsaved changes")
         else:
-            eski, kaynak = diskteki, "unsaved changes"
+            old, source = diskteki, "unsaved changes"
 
-        marks = element_status(eski, yeni)
+        marks = element_status(old, new)
         # A diff is only meaningful in the mode of that model.
         tuval = (self.class_canvas if acik_doc is self.class_doc
                  else self.canvas)
-        diger = self.canvas if tuval is self.class_canvas else self.class_canvas
-        diger.set_diff_marks(None)
+        other = self.canvas if tuval is self.class_canvas else self.class_canvas
+        other.set_diff_marks(None)
         tuval.set_diff_marks(marks)
         toplam = (len(marks["added"]) + len(marks["removed"])
                   + len(marks["changed"]))
         if toplam == 0:
             self.flash("%s — no changes (%s)."
-                       % (os.path.basename(path), kaynak))
+                       % (os.path.basename(path), source))
         else:
             self.flash("%s — %d added, %d removed, %d changed (%s)."
                        % (os.path.basename(path), len(marks["added"]),
                           len(marks["removed"]), len(marks["changed"]),
-                          kaynak))
+                          source))
 
     def _head_version(self, path: str):
         """The content of the file at git HEAD; None without a repository/file.
@@ -1561,7 +1561,7 @@ class MainWindow(QMainWindow):
             return          # the canvas is not visible; do not change what cannot be seen
         self.active_doc().undo_stack.redo()
 
-    def _odaktaki_metin(self):
+    def _focused_text(self):
         """Returns the focused TEXT field in this window, if there is one.
 
         The code panel is a READ-ONLY editor, and in Qt a read-only text field
@@ -1583,7 +1583,7 @@ class MainWindow(QMainWindow):
             return odak
         return None
 
-    def _tuval_odakta(self) -> bool:
+    def _canvas_focused(self) -> bool:
         """Is the focus inside THE ACTIVE CANVAS (or nowhere)?
 
         The actions that change the canvas only run then. A call from the menu
@@ -1600,7 +1600,7 @@ class MainWindow(QMainWindow):
     def _delete_selection(self) -> None:
         if self.active_mode() == "git":
             return          # the canvas is not visible; do not delete what cannot be seen
-        if not self._tuval_odakta():
+        if not self._canvas_focused():
             # The focus is in another panel: the code editor, the workspace tree, a
             # property field... Del belongs there, not to the canvas.
             return
@@ -1844,24 +1844,24 @@ class MainWindow(QMainWindow):
                 self.lbl_external.setText("")
                 return
             from ..codegen.ir import build_ir
-            gerekli = build_ir(self.doc.machine).required_functions()
+            needed = build_ir(self.doc.machine).required_functions()
         except Exception:                          # noqa: BLE001
             self.lbl_external.setText("")
             return
-        if not gerekli:
+        if not needed:
             self.lbl_external.setText("")
             self.lbl_external.setToolTip("")
             return
-        satir_sonu = chr(10)
-        self.lbl_external.setText("⚙ %d external" % len(gerekli))
+        line_break = chr(10)
+        self.lbl_external.setText("⚙ %d external" % len(needed))
         self.lbl_external.setStyleSheet("color: %s;" % C.WARN)
         self.lbl_external.setToolTip(
             "You must implement these yourself; the generator does not:"
-            + satir_sonu
-            + satir_sonu.join("  %s      used by: %s"
+            + line_break
+            + line_break.join("  %s      used by: %s"
                               % (r.summary(), ", ".join(r.sites))
-                              for r in gerekli)
-            + satir_sonu * 2
+                              for r in needed)
+            + line_break * 2
             + "A missing one fails at LINK time, not at compile time.")
 
     def _update_issue_label(self, issues: List[Issue]) -> None:
@@ -1899,7 +1899,7 @@ class MainWindow(QMainWindow):
                                              APP_NAME))
 
     #: The SEVERITY of a status bar message -> colour.
-    FLASH_RENK = {"error": C.RED, "warning": C.WARN, "ok": C.GREEN}
+    FLASH_COLOR = {"error": C.RED, "warning": C.WARN, "ok": C.GREEN}
 
     def flash(self, text: str, kind: str = "info") -> None:
         """Writes a message into the status bar, coloured BY SEVERITY.
@@ -1909,10 +1909,10 @@ class MainWindow(QMainWindow):
         error / warning / critical texts to stand out.
         """
         self.lbl_message.setText(text)
-        renk = self.FLASH_RENK.get(kind)
+        color = self.FLASH_COLOR.get(kind)
         self.lbl_message.setStyleSheet(
-            ("color: %s; font-weight: bold;" % renk) if kind == "error"
-            else ("color: %s;" % renk) if renk else "")
+            ("color: %s; font-weight: bold;" % color) if kind == "error"
+            else ("color: %s;" % color) if color else "")
 
     def flash_error(self, text: str) -> None:
         """Reports a failed operation in RED."""
@@ -2046,14 +2046,14 @@ class MainWindow(QMainWindow):
         confirmation dialog (see workspace_tree.remove_selected) and the dialog
         says the open model WILL BE CLOSED.
         """
-        hedef = os.path.normcase(os.path.abspath(path))
-        for doc, bos in ((self.doc, empty_machine),
+        target = os.path.normcase(os.path.abspath(path))
+        for doc, empty in ((self.doc, empty_machine),
                          (self.class_doc, empty_class_model)):
             if not doc.path:
                 continue
-            if os.path.normcase(os.path.abspath(doc.path)) != hedef:
+            if os.path.normcase(os.path.abspath(doc.path)) != target:
                 continue
-            doc.replace(bos(), None)          # the canvas empties, the path is cleared
+            doc.replace(empty(), None)          # the canvas empties, the path is cleared
         self.refresh_workspace_tree()
         # The generated code belonged to the deleted model too; do not leave it stale.
         self._drop_build()
@@ -2171,30 +2171,30 @@ class MainWindow(QMainWindow):
         for baslik, liste, kip in (("&State Machine", STATE_EXAMPLES, "state"),
                                    ("&Class Diagram", CLASS_EXAMPLES, "class")):
             alt = gal.addMenu(baslik)
-            for ornek in liste:
-                eylem = QAction(ornek.title, self)
+            for example in liste:
+                eylem = QAction(example.title, self)
                 ipucu = "%s\n%s\nUML 2.5.1 §%s" % (
-                    ornek.teaches, ornek.summary, ornek.reference)
+                    example.teaches, example.summary, example.reference)
                 eylem.setToolTip(ipucu)
-                eylem.setStatusTip("%s — %s" % (ornek.teaches, ornek.summary))
+                eylem.setStatusTip("%s — %s" % (example.teaches, example.summary))
                 eylem.triggered.connect(
-                    lambda _c=False, o=ornek, k=kip: self.load_example(o, k))
+                    lambda _c=False, o=example, k=kip: self.load_example(o, k))
                 alt.addAction(eylem)
             alt.setToolTipsVisible(True)
         gal.setToolTipsVisible(True)
 
-    def load_example(self, ornek, kip: str) -> None:
+    def load_example(self, example, kip: str) -> None:
         """Loads an example from the gallery and switches to the right mode."""
         belge = self.class_doc if kip == "class" else self.doc
         if not self._confirm_discard(belge):
             return
         self.mode_tabs.setCurrentIndex(1 if kip == "class" else 0)
-        belge.replace(ornek.build(), None)
+        belge.replace(example.build(), None)
         if kip == "state":
             self.set_tool(Tool.SELECT)
         tuval = self.class_canvas if kip == "class" else self.canvas
         QTimer.singleShot(40, tuval.zoom_fit)
-        self.flash("%s — %s" % (ornek.title, ornek.teaches))
+        self.flash("%s — %s" % (example.title, example.teaches))
 
     def load_demo(self) -> None:
         if not self._confirm_discard(self.doc):
@@ -2379,7 +2379,7 @@ class MainWindow(QMainWindow):
     # other
 
     def select_all(self) -> None:
-        metin = self._odaktaki_metin()
+        metin = self._focused_text()
         if metin is not None:
             # When the user pressed Ctrl+A while in a TEXT field they want to select
             # the text. Because Qt cannot do that itself in a read-only code panel
@@ -2388,7 +2388,7 @@ class MainWindow(QMainWindow):
             return
         if self.active_mode() == "git":
             return          # the canvas is not visible
-        if not self._tuval_odakta():
+        if not self._canvas_focused():
             return
         if self.active_mode() == "class":
             cm = self.class_doc.machine
@@ -2460,7 +2460,7 @@ class MainWindow(QMainWindow):
              with ``retheme()``. Skip this step and the interface moves to the
              new theme while the canvas stays on the old background.
         """
-        yeni = apply_theme(name)
+        new = apply_theme(name)
         app = QApplication.instance()
         if app is not None:
             app.setStyleSheet(stylesheet())
@@ -2491,10 +2491,10 @@ class MainWindow(QMainWindow):
         self.class_canvas.rebuild()
         self._rebuild_views()
 
-        act = self.theme_actions.get(yeni)
+        act = self.theme_actions.get(new)
         if act is not None and not act.isChecked():
             act.setChecked(True)
-        self.flash("%s theme applied." % THEMES[yeni])
+        self.flash("%s theme applied." % THEMES[new])
 
     def toggle_grid(self, checked: bool) -> None:
         self.canvas.show_grid = checked
@@ -2634,10 +2634,10 @@ class MainWindow(QMainWindow):
         if not digerler:
             return
         # Share the rest among the neighbours KEEPING THEIR RATIOS; split evenly if all are 0.
-        eski = sum(sizes[i] for i in digerler)
+        old = sum(sizes[i] for i in digerler)
         for i in digerler:
-            if eski > 0:
-                sizes[i] = max(1, int(kalan * sizes[i] / eski))
+            if old > 0:
+                sizes[i] = max(1, int(kalan * sizes[i] / old))
             else:
                 sizes[i] = max(1, kalan // len(digerler))
         sizes[index] = pay

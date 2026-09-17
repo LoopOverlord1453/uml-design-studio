@@ -60,8 +60,8 @@ def normalize(expr: str) -> str:
     """Converts C/C++ spelling into a Python expression (evaluates nothing)."""
     text = expr.strip()
     text = _CONTEXT.sub(r"\1", text)
-    for kalip, yerine in _WORDS:
-        text = kalip.sub(yerine, text)
+    for kalip, instead in _WORDS:
+        text = kalip.sub(instead, text)
     text = _NOT.sub(" not ", text)
     return text.strip()
 
@@ -115,12 +115,12 @@ def evaluate(expr: str, values: Dict[str, object]) -> Optional[bool]:
         if isinstance(node, ast.Name) and node.id not in values:
             return None
     try:
-        sonuc = eval(compile(tree, "<guard>", "eval"),      # noqa: S307
+        result = eval(compile(tree, "<guard>", "eval"),      # noqa: S307
                      {"__builtins__": {}}, dict(values))
     except Exception:                                        # noqa: BLE001
         return None
     try:
-        return bool(sonuc)
+        return bool(result)
     except Exception:                                        # noqa: BLE001
         return None
 

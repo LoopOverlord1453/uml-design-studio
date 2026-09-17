@@ -124,9 +124,9 @@ class WorkspaceTree(QTreeWidget):
 
     def set_open_models(self, open_models: Dict) -> None:
         """Reports the OPEN models; the tree shows only the files ON DISK."""
-        onceki = {self._norm(k) for k in self._open_paths}
+        previous = {self._norm(k) for k in self._open_paths}
         self._open_paths = dict(open_models or {})
-        if {self._norm(k) for k in self._open_paths} != onceki:
+        if {self._norm(k) for k in self._open_paths} != previous:
             # The SET of open files changed: the marks (filled/hollow diamond,
             # colour) have to be redrawn.
             self.rebuild()
@@ -148,7 +148,7 @@ class WorkspaceTree(QTreeWidget):
         # called WORKSPACE; its content should be the workspace.
         # 
         if self._workspace is None:
-            self._bilgi_satiri(
+            self._info_row(
                 "No workspace is open.",
                 "Use %s to choose one." % OPEN_WORKSPACE_HINT)
             self._suppress = False
@@ -170,9 +170,9 @@ class WorkspaceTree(QTreeWidget):
         self._restore_expanded(genisleyenler)
         self._suppress = False
 
-    def _bilgi_satiri(self, *satirlar: str) -> None:
+    def _info_row(self, *rows: str) -> None:
         """The explanatory rows shown instead of a tree (not clickable)."""
-        for metin in satirlar:
+        for metin in rows:
             dugum = QTreeWidgetItem(self, [metin])
             dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
             dugum.setData(0, NODE_ROLE, "note")
@@ -270,7 +270,7 @@ class WorkspaceTree(QTreeWidget):
             return
 
         klasorler = [a for a in girdiler if os.path.isdir(os.path.join(path, a))]
-        dosyalar = [a for a in girdiler
+        files = [a for a in girdiler
                     if a.lower().endswith(MODEL_SUFFIXES)
                     and os.path.isfile(os.path.join(path, a))]
 
@@ -282,20 +282,20 @@ class WorkspaceTree(QTreeWidget):
             dugum.setForeground(0, QBrush(QColor(C.TEXT)))
             self._fill_dir(dugum, tam)
 
-        for ad in dosyalar:
+        for ad in files:
             self._add_model_node(parent, os.path.join(path, ad), ad)
 
-        if not klasorler and not dosyalar and parent.parent() is None:
+        if not klasorler and not files and parent.parent() is None:
             # An empty workspace must not be a DEAD END: the user is told how a file
             # gets there. The old text ("(no model files yet)") reported the state
             # but did not say what to do about it.
             for metin in ("No models here yet.",
                           "Press Ctrl+S to save the open diagram "
                           "into this workspace."):
-                bos = QTreeWidgetItem(parent, [metin])
-                bos.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
-                bos.setData(0, NODE_ROLE, "note")
-                bos.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                empty = QTreeWidgetItem(parent, [metin])
+                empty.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
+                empty.setData(0, NODE_ROLE, "note")
+                empty.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
     def _add_model_node(self, parent: QTreeWidgetItem, tam: str, ad: str) -> None:
         acik = self._norm(tam) in {self._norm(k) for k in self._open_paths}
@@ -330,8 +330,8 @@ class WorkspaceTree(QTreeWidget):
         item.setData(0, LOADED_ROLE, True)
 
         makine = None
-        for acik_yol, model in self._open_paths.items():
-            if self._norm(acik_yol) == self._norm(yol):
+        for open_path, model in self._open_paths.items():
+            if self._norm(open_path) == self._norm(yol):
                 makine = model
                 break
 
@@ -487,13 +487,13 @@ class WorkspaceTree(QTreeWidget):
             return
 
         menu = QMenu(self)
-        ac = menu.addAction("Open")
+        open_ = menu.addAction("Open")
         menu.addSeparator()
         kaldir = menu.addAction("Remove from workspace…")
-        secim = menu.exec(self.viewport().mapToGlobal(pos))
-        if secim is ac:
+        selection = menu.exec(self.viewport().mapToGlobal(pos))
+        if selection is open_:
             self.model_activated.emit(yol)
-        elif secim is kaldir:
+        elif selection is kaldir:
             self.remove_selected()
 
     def keyPressEvent(self, event) -> None:
@@ -550,13 +550,13 @@ class WorkspaceTree(QTreeWidget):
         items = self.selectedItems()
         if not items:
             return
-        secili = items[0]
-        if secili.data(0, NODE_ROLE) == "model":
-            yol = secili.data(0, PATH_ROLE)
+        selected = items[0]
+        if selected.data(0, NODE_ROLE) == "model":
+            yol = selected.data(0, PATH_ROLE)
             if yol:
                 self.model_selected.emit(yol)
             return
-        eid = secili.data(0, ID_ROLE)
+        eid = selected.data(0, ID_ROLE)
         if eid:
             self.element_activated.emit(eid)
 

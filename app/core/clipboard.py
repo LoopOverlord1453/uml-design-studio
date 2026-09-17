@@ -57,7 +57,7 @@ def copy_fragment(machine, ids) -> Optional[str]:
     if not state_ids:
         return None
 
-    icinde = set(state_ids)
+    inside = set(state_ids)
 
     states = []
     for sid in state_ids:
@@ -65,13 +65,13 @@ def copy_fragment(machine, ids) -> Optional[str]:
         # A link to a parent state OUTSIDE the selection is not carried over:
         # the paste target may be somewhere else entirely, the parent id would
         # then not exist in the model, and the state would be an orphan (V020).
-        if d.get("parent") not in icinde:
+        if d.get("parent") not in inside:
             d["parent"] = None
         states.append(d)
 
     # Only transitions with both ends in the selection (see the module docstring).
     trans = [t.to_dict() for t in machine.transitions.values()
-             if t.source in icinde and t.target in icinde]
+             if t.source in inside and t.target in inside]
 
     return json.dumps({
         "type": CLIP_TYPE,
@@ -110,14 +110,14 @@ def paste_fragment(machine, payload: str,
         raise ValueError("Clipboard does not hold a diagram fragment.")
 
     used_names = {s.name for s in machine.states.values()}
-    eski_yeni: Dict[str, str] = {}
-    yeni_kokler: List[str] = []
+    old_new: Dict[str, str] = {}
+    new_roots: List[str] = []
 
     for d in data.get("states", []):
         st = State.from_dict(d)
-        eski_id = st.id
+        old_id = st.id
         st.id = new_id("s")
-        eski_yeni[eski_id] = st.id
+        old_new[old_id] = st.id
 
         st.name = _unique_name(st.name, used_names)
         used_names.add(st.name)
@@ -128,27 +128,27 @@ def paste_fragment(machine, payload: str,
             st.parent = parent
             st.x = round(st.x + dx, 2)
             st.y = round(st.y + dy, 2)
-            yeni_kokler.append(st.id)
+            new_roots.append(st.id)
 
         machine.add_state(st)
 
     # Map parent ids in a second pass: the parent may come LATER in the list.
-    for eski_id, yeni_id in eski_yeni.items():
+    for old_id, yeni_id in old_new.items():
         st = machine.states[yeni_id]
-        if st.parent in eski_yeni:
-            st.parent = eski_yeni[st.parent]
+        if st.parent in old_new:
+            st.parent = old_new[st.parent]
 
     for d in data.get("transitions", []):
         tr = Transition.from_dict(d)
-        if tr.source not in eski_yeni or tr.target not in eski_yeni:
+        if tr.source not in old_new or tr.target not in old_new:
             continue          # olmamali; savunmaci
         tr.id = new_id("t")
-        tr.source = eski_yeni[tr.source]
-        tr.target = eski_yeni[tr.target]
+        tr.source = old_new[tr.source]
+        tr.target = old_new[tr.target]
         machine.add_transition(tr)
 
-    return [eski_yeni[k] for k in eski_yeni] if not yeni_kokler else list(
-        eski_yeni.values())
+    return [old_new[k] for k in old_new] if not new_roots else list(
+        old_new.values())
 
 
 def fragment_summary(payload: str) -> Tuple[int, int]:

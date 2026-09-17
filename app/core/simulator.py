@@ -203,9 +203,9 @@ class Simulator:
         if guard_id < 0:
             return True
         expr = self.ir.guards[guard_id]
-        sonuc = bool(self._guard_eval(expr))
-        self._note("G", "%s\t%s" % (expr, "true" if sonuc else "false"))
-        return sonuc
+        result = bool(self._guard_eval(expr))
+        self._note("G", "%s\t%s" % (expr, "true" if result else "false"))
+        return result
 
     # -------------------------------------------------------- entry / exit #
 
@@ -256,23 +256,23 @@ class Simulator:
 
         Regions are scanned in DESCENDING order: exit is the reverse of entry.
         """
-        bulunan = NONE
+        found = NONE
         dugum = index
         adim = 0
         while adim < MAX_WALK_STEPS:
             adim += 1
             st = self.ir.states[dugum]
-            sonraki = NONE
+            next_ = NONE
             for k in range(st.region_count - 1, -1, -1):
                 aday = self.active[st.first_region + k]
                 if aday != NONE:
-                    sonraki = aday
+                    next_ = aday
                     break
-            if sonraki == NONE:
-                return bulunan
-            bulunan = sonraki
-            dugum = sonraki
-        return bulunan
+            if next_ == NONE:
+                return found
+            found = next_
+            dugum = next_
+        return found
 
     def _exit_below(self, index: int) -> None:
         """Closes everything under `index`; `index` itself stays."""
@@ -330,10 +330,10 @@ class Simulator:
             st = self.ir.states[cur]
             if st.region_count <= 0:
                 return cur
-            sonraki = self.active[st.first_region]
-            if sonraki == NONE or sonraki == cur:
+            next_ = self.active[st.first_region]
+            if next_ == NONE or next_ == cur:
                 return cur
-            cur = sonraki
+            cur = next_
         return cur
 
     def _descend(self, s: int) -> int:
@@ -592,13 +592,13 @@ class Simulator:
         # source, the outer one is dropped: priority goes to the deeper one.
         kalan = []
         for r, kaynak, tran in benzersiz:
-            if any(self._is_ancestor(kaynak, digeri)
-                   for _r2, digeri, _t2 in benzersiz if digeri != kaynak):
+            if any(self._is_ancestor(kaynak, other_one)
+                   for _r2, other_one, _t2 in benzersiz if other_one != kaynak):
                 continue
             kalan.append((r, kaynak, tran))
 
         islendi = False
-        for r, _kaynak, tran in kalan:
+        for r, _source, tran in kalan:
             # TERMINATE STOPS EVERYTHING.
             #
             # UML 2.5.1, 14.2.3.7: once a terminate pseudostate is entered the
@@ -656,7 +656,7 @@ class Simulator:
                 return
             self.completion_pending[bolge] = False
             if self.active[bolge] != NONE:
-                _kaynak, tran = self._select(bolge, COMPLETION)
+                _source, tran = self._select(bolge, COMPLETION)
                 if tran is not None:
                     self._take(tran)
             steps += 1

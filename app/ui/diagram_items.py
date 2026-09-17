@@ -113,15 +113,15 @@ class GhostItem(QGraphicsItem):
     IT DOES NOT BELONG TO THE MODEL: it cannot be selected, moved or saved.
     """
 
-    def __init__(self, veri: dict) -> None:
+    def __init__(self, data: dict) -> None:
         super().__init__()
-        self._ad = str(veri.get("name") or "?")
-        self._w = float(veri.get("w") or 120.0)
-        self._h = float(veri.get("h") or 70.0)
-        self.setPos(float(veri.get("x") or 0.0), float(veri.get("y") or 0.0))
+        self._name = str(data.get("name") or "?")
+        self._w = float(data.get("w") or 120.0)
+        self._h = float(data.get("h") or 70.0)
+        self.setPos(float(data.get("x") or 0.0), float(data.get("y") or 0.0))
         self.setZValue(-5.0)          # BELOW the real items
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
-        self.setToolTip("Removed: %s" % self._ad)
+        self.setToolTip("Removed: %s" % self._name)
         self._font = ui_font(9)
 
     def boundingRect(self) -> QRectF:
@@ -140,7 +140,7 @@ class GhostItem(QGraphicsItem):
         painter.setPen(QPen(renk))
         painter.drawText(QRectF(0.0, self._h + 1.0, self._w, 16.0),
                          int(Qt.AlignmentFlag.AlignHCenter),
-                         "− %s" % self._ad)
+                         "− %s" % self._name)
 
 
 class StateItem(QGraphicsObject):
@@ -198,12 +198,12 @@ class StateItem(QGraphicsObject):
             return (self.state.w, self.state.h)
         en = QFontMetricsF(self.f_title).horizontalAdvance(self.state.name)
         en += 20.0
-        satirlar = self.behavior_lines()
-        if satirlar:
+        rows = self.behavior_lines()
+        if rows:
             fmb = QFontMetricsF(self.f_body)
-            for ln in satirlar:
+            for ln in rows:
                 en = max(en, fmb.horizontalAdvance(ln) + 20.0)
-            boy = 34.0 + len(satirlar) * (fmb.height() + 1.0) + 10.0
+            boy = 34.0 + len(rows) * (fmb.height() + 1.0) + 10.0
         else:
             boy = MIN_H
 
@@ -252,16 +252,16 @@ class StateItem(QGraphicsObject):
                           StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
 
     def boundingRect(self) -> QRectF:
-        kutu = self.rect().adjusted(-8.0, -8.0, 8.0, 8.0)
+        box = self.rect().adjusted(-8.0, -8.0, 8.0, 8.0)
         if self.kind in self.NAMED_PSEUDO_KINDS:
             # _paint_pseudo_name writes the name up to 50 px left and right of the
             # shape and below it. Unless that strip is in boundingRect, Qt neither
             # repaints it (the name leaves a trail as the item moves) nor counts it
             # into itemsBoundingRect (zoom_fit and export clip the name).
-            kutu = kutu.united(QRectF(self.rect().left() - 50.0,
+            box = box.united(QRectF(self.rect().left() - 50.0,
                                       self.rect().bottom() + 2.0,
                                       self.rect().width() + 100.0, 16.0))
-        return kutu
+        return box
 
     CIRCULAR_KINDS = (StateKind.INITIAL, StateKind.FINAL, StateKind.JUNCTION,
                       StateKind.SHALLOW_HISTORY, StateKind.DEEP_HISTORY,
@@ -391,22 +391,22 @@ class StateItem(QGraphicsObject):
         The regions are split into HORIZONTAL bands; that is the UML notation we
         are used to (horizontal bands separated by a dashed line).
         """
-        alan = self.content_rect()
+        field = self.content_rect()
         sayi = self.region_count()
         if sayi <= 1:
-            return alan
+            return field
         index = max(0, min(index, sayi - 1))
-        yukseklik = alan.height() / float(sayi)
-        return QRectF(alan.left(), alan.top() + index * yukseklik,
-                      alan.width(), yukseklik)
+        yukseklik = field.height() / float(sayi)
+        return QRectF(field.left(), field.top() + index * yukseklik,
+                      field.width(), yukseklik)
 
     def region_at(self, y: float) -> int:
         """The region the local `y` coordinate falls into."""
-        alan = self.content_rect()
+        field = self.content_rect()
         sayi = self.region_count()
-        if sayi <= 1 or alan.height() <= 0.0:
+        if sayi <= 1 or field.height() <= 0.0:
             return 0
-        oran = (y - alan.top()) / alan.height()
+        oran = (y - field.top()) / field.height()
         return max(0, min(int(oran * sayi), sayi - 1))
 
     def is_resizable(self) -> bool:
@@ -1024,14 +1024,14 @@ class TransitionItem(QGraphicsItem):
         # A MULTI-LINE LABEL. When the user writes a line-break marker into the
         # event / guard / effect fields the label splits; each line is clipped
         # SEPARATELY and the box is sized to the widest line.
-        satirlar = self._label_lines or [self._label]
+        rows = self._label_lines or [self._label]
         # 260 px meant about 37 characters, and even an ordinary label such as
         # "after(SETTLE_MS) [pin_is_low(ctx)]" was being clipped. The bound is wide
         # enough for a real event+guard+effect triple, while still stopping a
         # runaway text from covering the diagram.
         cizilecek = [fm.elidedText(ln, Qt.TextElideMode.ElideRight,
                                    LABEL_MAX_W)
-                     for ln in satirlar]
+                     for ln in rows]
         self._label_drawn = cizilecek
         self._label_text = cizilecek[0]
         w = max(fm.horizontalAdvance(t) for t in cizilecek) + 10.0

@@ -37,7 +37,7 @@ from ..core.model import (State, StateKind, StateMachine, Transition,
                           TransitionKind)
 
 #: A name that can be written without quotes in PlantUML.
-_SADE_AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PLAIN_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 #: The PlantUML counterparts of the pseudostates.
 #:
@@ -69,7 +69,7 @@ def _kimlik(name: str, used: Dict[str, str]) -> str:
     """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
-    if _SADE_AD.match(name):
+    if _PLAIN_NAME.match(name):
         used[name] = name
         return name
     temiz = re.sub(r"[^A-Za-z0-9_]", "_", name) or "S"
@@ -249,7 +249,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         if src.parent is not None and src.parent == tgt.parent:
             ic_bolge.add(t.id)
 
-    def ic_gecis_satirlari(s: State) -> List[str]:
+    def inner_transition_rows(s: State) -> List[str]:
         """The INTERNAL transitions of a state: not an arrow, a body line.
 
         Per UML 2.5.1 an internal transition runs neither the exit nor the entry
@@ -263,14 +263,14 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                                         _esc(t.label()) or "internal"))
         return out
 
-    def govde(s: State, pad: str) -> None:
+    def body(s: State, pad: str) -> None:
         for beh, tag in ((s.entry, "entry"), (s.exit, "exit"), (s.do, "do")):
             if beh.strip():
                 L.append("%s%s : %s / %s" % (pad, alias[s.id], tag, _esc(beh)))
-        for satir in ic_gecis_satirlari(s):
-            L.append("%s%s" % (pad, satir))
+        for row in inner_transition_rows(s):
+            L.append("%s%s" % (pad, row))
 
-    def bas_satiri(s: State, pad: str, acik: bool) -> str:
+    def head_row(s: State, pad: str, acik: bool) -> str:
         """Builds the `state X` / `state "Name" as X` line."""
         if alias[s.id] == s.name:
             metin = "%sstate %s" % (pad, s.name)
@@ -283,7 +283,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
             metin += " {"
         return metin
 
-    def cizim_sirasi(parent: Optional[str],
+    def draw_order(parent: Optional[str],
                      bolge: Optional[int] = None) -> List[State]:
         """The children in the reading order of the CANVAS.
 
@@ -300,19 +300,19 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
 
     def emit_region(parent: Optional[str], pad: str,
                     bolge: Optional[int] = None) -> None:
-        for s in cizim_sirasi(parent, bolge):
+        for s in draw_order(parent, bolge):
             if s.kind in _UC_OLARAK:
                 # These have no separate declaration in PlantUML; they only appear as
                 # arrow ends ([*], [H], [H*]).
                 continue
             if s.kind is StateKind.COMPOSITE:
-                L.append(bas_satiri(s, pad, acik=True))
+                L.append(head_row(s, pad, acik=True))
                 # The regions of an ORTHOGONAL state are separated with "--"; PlantUML
                 # draws that as concurrent regions. For a single-region state no
                 # separator is written and the output stays as it was.
                 bolge_sayisi = sm.region_count(s.id)
 
-                def ic_gecisler(sahip: str, hangi: Optional[int]) -> None:
+                def inner_transitions(sahip: str, which: Optional[int]) -> None:
                     """The inner arrows of an owner (optionally of one region).
 
                     The arrows must be written INSIDE THEIR OWN region block: if
@@ -326,7 +326,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                         tgt = sm.states[t.target]
                         if src.parent != sahip:
                             continue
-                        if hangi is not None and sm.region_of(src.id) != hangi:
+                        if which is not None and sm.region_of(src.id) != which:
                             continue
                         L.append("%s  %s %s %s%s"
                                  % (pad, alias[src.id], _yon(sm, src, tgt),
@@ -337,17 +337,17 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                         if r > 0:
                             L.append("%s  --" % pad)
                         emit_region(s.id, pad + "  ", r)
-                        ic_gecisler(s.id, r)
+                        inner_transitions(s.id, r)
                 else:
                     emit_region(s.id, pad + "  ")
-                    ic_gecisler(s.id, None)
+                    inner_transitions(s.id, None)
                 L.append("%s}" % pad)
             else:
-                L.append(bas_satiri(s, pad, acik=False))
+                L.append(head_row(s, pad, acik=False))
                 if s.kind is StateKind.JUNCTION:
                     # The diamond is the same as a choice; keep the distinction in text.
                     L.append("%s%s : <<junction>>" % (pad, alias[s.id]))
-            govde(s, pad)
+            body(s, pad)
 
     emit_region(None, "")
     L.append("")

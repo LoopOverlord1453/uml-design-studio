@@ -35,10 +35,10 @@ class FindBar(QFrame):
         row.setContentsMargins(10, 5, 8, 5)
         row.setSpacing(7)
 
-        etiket = QLabel("Find")
-        etiket.setFont(ui_font(8))
-        self._etiket = etiket
-        row.addWidget(etiket)
+        label = QLabel("Find")
+        label.setFont(ui_font(8))
+        self._label = label
+        row.addWidget(label)
 
         self.field = QLineEdit()
         self.field.setPlaceholderText("Search in generated code…")
@@ -95,7 +95,7 @@ class FindBar(QFrame):
         self.setStyleSheet(
             "#findBar { background: %s; border-top: 1px solid %s; }"
             % (C.PANEL_DARK, C.BORDER))
-        self._etiket.setStyleSheet("color: %s;" % C.TEXT_DIM)
+        self._label.setStyleSheet("color: %s;" % C.TEXT_DIM)
         self.count.setStyleSheet("color: %s;" % C.TEXT_DIM)
         self._refresh()
 
@@ -113,9 +113,9 @@ class FindBar(QFrame):
         # Text selected at the cursor is carried into the search field -- that is
         # the behaviour expected in editors.
         if self._editor is not None:
-            secili = self._editor.textCursor().selectedText()
-            if secili and " " not in secili:
-                self.field.setText(secili)
+            selected = self._editor.textCursor().selectedText()
+            if selected and " " not in selected:
+                self.field.setText(selected)
         self.show()
         self.field.setFocus()
         self.field.selectAll()
@@ -208,8 +208,8 @@ class FindBar(QFrame):
         secimler = []
         belge = self._editor.document()
         imlec = QTextCursor(belge)
-        renk = QColor(C.ACCENT)
-        renk.setAlpha(70)
+        color = QColor(C.ACCENT)
+        color.setAlpha(70)
 
         while True:
             imlec = belge.find(desen, imlec, self._flags())
@@ -220,7 +220,7 @@ class FindBar(QFrame):
             # but killed the process outright.
             sel = QTextEdit.ExtraSelection()
             sel.cursor = imlec
-            sel.format.setBackground(renk)
+            sel.format.setBackground(color)
             secimler.append(sel)
 
         self._push(self._editor, secimler)

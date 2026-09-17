@@ -169,12 +169,12 @@ _ANAHTAR = {
 _CAGRI = re.compile(r"(?<![\w.>:])([A-Za-z_]\w*)\s*\(")
 
 
-def _argument_sayisi(metin: str, acilis: int) -> int:
+def _argument_count(metin: str, opening: int) -> int:
     """Counts the arguments by top-level commas, starting at the `(`."""
     derinlik = 0
-    sayi = 0
+    count = 0
     gorulen = False
-    i = acilis
+    i = opening
     while i < len(metin):
         ch = metin[i]
         if ch in "([{":
@@ -182,13 +182,13 @@ def _argument_sayisi(metin: str, acilis: int) -> int:
         elif ch in ")]}":
             derinlik -= 1
             if derinlik == 0:
-                return (sayi + 1) if gorulen else 0
+                return (count + 1) if gorulen else 0
         elif ch == "," and derinlik == 1:
-            sayi += 1
+            count += 1
         elif not ch.isspace() and derinlik == 1:
             gorulen = True
         i += 1
-    return sayi
+    return count
 
 
 def _dizgileri_bosalt(metin: str) -> str:
@@ -227,7 +227,7 @@ def _cagrilar(metin: str):
         ad = m.group(1)
         if ad in _ANAHTAR:
             continue
-        yield ad, _argument_sayisi(temiz, m.end() - 1)
+        yield ad, _argument_count(temiz, m.end() - 1)
 
 
 @dataclass
@@ -336,29 +336,29 @@ class Ir:
         hide the real signature and create a silent mismatch). So the
         generated files DOCUMENT these rather than declare them.
         """
-        bulunan: Dict[str, RequiredSymbol] = {}
+        found: Dict[str, RequiredSymbol] = {}
 
         def tara(metin: str, nerede: str, guard: bool) -> None:
             for ad, argc in _cagrilar(metin):
-                kayit = bulunan.get(ad)
+                kayit = found.get(ad)
                 if kayit is None:
                     kayit = RequiredSymbol(name=ad, argc=argc)
-                    bulunan[ad] = kayit
+                    found[ad] = kayit
                 kayit.argc = max(kayit.argc, argc)
                 kayit.in_guard = kayit.in_guard or guard
                 if nerede not in kayit.sites:
                     kayit.sites.append(nerede)
 
         for st in self.states:
-            for govde, etiket in ((st.entry, "entry"), (st.exit, "exit"),
+            for body, etiket in ((st.entry, "entry"), (st.exit, "exit"),
                                   (st.do, "do")):
-                if govde.strip():
-                    tara(govde, "%s / %s" % (st.name, etiket), False)
+                if body.strip():
+                    tara(body, "%s / %s" % (st.name, etiket), False)
         for eylem in self.actions:
             tara(eylem, "transition effect", False)
         for kosul in self.guards:
             tara(kosul, "guard", True)
-        return sorted(bulunan.values(), key=lambda r: r.name)
+        return sorted(found.values(), key=lambda r: r.name)
 
     def time_triggers(self):
         """A list of (state, event, delay_expression) triples.
@@ -728,8 +728,8 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         if not idler:
             return None
         ortak = idler[0]
-        for baska in idler[1:]:
-            ortak = sm.lca(ortak, baska)
+        for other in idler[1:]:
+            ortak = sm.lca(ortak, other)
             if ortak is None:
                 return None
         return ortak

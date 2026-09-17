@@ -123,7 +123,7 @@ def _sorumlu_altmakine(sm, genis_id: str):
     return None
 
 
-def _hatanin_sahibi(sm, metin: str):
+def _error_owner(sm, text: str):
     """The submachine state NAMED in the text of a flattening error.
 
     `SubmachineError` messages name the culprit in quotes. Because the canvas
@@ -134,13 +134,13 @@ def _hatanin_sahibi(sm, metin: str):
     """
     adaylar = [x.id for x in sm.ordered_states()
                if x.kind is StateKind.SUBMACHINE and x.name
-               and ("'%s'" % x.name) in metin]
+               and ("'%s'" % x.name) in text]
     if len(adaylar) == 1:
         return adaylar[0]
     return None
 
 
-def _genisletilmis_ad_sorunlari(sm, duz):
+def _expanded_name_problems(sm, duz):
     """The name collisions that appear only AFTER flattening.
 
     When a submachine is substituted, the inner states are renamed to
@@ -175,19 +175,19 @@ def _genisletilmis_ad_sorunlari(sm, duz):
                 sorumlu))
             continue
         anahtar = screaming_snake(st.name)
-        onceki = gorulen.get(anahtar)
-        if onceki is not None:
+        previous = gorulen.get(anahtar)
+        if previous is not None:
             # Of the two sides of the collision, mark the one that DOES NOT COME
             # FROM AN EXPANSION: that is what the user will fix (either the name of
             # the inner state or the name of the submachine state qualifying it).
-            hedef = sorumlu if sorumlu is not None else onceki[1]
-            if onceki[0] != st.name:
+            hedef = sorumlu if sorumlu is not None else previous[1]
+            if previous[0] != st.name:
                 sorunlar.append((
                     "V164",
                     "Expanding the submachines produces two states, '%s' and "
                     "'%s', that generate the same constant '%s'. Rename one "
                     "of them or the submachine state that qualifies it."
-                    % (onceki[0], st.name, anahtar),
+                    % (previous[0], st.name, anahtar),
                     hedef))
             else:
                 sorunlar.append((
@@ -214,8 +214,8 @@ def _bolge_ayrimi(sm, dugum, idler, ne: str):
     if len(idler) < 2:
         return None
     ortak = idler[0]
-    for baska in idler[1:]:
-        ortak = sm.lca(ortak, baska)
+    for other in idler[1:]:
+        ortak = sm.lca(ortak, other)
         if ortak is None:
             break
     if ortak is None or not sm.is_orthogonal(ortak):
@@ -266,7 +266,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     #: submachine states validation took 0.067 s, with 32 it passed a second
     #: -- and validation runs after EVERY edit. Since the machine does not
     #: change during validation, the result can be shared.
-    _duz_sonuc: List = []
+    _plain_result: List = []
 
     def err(code, msg, eid=None):
         issues.append(Issue("error", code, msg, eid))
@@ -284,17 +284,17 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                  submachine, or no resolver was given, or the expansion
                  failed (and then `error` is set).
         """
-        if not _duz_sonuc:
+        if not _plain_result:
             altmakine_var = any(x.kind is StateKind.SUBMACHINE
                                 for x in sm.states.values())
             if resolve is None or not altmakine_var:
-                _duz_sonuc.append((None, None))
+                _plain_result.append((None, None))
             else:
                 try:
-                    _duz_sonuc.append((_submachine_flatten(sm, resolve), None))
+                    _plain_result.append((_submachine_flatten(sm, resolve), None))
                 except Exception as exc:            # noqa: BLE001
-                    _duz_sonuc.append((None, exc))
-        return _duz_sonuc[0]
+                    _plain_result.append((None, exc))
+        return _plain_result[0]
 
     # --------------------------------------------------------------- machine #
     if not _valid_ident(sm.prefix):
@@ -342,9 +342,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     # devre disi birakiyordu.
     _genis_model, _ = _genisletilmis()
     if _genis_model is not None:
-        olay_kaynagi = _genis_model
+        event_source = _genis_model
     else:
-        olay_kaynagi = sm
+        event_source = sm
 
     def tran_of(event_name: str):
         """The id of the transition that carries the event.
@@ -353,21 +353,21 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         USER's model; the canvas cannot mark that id. In such a case the
         problem is bound to the submachine state that brought the event in.
         """
-        kendi = next((t.id for t in sm.transitions.values()
+        own = next((t.id for t in sm.transitions.values()
                       if t.event.strip() == event_name), None)
-        if kendi is not None:
-            return kendi
+        if own is not None:
+            return own
         return next((x.id for x in sm.ordered_states()
                      if x.kind is StateKind.SUBMACHINE), None)
 
-    for ev in olay_kaynagi.events():
+    for ev in event_source.events():
         if screaming_snake(ev) in RESERVED_EVENT_NAMES:
             err("V014", "Event name '%s' is reserved by the generator; choose "
                         "another name." % ev, tran_of(ev))
 
     seen_events = {}
     seen_pascal = {}
-    for ev in olay_kaynagi.events():
+    for ev in event_source.events():
         # A TIME EVENT has a separate form: `after(<expression>)`.
         #
         # THE EXEMPTION APPLIES ONLY TO THE IDENTIFIER RULE. A time event used to
@@ -551,18 +551,18 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                            sm.states[sahip].name, bolge_sayisi),
                         cocuk.id)
         for bolge in range(bolge_sayisi):
-            icerik = sm.children_in(sahip, bolge)
+            content = sm.children_in(sahip, bolge)
             if sahip is None:
                 rname = "root region"
             elif bolge_sayisi > 1:
                 rname = "region %d of '%s'" % (bolge + 1, sm.states[sahip].name)
             else:
                 rname = "'%s'" % sm.states[sahip].name
-            if sahip is not None and bolge_sayisi > 1 and not icerik:
+            if sahip is not None and bolge_sayisi > 1 and not content:
                 err("V100", "%s is empty; every region of an orthogonal state "
                             "must contain at least one state." % rname, sahip)
                 continue
-            inits = [x for x in icerik if x.kind is StateKind.INITIAL]
+            inits = [x for x in content if x.kind is StateKind.INITIAL]
             if not inits:
                 err("V050", "%s has no initial pseudostate." % rname, sahip)
             elif len(inits) > 1:
@@ -710,10 +710,10 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                      "transition triggered by it; the "
                                      "transition wins." % (s.name, ad), s.id)
                         break
-            bos = gorulen - bilinen
-            if bos:
+            empty = gorulen - bilinen
+            if empty:
                 warn("V184", "'%s' defers %s, which no transition uses."
-                     % (s.name, ", ".join(sorted(bos))), s.id)
+                     % (s.name, ", ".join(sorted(empty))), s.id)
 
         # submachine
         if s.kind is StateKind.SUBMACHINE:
@@ -773,12 +773,12 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         # place.
                         err("V163", "A submachine reference cannot be "
                                     "expanded: %s" % hata,
-                            _hatanin_sahibi(sm, str(hata)))
+                            _error_owner(sm, str(hata)))
                     elif genis is not None:
                         # The codes are given as plain text, not through a VARIABLE: the
                         # reference test looks for the `err("Vxxx"` pattern in the source and
                         # a code passed in a variable looks like a "dead entry".
-                        for kod, mesaj, hedef in _genisletilmis_ad_sorunlari(
+                        for kod, mesaj, hedef in _expanded_name_problems(
                                 sm, genis):
                             if kod == "V164":
                                 err("V164", mesaj, hedef)

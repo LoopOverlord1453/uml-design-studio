@@ -274,19 +274,19 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         With `marks` set to None, diff mode is switched off.
         """
         self._diff_marks = marks or {}
-        eklenen = self._diff_marks.get("added") or set()
+        added = self._diff_marks.get("added") or set()
         degisen = self._diff_marks.get("changed") or set()
 
         for kimlik, item in list(self.state_items.items()) \
                 + list(self.tran_items.items()):
-            if kimlik in eklenen:
-                yeni = "added"
+            if kimlik in added:
+                new = "added"
             elif kimlik in degisen:
-                yeni = "changed"
+                new = "changed"
             else:
-                yeni = ""
-            if getattr(item, "diff_mark", "") != yeni:
-                item.diff_mark = yeni
+                new = ""
+            if getattr(item, "diff_mark", "") != new:
+                item.diff_mark = new
                 item.update()
 
         self._rebuild_ghosts(self._diff_marks.get("removed") or {})
@@ -299,13 +299,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self._ghosts = []
         if not removed:
             return
-        for kimlik, veri in removed.items():
+        for kimlik, data in removed.items():
             # Only elements that HAVE a position can be drawn; transitions and
             # relationships hang off their end points (and the ends may have been
             # deleted too), so they stay in the list as TEXT.
-            if "x" not in veri or "y" not in veri:
+            if "x" not in data or "y" not in data:
                 continue
-            ghost = GhostItem(veri)
+            ghost = GhostItem(data)
             self._scene.addItem(ghost)
             self._ghosts.append(ghost)
 
@@ -505,8 +505,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         if self._label_drag is not None:
             oge, dx0, dy0, baslangic = self._label_drag
-            simdi = self.mapToScene(event.position().toPoint())
-            fark = simdi - baslangic
+            now = self.mapToScene(event.position().toPoint())
+            fark = now - baslangic
             oge.transition.label_dx = round(dx0 + fark.x(), 2)
             oge.transition.label_dy = round(dy0 + fark.y(), 2)
             oge.update_path()
@@ -519,8 +519,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         # Without the threshold every selection click counted as a tiny bend and the
         # arrow drifted unnoticed.
         if self._bend_item is None and self._bend_candidate is not None:
-            simdi = self.mapToScene(event.position().toPoint())
-            fark = simdi - self._bend_origin
+            now = self.mapToScene(event.position().toPoint())
+            fark = now - self._bend_origin
             if abs(fark.x()) >= self.BEND_THRESHOLD \
                     or abs(fark.y()) >= self.BEND_THRESHOLD:
                 self._bend_item = self._bend_candidate
@@ -544,8 +544,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             noktalar = self._bend_item.transition.waypoints
 
             if self._bend_index is None:
-                kip, indis = self._bend_grab or ("insert", 0)
-                if kip == "move" and indis < len(noktalar):
+                mode, indis = self._bend_grab or ("insert", 0)
+                if mode == "move" and indis < len(noktalar):
                     self._bend_index = indis
                 else:
                     indis = max(0, min(indis, len(noktalar)))
@@ -824,17 +824,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         genislik = max(st.x + st.w for st in kokler) - sol
         yukseklik = max(st.y + st.h for st in kokler) - ust
 
-        alan = host.content_rect()
+        field = host.content_rect()
         yerel = host.mapFromScene(scene_pos)
-        hedef_x = yerel.x() - genislik / 2.0
-        hedef_y = yerel.y() - yukseklik / 2.0
-        hedef_x = min(max(hedef_x, alan.left()),
-                      max(alan.left(), alan.right() - genislik))
-        hedef_y = min(max(hedef_y, alan.top()),
-                      max(alan.top(), alan.bottom() - yukseklik))
+        target_x = yerel.x() - genislik / 2.0
+        target_y = yerel.y() - yukseklik / 2.0
+        target_x = min(max(target_x, field.left()),
+                      max(field.left(), field.right() - genislik))
+        target_y = min(max(target_y, field.top()),
+                      max(field.top(), field.bottom() - yukseklik))
 
-        dx = hedef_x - sol
-        dy = hedef_y - ust
+        dx = target_x - sol
+        dy = target_y - ust
         for st in kokler:
             st.x = round(st.x + dx, 2)
             st.y = round(st.y + dy, 2)
@@ -846,10 +846,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         degisti = False
         for item in self.state_items.values():
-            yeni = self._region_for(item.parentItem(), item.pos().y(),
+            new = self._region_for(item.parentItem(), item.pos().y(),
                                     item.state.h)
-            if int(item.state.region or 0) != yeni:
-                item.state.region = yeni
+            if int(item.state.region or 0) != new:
+                item.state.region = new
                 degisti = True
         return degisti
 
@@ -1146,7 +1146,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         before = self.doc.machine.to_json()
         try:
-            yeni = paste_fragment(self.doc.machine, payload,
+            new = paste_fragment(self.doc.machine, payload,
                                   parent=parent_id,
                                   dx=PASTE_OFFSET, dy=PASTE_OFFSET)
         except ValueError:
@@ -1154,7 +1154,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # application). Ignore it silently: the user may have used Ctrl+V for
             # something else, and a warning box would be irritating.
             return
-        if not yeni:
+        if not new:
             return
 
         # POSITION first, then the region: the region is derived from the position.
@@ -1162,17 +1162,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         # Because the undo snapshot ("before") is taken BEFORE these lines, the
         # corrections can be undone as well.
         if host is not None:
-            self._fit_pasted_into(host, yeni, pos)
+            self._fit_pasted_into(host, new, pos)
             if host.region_count() > 1:
-                for sid in yeni:
+                for sid in new:
                     st = self.doc.machine.states.get(sid)
                     if st is not None and st.parent == parent_id:
                         st.region = self._region_for(host, st.y, st.h)
 
         self.doc.edit_from("Paste", before)
         self.rebuild()
-        self.set_selected_ids(yeni)
-        self.status_message.emit("Pasted %d element(s)." % len(yeni))
+        self.set_selected_ids(new)
+        self.status_message.emit("Pasted %d element(s)." % len(new))
 
     def nudge_selection(self, dx: float, dy: float) -> None:
         ids = [i for i in self.selected_ids() if i in self.doc.machine.states]
@@ -1250,13 +1250,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         ebeveyn = item.parentItem()
         kutular = []
-        for baska in self.state_items.values():
-            if baska is item or baska.parentItem() is not ebeveyn:
+        for other in self.state_items.values():
+            if other is item or other.parentItem() is not ebeveyn:
                 continue
-            if baska.isSelected():
+            if other.isSelected():
                 continue
-            kutular.append((baska.pos().x(), baska.pos().y(),
-                            baska.state.w, baska.state.h))
+            kutular.append((other.pos().x(), other.pos().y(),
+                            other.state.w, other.state.h))
         return kutular
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:

@@ -65,12 +65,12 @@ class ClassItem(QGraphicsObject):
         """
         fm = QFontMetricsF(self.f_member)
         en = QFontMetricsF(self.f_title).horizontalAdvance(self.cls.name) + 24.0
-        satir = 0
+        row = 0
         for uye in list(self.cls.attributes) + list(self.cls.operations):
             etiket = uye.label()
             en = max(en, fm.horizontalAdvance(etiket) + 24.0)
-            satir += 1
-        boy = 34.0 + satir * (fm.height() + 2.0) + 20.0
+            row += 1
+        boy = 34.0 + row * (fm.height() + 2.0) + 20.0
         return (max(MIN_W, en), max(MIN_H, boy))
 
     def rect(self) -> QRectF:

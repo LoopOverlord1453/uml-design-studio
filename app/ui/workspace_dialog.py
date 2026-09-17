@@ -81,11 +81,11 @@ class WorkspaceDialog(QDialog):
         root.addWidget(self.recent_list)
 
         if not self._recent:
-            bos = QLabel("No workspace has been opened yet.")
-            bos.setFont(ui_font(9))
-            bos.setStyleSheet("color: %s;" % C.TEXT_DIM)
-            bos.setContentsMargins(22, 0, 0, 4)
-            root.addWidget(bos)
+            empty = QLabel("No workspace has been opened yet.")
+            empty.setFont(ui_font(9))
+            empty.setStyleSheet("color: %s;" % C.TEXT_DIM)
+            empty.setContentsMargins(22, 0, 0, 4)
+            root.addWidget(empty)
 
         # ------------------------------------------------------------ existing
         self.rb_open = QRadioButton("Open an existing folder")

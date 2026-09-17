@@ -94,14 +94,14 @@ class SpecRef:
         if self.is_tool_rule:
             return "Tool rule - no UML 2.5.1 counterpart"
         sayfa = self.page
-        metin = "UML 2.5.1 §%s" % self.section
+        text = "UML 2.5.1 §%s" % self.section
         if self.section_title:
-            metin += " %s" % self.section_title
+            text += " %s" % self.section_title
         if sayfa is not None:
-            metin += ", p. %d" % sayfa
+            text += ", p. %d" % sayfa
         if self.constraint:
-            metin += "  [%s]" % self.constraint
-        return metin
+            text += "  [%s]" % self.constraint
+        return text
 
 
 #: Shorthand for a tool rule (no UML reference).

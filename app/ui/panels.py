@@ -198,10 +198,10 @@ class ProblemsPanel(QTreeWidget):
             item.setForeground(3, QBrush(QColor(C.TEXT_DIM)))
         else:
             sayfa = ref.page
-            etiket = "§%s" % ref.section
+            label = "§%s" % ref.section
             if sayfa is not None:
-                etiket += "  ·  p. %d" % sayfa
-            item.setText(3, etiket)
+                label += "  ·  p. %d" % sayfa
+            item.setText(3, label)
             item.setForeground(3, QBrush(QColor(C.ACCENT)))
         item.setFont(3, mono_font(8))
 

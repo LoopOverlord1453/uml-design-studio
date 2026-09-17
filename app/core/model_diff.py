@@ -33,88 +33,88 @@ DiffRow = Tuple[str, str, str]
 #: Fields IGNORED in the comparison. They do not change the MEANING of the
 #: diagram; included, every drag of the window would produce a "changed"
 #: row and the real changes would drown.
-_GORSEL_ALANLAR = {"x", "y", "w", "h", "waypoints", "label_dx", "label_dy"}
+_VISUAL_FIELDS = {"x", "y", "w", "h", "waypoints", "label_dx", "label_dy"}
 
 
-def _yukle(metin: str) -> Optional[dict]:
+def _load(text: str) -> Optional[dict]:
     try:
-        veri = json.loads(metin)
+        data = json.loads(text)
     except ValueError:
         return None
-    return veri if isinstance(veri, dict) else None
+    return data if isinstance(data, dict) else None
 
 
 def _anlamli(d: dict) -> dict:
     """Gorsel alanlari atilmis kopya."""
-    return {k: v for k, v in d.items() if k not in _GORSEL_ALANLAR}
+    return {k: v for k, v in d.items() if k not in _VISUAL_FIELDS}
 
 
-def _durum_etiketi(d: dict) -> str:
+def _state_label(d: dict) -> str:
     return "%s %s" % (str(d.get("kind", "state")).replace("_", " "),
                       d.get("name", "?"))
 
 
-def _gecis_etiketi(d: dict, durumlar: Dict[str, dict]) -> str:
-    kaynak = durumlar.get(d.get("source", ""), {}).get("name", "?")
-    hedef = durumlar.get(d.get("target", ""), {}).get("name", "?")
-    olay = d.get("event") or "(completion)"
+def _transition_label(d: dict, states: Dict[str, dict]) -> str:
+    source = states.get(d.get("source", ""), {}).get("name", "?")
+    target = states.get(d.get("target", ""), {}).get("name", "?")
+    event = d.get("event") or "(completion)"
     guard = d.get("guard") or ""
     eylem = d.get("action") or ""
-    etiket = "%s --%s--> %s" % (kaynak, olay, hedef)
+    label = "%s --%s--> %s" % (source, event, target)
     if guard:
-        etiket += "  [%s]" % guard
+        label += "  [%s]" % guard
     if eylem:
-        etiket += "  / %s" % eylem
-    return etiket
+        label += "  / %s" % eylem
+    return label
 
 
-def _farklar(eski: dict, yeni: dict) -> List[str]:
+def _farklar(old: dict, new: dict) -> List[str]:
     """The list of changed fields as 'field: old -> new'."""
     out = []
-    for anahtar in sorted(set(eski) | set(yeni)):
-        a, b = eski.get(anahtar), yeni.get(anahtar)
+    for anahtar in sorted(set(old) | set(new)):
+        a, b = old.get(anahtar), new.get(anahtar)
         if a == b:
             continue
         out.append("%s: %r -> %r" % (anahtar, a, b))
     return out
 
 
-def _karsilastir(bolum: str, eski_liste, yeni_liste, etiket_fn) -> List[DiffRow]:
+def _karsilastir(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
     """Matches by id and produces added / removed / changed rows."""
-    eski = {d.get("id"): d for d in eski_liste if isinstance(d, dict)}
-    yeni = {d.get("id"): d for d in yeni_liste if isinstance(d, dict)}
+    old = {d.get("id"): d for d in old_list if isinstance(d, dict)}
+    new = {d.get("id"): d for d in new_list if isinstance(d, dict)}
 
     satirlar: List[DiffRow] = []
 
-    for kimlik, d in yeni.items():
-        if kimlik not in eski:
-            satirlar.append((bolum, "+", etiket_fn(d)))
+    for kimlik, d in new.items():
+        if kimlik not in old:
+            satirlar.append((section, "+", label_fn(d)))
 
-    for kimlik, d in eski.items():
-        if kimlik not in yeni:
-            satirlar.append((bolum, "-", etiket_fn(d)))
+    for kimlik, d in old.items():
+        if kimlik not in new:
+            satirlar.append((section, "-", label_fn(d)))
 
-    for kimlik, y in yeni.items():
-        e = eski.get(kimlik)
+    for kimlik, y in new.items():
+        e = old.get(kimlik)
         if e is None:
             continue
         degisen = _farklar(_anlamli(e), _anlamli(y))
         if not degisen:
             continue
-        baslik = etiket_fn(y)
-        eski_ad, yeni_ad = e.get("name"), y.get("name")
-        if eski_ad != yeni_ad:
+        title = label_fn(y)
+        old_name, new_name = e.get("name"), y.get("name")
+        if old_name != new_name:
             # A name change is reported separately: since the id is the same
             # this is a rename, NOT a "remove + add".
-            baslik = "%s  (renamed from '%s')" % (baslik, eski_ad)
-        satirlar.append((bolum, "~", baslik))
-        for satir in degisen:
-            satirlar.append((bolum, " ", "    " + satir))
+            title = "%s  (renamed from '%s')" % (title, old_name)
+        satirlar.append((section, "~", title))
+        for row in degisen:
+            satirlar.append((section, " ", "    " + row))
 
     return satirlar
 
 
-def element_status(eski_metin: str, yeni_metin: str) -> dict:
+def element_status(old_text: str, new_text: str) -> dict:
     """Diff at ID level: in a form the canvas can paint.
 
     The textual diff rows are for reading; to PAINT the diagram we need to
@@ -129,105 +129,105 @@ def element_status(eski_metin: str, yeni_metin: str) -> dict:
     `removed` CARRIES the dictionary: a deleted element is not in the new
     model, so it can only be drawn (as a ghost) the way it was in the old one.
     """
-    eski = _yukle(eski_metin) or {}
-    yeni = _yukle(yeni_metin) or {}
+    old = _load(old_text) or {}
+    new = _load(new_text) or {}
 
-    eklenen, silinen, degisen = set(), {}, set()
-    for alan in ("states", "transitions", "classes", "relations"):
-        e = {d.get("id"): d for d in (eski.get(alan) or [])
+    added, silinen, degisen = set(), {}, set()
+    for field in ("states", "transitions", "classes", "relations"):
+        e = {d.get("id"): d for d in (old.get(field) or [])
              if isinstance(d, dict)}
-        y = {d.get("id"): d for d in (yeni.get(alan) or [])
+        y = {d.get("id"): d for d in (new.get(field) or [])
              if isinstance(d, dict)}
         for kimlik in y:
             if kimlik not in e:
-                eklenen.add(kimlik)
+                added.add(kimlik)
             elif _farklar(_anlamli(e[kimlik]), _anlamli(y[kimlik])):
                 degisen.add(kimlik)
         for kimlik, d in e.items():
             if kimlik not in y:
                 silinen[kimlik] = d
-    return {"added": eklenen, "removed": silinen, "changed": degisen}
+    return {"added": added, "removed": silinen, "changed": degisen}
 
 
-def state_machine_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
+def state_machine_diff(old_text: str, new_text: str) -> List[DiffRow]:
     """Compares two state machine versions."""
-    eski = _yukle(eski_metin) or {}
-    yeni = _yukle(yeni_metin) or {}
+    old = _load(old_text) or {}
+    new = _load(new_text) or {}
 
-    durumlar = {}
-    for d in list(eski.get("states") or []) + list(yeni.get("states") or []):
+    states = {}
+    for d in list(old.get("states") or []) + list(new.get("states") or []):
         if isinstance(d, dict):
-            durumlar[d.get("id")] = d
+            states[d.get("id")] = d
 
     satirlar: List[DiffRow] = []
-    satirlar += _karsilastir("States", eski.get("states") or [],
-                             yeni.get("states") or [], _durum_etiketi)
+    satirlar += _karsilastir("States", old.get("states") or [],
+                             new.get("states") or [], _state_label)
     satirlar += _karsilastir(
-        "Transitions", eski.get("transitions") or [],
-        yeni.get("transitions") or [],
-        lambda d: _gecis_etiketi(d, durumlar))
+        "Transitions", old.get("transitions") or [],
+        new.get("transitions") or [],
+        lambda d: _transition_label(d, states))
 
-    satirlar += _makine_ayarlari(eski, yeni)
+    satirlar += _makine_ayarlari(old, new)
     return satirlar
 
 
-def _makine_ayarlari(eski: dict, yeni: dict) -> List[DiffRow]:
+def _makine_ayarlari(old: dict, new: dict) -> List[DiffRow]:
     """The machine-level fields (name, prefix, context type, ...)."""
-    alanlar = ("name", "prefix", "context_type", "user_includes", "description")
+    fields = ("name", "prefix", "context_type", "user_includes", "description")
     out: List[DiffRow] = []
-    for alan in alanlar:
-        a, b = eski.get(alan), yeni.get(alan)
+    for field in fields:
+        a, b = old.get(field), new.get(field)
         if a != b:
-            out.append(("Machine", "~", "%s: %r -> %r" % (alan, a, b)))
+            out.append(("Machine", "~", "%s: %r -> %r" % (field, a, b)))
     return out
 
 
-def class_model_diff(eski_metin: str, yeni_metin: str) -> List[DiffRow]:
+def class_model_diff(old_text: str, new_text: str) -> List[DiffRow]:
     """Compares two class diagram versions."""
-    eski = _yukle(eski_metin) or {}
-    yeni = _yukle(yeni_metin) or {}
+    old = _load(old_text) or {}
+    new = _load(new_text) or {}
 
     siniflar = {}
-    for d in list(eski.get("classes") or []) + list(yeni.get("classes") or []):
+    for d in list(old.get("classes") or []) + list(new.get("classes") or []):
         if isinstance(d, dict):
             siniflar[d.get("id")] = d
 
-    def sinif_etiketi(d: dict) -> str:
+    def class_label(d: dict) -> str:
         damga = d.get("stereotype") or ""
         on = ("«%s» " % damga) if damga and damga != "none" else ""
         return "%s%s" % (on, d.get("name", "?"))
 
-    def iliski_etiketi(d: dict) -> str:
-        kaynak = siniflar.get(d.get("source", ""), {}).get("name", "?")
-        hedef = siniflar.get(d.get("target", ""), {}).get("name", "?")
-        return "%s  %s  %s" % (kaynak, d.get("kind", "association"), hedef)
+    def relation_label(d: dict) -> str:
+        source = siniflar.get(d.get("source", ""), {}).get("name", "?")
+        target = siniflar.get(d.get("target", ""), {}).get("name", "?")
+        return "%s  %s  %s" % (source, d.get("kind", "association"), target)
 
     satirlar: List[DiffRow] = []
-    satirlar += _karsilastir("Classes", eski.get("classes") or [],
-                             yeni.get("classes") or [], sinif_etiketi)
-    satirlar += _karsilastir("Relations", eski.get("relations") or [],
-                             yeni.get("relations") or [], iliski_etiketi)
+    satirlar += _karsilastir("Classes", old.get("classes") or [],
+                             new.get("classes") or [], class_label)
+    satirlar += _karsilastir("Relations", old.get("relations") or [],
+                             new.get("relations") or [], relation_label)
     return satirlar
 
 
-def diff_for(path: str, eski_metin: str, yeni_metin: str) -> Optional[List[DiffRow]]:
+def diff_for(path: str, old_text: str, new_text: str) -> Optional[List[DiffRow]]:
     """Semantic diff chosen by file type; ``None`` when not a model file.
 
     Returning ``None`` means "show the textual diff" -- which is the right
     answer for generated C/C++ files, where a line-based diff already reads
     """
-    ad = path.lower()
-    if ad.endswith(".usm"):
-        return state_machine_diff(eski_metin, yeni_metin)
-    if ad.endswith(".ucd"):
-        return class_model_diff(eski_metin, yeni_metin)
-    if ad.endswith(".json"):
+    name = path.lower()
+    if name.endswith(".usm"):
+        return state_machine_diff(old_text, new_text)
+    if name.endswith(".ucd"):
+        return class_model_diff(old_text, new_text)
+    if name.endswith(".json"):
         # Extension is ambiguous: look at the CONTENT.
-        veri = _yukle(yeni_metin) or _yukle(eski_metin) or {}
-        if isinstance(veri.get("classes"), list):
-            return class_model_diff(eski_metin, yeni_metin)
-        if isinstance(veri.get("states"), list):
-            return state_machine_diff(eski_metin, yeni_metin)
+        data = _load(new_text) or _load(old_text) or {}
+        if isinstance(data.get("classes"), list):
+            return class_model_diff(old_text, new_text)
+        if isinstance(data.get("states"), list):
+            return state_machine_diff(old_text, new_text)
     return None
 
 
@@ -241,14 +241,14 @@ def render(rows: List[DiffRow]) -> str:
     if not rows:
         return ""
     out: List[str] = []
-    son_bolum = None
-    for bolum, isaret, metin in rows:
-        if bolum != son_bolum:
+    last_section = None
+    for section, isaret, text in rows:
+        if section != last_section:
             if out:
                 out.append("")
-            out.append("@@ %s @@" % bolum)
-            son_bolum = bolum
-        out.append("%s %s" % (isaret, metin) if isaret != " " else "  " + metin)
+            out.append("@@ %s @@" % section)
+            last_section = section
+        out.append("%s %s" % (isaret, text) if isaret != " " else "  " + text)
     return "\n".join(out)
 
 

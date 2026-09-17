@@ -182,9 +182,9 @@ class MiniCodeEdit(QPlainTextEdit):
             gider += self.horizontalScrollBar().sizeHint().height()
         return gider
 
-    def _apply_height(self, satir: Optional[int] = None) -> None:
+    def _apply_height(self, row: Optional[int] = None) -> None:
         """The size that shows `rows` (or `_rows`) lines IN FULL."""
-        n = self._rows if satir is None else satir
+        n = self._rows if row is None else row
         n = max(self._rows, min(self.MAX_ROWS, n))
         self.setFixedHeight(self.fontMetrics().lineSpacing() * n + self._chrome())
 
@@ -201,7 +201,7 @@ class MiniCodeEdit(QPlainTextEdit):
         """
         self._fit_timer.start()
 
-    def _on_doc_size(self, _boyut) -> None:
+    def _on_doc_size(self, _size) -> None:
         """`documentSizeChanged` -> defer the measurement (the size is stale)."""
         self._schedule_fit()
 
@@ -218,17 +218,17 @@ class MiniCodeEdit(QPlainTextEdit):
         it were pixels turned a six-line description into 0.4 -> 1 line and the
         box never grew.
         """
-        duzen = self.document().documentLayout()
-        satir = duzen.documentSize().height() if duzen is not None else 0.0
+        layout = self.document().documentLayout()
+        row = layout.documentSize().height() if layout is not None else 0.0
 
-        gereken = int(satir + 0.999)
-        hedef = max(self._rows, min(self.MAX_ROWS, gereken))
+        needed = int(row + 0.999)
+        hedef = max(self._rows, min(self.MAX_ROWS, needed))
 
-        yeni = self.fontMetrics().lineSpacing() * hedef + self._chrome()
-        if yeni != self.height():
+        new = self.fontMetrics().lineSpacing() * hedef + self._chrome()
+        if new != self.height():
             # setFixedHeight gives birth to a new resizeEvent; calling it only when
             # there IS a change is what closes the loop.
-            self.setFixedHeight(yeni)
+            self.setFixedHeight(new)
 
     def resizeEvent(self, event) -> None:
         # When the width changes so does the line count of WRAPPED text; if the box
@@ -510,26 +510,26 @@ class Inspector(QScrollArea):
         # could mistype the path and would only see the error during code
         # generation; and the path is RELATIVE to the workspace.
         if st.kind is StateKind.SUBMACHINE:
-            secim = NoWheelComboBox()
-            secim.setAccessibleName("Referenced machine")
-            secim.setToolTip(
+            selection = NoWheelComboBox()
+            selection.setAccessibleName("Referenced machine")
+            selection.setToolTip(
                 "The state machine this state stands for. Its contents are "
                 "inserted here when code is generated (UML 2.5.1, "
                 "14.2.3.4.7).")
             mevcut = (getattr(st, "submachine_ref", "") or "").strip()
-            secim.addItem("(none)", "")
+            selection.addItem("(none)", "")
             for yol in self._workspace_machines():
-                secim.addItem(yol, yol)
-            if mevcut and secim.findData(mevcut) < 0:
+                selection.addItem(yol, yol)
+            if mevcut and selection.findData(mevcut) < 0:
                 # The referenced file is gone; show it rather than removing it SILENTLY,
                 # so the user knows what is missing.
-                secim.addItem("%s  (missing)" % mevcut, mevcut)
-            secim.setCurrentIndex(max(0, secim.findData(mevcut)))
-            secim.activated.connect(
-                lambda _i, _sid=sid, _c=secim: self._edit(
+                selection.addItem("%s  (missing)" % mevcut, mevcut)
+            selection.setCurrentIndex(max(0, selection.findData(mevcut)))
+            selection.activated.connect(
+                lambda _i, _sid=sid, _c=selection: self._edit(
                     self._set_submachine(_sid, _c.currentData()),
                     "Submachine reference"))
-            form.addRow("Machine", secim)
+            form.addRow("Machine", selection)
 
         # REGION COUNT -- only on composite states.
         #
@@ -563,17 +563,17 @@ class Inspector(QScrollArea):
         # fields are shown only IF THEY ALREADY CONTAIN SOMETHING. Otherwise a
         # behaviour coming from an old file produces a V069 error with nowhere for the
         # user to DELETE it.
-        final_dolu = (st.kind == StateKind.FINAL
+        final_filled = (st.kind == StateKind.FINAL
                       and (st.entry.strip() or st.exit.strip()
                            or st.do.strip()))
-        if st.kind.is_real_state and (st.kind != StateKind.FINAL or final_dolu):
+        if st.kind.is_real_state and (st.kind != StateKind.FINAL or final_filled):
             beh = self._group("Behaviors")
-            if final_dolu:
-                uyari = QLabel("A final state cannot carry behavior "
+            if final_filled:
+                warning = QLabel("A final state cannot carry behavior "
                                "(UML 2.5.1 §14.2.3.4) — clear these fields.")
-                uyari.setWordWrap(True)
-                uyari.setStyleSheet("color: %s;" % C.WARN)
-                beh.addRow(uyari)
+                warning.setWordWrap(True)
+                warning.setStyleSheet("color: %s;" % C.WARN)
+                beh.addRow(warning)
             for attr, caption, ph in (("entry", "entry /", "when the state becomes active"),
                                       ("exit", "exit /", "when the state is exited"),
                                       ("do", "do /", "on every <prefix>_do() call")):
@@ -610,16 +610,16 @@ class Inspector(QScrollArea):
 
     def _set_deferred(self, sid: str, metin: str):
         """Turns a comma-separated list into DEFERRED events."""
-        adlar = []
+        names = []
         for parca in (metin or "").replace(";", ",").split(","):
             ad = parca.strip()
-            if ad and ad not in adlar:
-                adlar.append(ad)
+            if ad and ad not in names:
+                names.append(ad)
 
         def mutate(machine):
             st = machine.states.get(sid)
             if st is not None:
-                st.deferred = list(adlar)
+                st.deferred = list(names)
         return mutate
 
     def _workspace_machines(self):
@@ -646,19 +646,19 @@ class Inspector(QScrollArea):
         ws = getattr(pencere, "workspace", None)
         if ws is None:
             return []
-        kok = ws.model_path
-        if not os.path.isdir(kok):
+        root = ws.model_path
+        if not os.path.isdir(root):
             return []
         try:
-            adlar = sorted(os.listdir(kok))
+            names = sorted(os.listdir(root))
         except OSError:
             return []
         out = []
-        for ad in adlar:
+        for ad in names:
             if not ad.lower().endswith(".usm"):
                 continue
             try:
-                out.append(ws.relative(os.path.join(kok, ad)))
+                out.append(ws.relative(os.path.join(root, ad)))
             except ValueError:
                 continue                        # a path that falls outside the root
         return out
@@ -690,10 +690,10 @@ class Inspector(QScrollArea):
             if st is None:
                 return
             st.regions = max(1, int(sayi))
-            son = st.regions - 1
+            last = st.regions - 1
             for c in machine.children(sid):
-                if int(getattr(c, "region", 0) or 0) > son:
-                    c.region = son
+                if int(getattr(c, "region", 0) or 0) > last:
+                    c.region = last
         return mutate
 
     def _rename(self, sid: str, field: QLineEdit):

@@ -374,14 +374,14 @@ def load_bundled_fonts() -> List[str]:
         return _loaded_families
 
     _fonts_loaded = True
-    kok = os.path.normpath(FONT_DIR)
-    if not os.path.isdir(kok):
+    root = os.path.normpath(FONT_DIR)
+    if not os.path.isdir(root):
         return _loaded_families
 
-    for ad in sorted(os.listdir(kok)):
+    for ad in sorted(os.listdir(root)):
         if not ad.lower().endswith((".ttf", ".otf")):
             continue
-        fid = QFontDatabase.addApplicationFont(os.path.join(kok, ad))
+        fid = QFontDatabase.addApplicationFont(os.path.join(root, ad))
         if fid < 0:
             continue
         for aile in QFontDatabase.applicationFontFamilies(fid):

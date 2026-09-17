@@ -4978,7 +4978,7 @@ def test_spec_download_result() -> None:
     # -- Sonuc SINYALLE degil ALANLARDA tasinmali --------------------------- #
     check(not hasattr(sw._Downloader, "finished_ok"),
           "sonuc sinyali kaldirildi (yaris kaynagi)")
-    for alan in ("sonuc_yol", "sonuc_hata", "iptal_edildi"):
+    for alan in ("result_path", "result_error", "iptal_edildi"):
         check(alan in sw._Downloader.__init__.__code__.co_names
               or hasattr(sw._Downloader(tempfile.mktemp()), alan),
               "indirici '%s' alanini tasiyor" % alan)

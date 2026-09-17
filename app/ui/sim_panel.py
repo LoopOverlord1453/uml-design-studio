@@ -75,11 +75,11 @@ def _clear_table(table: QTableWidget) -> None:
     change these accumulate, and their signal connections survive as well.
     """
     for satir in range(table.rowCount()):
-        for sutun in range(table.columnCount()):
-            w = table.cellWidget(satir, sutun)
+        for column in range(table.columnCount()):
+            w = table.cellWidget(satir, column)
             if w is None:
                 continue
-            table.removeCellWidget(satir, sutun)
+            table.removeCellWidget(satir, column)
             try:
                 w.setParent(None)
                 w.deleteLater()
@@ -449,15 +449,15 @@ class SimulatorPanel(QWidget):
             oge.setFlags(Qt.ItemFlag.ItemIsEnabled)
             self.var_table.setItem(satir, 0, oge)
 
-            kutu = QLineEdit(self._var_text.get(ad, ""))
-            kutu.setFont(mono_font(8))
-            kutu.setPlaceholderText("0")
-            kutu.setToolTip("A number (12, 0x0C, 1.5) or true / false")
-            kutu.textChanged.connect(
+            box = QLineEdit(self._var_text.get(ad, ""))
+            box.setFont(mono_font(8))
+            box.setPlaceholderText("0")
+            box.setToolTip("A number (12, 0x0C, 1.5) or true / false")
+            box.textChanged.connect(
                 lambda text, a=ad: self._set_variable(a, text))
-            self.var_table.setCellWidget(satir, 1, kutu)
+            self.var_table.setCellWidget(satir, 1, box)
             # On a rebuild, turn the previous text back into a value.
-            self._set_variable(ad, kutu.text(), refresh=False)
+            self._set_variable(ad, box.text(), refresh=False)
         self.var_table.setVisible(bool(adlar))
         self.lbl_var_empty.setVisible(not adlar)
         if not adlar:
@@ -468,9 +468,9 @@ class SimulatorPanel(QWidget):
 
     def _set_variable(self, name: str, text: str, refresh: bool = True) -> None:
         self._var_text[name] = text
-        ok, deger = guard_expr.parse_value(text)
+        ok, value = guard_expr.parse_value(text)
         if ok:
-            self._variables[name] = deger
+            self._variables[name] = value
         else:
             self._variables.pop(name, None)
         self._paint_variable_row(name, ok, bool(text.strip()))
@@ -482,16 +482,16 @@ class SimulatorPanel(QWidget):
             oge = self.var_table.item(satir, 0)
             if oge is None or oge.text() != name:
                 continue
-            kutu = self.var_table.cellWidget(satir, 1)
-            if kutu is None:
+            box = self.var_table.cellWidget(satir, 1)
+            if box is None:
                 return
             if filled and not ok:
-                kutu.setStyleSheet("color: %s;" % C.RED)
-                kutu.setToolTip("Not a number and not true/false — the "
+                box.setStyleSheet("color: %s;" % C.RED)
+                box.setToolTip("Not a number and not true/false — the "
                                 "guards that read it stay unresolved.")
             else:
-                kutu.setStyleSheet("")
-                kutu.setToolTip("A number (12, 0x0C, 1.5) or true / false")
+                box.setStyleSheet("")
+                box.setToolTip("A number (12, 0x0C, 1.5) or true / false")
             return
 
     # guard table
@@ -505,17 +505,17 @@ class SimulatorPanel(QWidget):
             oge.setToolTip(expr)
             self.guard_table.setItem(satir, 0, oge)
 
-            secim = QComboBox()
-            secim.addItems(list(_MODES))
-            secim.setFont(ui_font(8))
-            secim.setCurrentText(self._guard_mode.get(expr, "auto"))
-            secim.currentTextChanged.connect(
+            selection = QComboBox()
+            selection.addItems(list(_MODES))
+            selection.setFont(ui_font(8))
+            selection.setCurrentText(self._guard_mode.get(expr, "auto"))
+            selection.currentTextChanged.connect(
                 lambda mode, e=expr: self._set_guard_mode(e, mode))
-            self.guard_table.setCellWidget(satir, 1, secim)
+            self.guard_table.setCellWidget(satir, 1, selection)
 
-            deger = QTableWidgetItem("")
-            deger.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.guard_table.setItem(satir, 2, deger)
+            value = QTableWidgetItem("")
+            value.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.guard_table.setItem(satir, 2, value)
 
         self.guard_table.setVisible(bool(self._guards))
         if guard_error:
@@ -547,33 +547,33 @@ class SimulatorPanel(QWidget):
             return True, "manual"
         if mode == "false":
             return False, "manual"
-        sonuc = guard_expr.evaluate(expr, self._variables)
-        if sonuc is None:
+        result = guard_expr.evaluate(expr, self._variables)
+        if result is None:
             # It cannot be evaluated: without a manual value TRUE is assumed (the
             # old behaviour), but the source is written out plainly in the table.
             return True, "unresolved"
-        return sonuc, "variables"
+        return result, "variables"
 
     def _refresh_guard_values(self) -> None:
         for satir, expr in enumerate(self._guards):
             oge = self.guard_table.item(satir, 2)
             if oge is None:
                 continue
-            deger, kaynak = self._resolve_guard(expr)
-            etiket = "true" if deger else "false"
-            if kaynak == "unresolved":
+            value, source = self._resolve_guard(expr)
+            etiket = "true" if value else "false"
+            if source == "unresolved":
                 etiket += "  ?"
                 oge.setToolTip(
                     "This condition cannot be computed from variables "
                     "(it is a call or uses a pointer). Force it with the "
                     "Mode column.")
                 renk = C.WARN
-            elif kaynak == "manual":
+            elif source == "manual":
                 oge.setToolTip("Forced by hand in the Mode column.")
                 renk = C.TEXT_BRIGHT
             else:
                 oge.setToolTip("Computed from the Variables tab.")
-                renk = C.GREEN if deger else C.ORANGE
+                renk = C.GREEN if value else C.ORANGE
             oge.setText(etiket)
             oge.setForeground(_brush(renk))
 
@@ -615,10 +615,10 @@ class SimulatorPanel(QWidget):
             if self.sim is None:
                 return
         self._section("dispatch(%s)" % event)
-        onceki = len(getattr(self.sim, "deferred_pool", []))
+        previous = len(getattr(self.sim, "deferred_pool", []))
         handled = self.sim.dispatch(event)
-        sonraki = len(getattr(self.sim, "deferred_pool", []))
-        if handled and sonraki > onceki:
+        next_ = len(getattr(self.sim, "deferred_pool", []))
+        if handled and next_ > previous:
             # The event was CONSUMED but triggered no transition: it is waiting in
             # the deferral pool (UML 2.5.1, 14.2.3.4.4).
             self._append("    deferred — kept until no active state defers it",
@@ -645,9 +645,9 @@ class SimulatorPanel(QWidget):
     # helpers
 
     def _eval_guard(self, expr: str) -> bool:
-        deger, kaynak = self._resolve_guard(expr)
-        self._guard_source[expr] = kaynak
-        return deger
+        value, source = self._resolve_guard(expr)
+        self._guard_source[expr] = source
+        return value
 
     def _write_legend(self) -> None:
         """Writes a reading guide at the top of the trace."""
@@ -673,18 +673,18 @@ class SimulatorPanel(QWidget):
             self._append("  ▸ %s" % detail, C.ACCENT)
             return
         if kind == "G":
-            expr, _, sonuc = detail.partition("\t")
-            kaynak = self._guard_source.get(expr, "manual")
-            aciklama = {"variables": "computed from the variables",
+            expr, _, result = detail.partition("\t")
+            source = self._guard_source.get(expr, "manual")
+            description = {"variables": "computed from the variables",
                         "manual": "forced by hand",
                         "else": "the default branch",
                         "unresolved": "not computable — assumed true"}.get(
-                            kaynak, kaynak)
-            renk = C.GREEN if sonuc == "true" else C.ORANGE
-            if kaynak == "unresolved":
+                            source, source)
+            renk = C.GREEN if result == "true" else C.ORANGE
+            if source == "unresolved":
                 renk = C.WARN
             self._append("    ? %s  ⇒  %s   (%s)"
-                         % (" ".join(expr.split()), sonuc, aciklama), renk)
+                         % (" ".join(expr.split()), result, description), renk)
             return
         if kind == "error":
             self._append("    !! %s" % detail, C.RED)

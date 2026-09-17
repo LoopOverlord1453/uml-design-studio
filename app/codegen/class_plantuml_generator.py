@@ -44,7 +44,7 @@ _YONLU = {
     RelationKind.DEPENDENCY: ".%s.>",
 }
 
-_SADE_AD = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PLAIN_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def _esc(text: str) -> str:
@@ -55,7 +55,7 @@ def _kimlik(name: str, used: Dict[str, str]) -> str:
     """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
-    if _SADE_AD.match(name):
+    if _PLAIN_NAME.match(name):
         used[name] = name
         return name
     temiz = re.sub(r"[^A-Za-z0-9_]", "_", name) or "C"
@@ -168,7 +168,7 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         if r.target_mult:
             sag += '"%s" ' % _esc(r.target_mult)
         sag += alias[tgt.id]
-        satir = sol + _yon(src, tgt, r.kind) + sag
+        row = sol + _yon(src, tgt, r.kind) + sag
 
         # End names (roles) and the label are collected into ONE ":" section;
         # PlantUML does not accept a second ":".
@@ -180,8 +180,8 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         if r.target_role:
             parcalar.append("%s (target)" % _esc(r.target_role))
         if parcalar:
-            satir += " : " + " / ".join(parcalar)
-        L.append(satir)
+            row += " : " + " / ".join(parcalar)
+        L.append(row)
 
     if cm.description:
         L += ["", "caption %s" % _esc(cm.description)]

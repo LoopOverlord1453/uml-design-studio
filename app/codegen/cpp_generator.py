@@ -15,7 +15,7 @@ from ..core.naming import pascal as _pascal
 from .c_generator import (TOOL_NAME, TOOL_VERSION, align_enum,
                           allman,
                           as_expression, as_statement,
-                          _tek_satir, c_comment, indent_block)
+                          _single_line, c_comment, indent_block)
 from .ir import (Ir, KIND_CHOICE, KIND_COMPOSITE, KIND_FINAL, KIND_HIST_DEEP,
                  KIND_HIST_SHALLOW, KIND_SIMPLE, KIND_TERMINATE, NONE, REGION_NONE,
                  TKIND_EXTERNAL, TKIND_INTERNAL, TKIND_LOCAL, build_ir)
@@ -48,8 +48,8 @@ def section(title: str, indent: str = "") -> str:
     `/* ---...--- states -- */`; C++ had none and ran on without sections.
     """
     kuyruk = " %s --" % title
-    genislik = 79 - len(indent)
-    dolgu = "-" * max(3, genislik - len("// ") - len(kuyruk))
+    width = 79 - len(indent)
+    dolgu = "-" * max(3, width - len("// ") - len(kuyruk))
     return "%s// %s%s" % (indent, dolgu, kuyruk)
 
 
@@ -104,14 +104,14 @@ class CppGenerator:
 
     def _demo_required_note(self) -> List[str]:
         """Counts the functions that come FROM THE MODEL in the MCU example."""
-        gerekli = self.ir.required_functions()
-        if not gerekli:
+        needed = self.ir.required_functions()
+        if not needed:
             return ["// This model's behaviours are self-contained: they call",
                     "// nothing outside the generated code.", ""]
         L = ["// The model's behaviours call these. Write them yourself; the",
              "// state machine calls them at the moments the diagram shows.",
              "//"]
-        for sembol in gerekli:
+        for sembol in needed:
             L.append("//   %s" % sembol.summary())
             L.append("//     -> %s" % ", ".join(sembol.sites))
         L += [
@@ -130,29 +130,29 @@ class CppGenerator:
         only documentation; the model carries no type information and an
         invented declaration could silently disagree with the real signature.
         """
-        gerekli = self.ir.required_functions()
+        needed = self.ir.required_functions()
         L = [section("you must provide")]
-        satirlar = ["@par Functions this machine expects from your project",
+        rows = ["@par Functions this machine expects from your project",
                     "",
                     "The action and guard bodies in the model call the symbols",
                     "listed below. They are NOT generated; declare and define",
                     "them in your own sources (or include the header that",
                     "declares them) before linking."]
-        if not gerekli:
-            satirlar += ["",
+        if not needed:
+            rows += ["",
                          "This model calls none: every behaviour is"
                          " self-contained."]
         else:
-            satirlar.append("")
-            for sembol in gerekli:
-                satirlar.append("- %s" % sembol.summary())
-                satirlar.append("    used by: %s" % ", ".join(sembol.sites))
+            rows.append("")
+            for sembol in needed:
+                rows.append("- %s" % sembol.summary())
+                rows.append("    used by: %s" % ", ".join(sembol.sites))
             if self.ir.has_context():
-                satirlar += ["",
+                rows += ["",
                              "The context type '%s' is also yours: every"
                              % self.ctx_type(),
                              "action and guard sees it as 'ctx'."]
-        L += doc(satirlar)
+        L += doc(rows)
         L.append("")
         return L
 
@@ -229,7 +229,7 @@ class CppGenerator:
                   "The values are indices into the generated lookup tables,",
                   "so they must not be reordered by hand."], "    ")
         L += ["    enum class State : std::uint8_t", "    {"]
-        satirlar = []
+        rows = []
         for st in ir.states:
             kind_txt = {KIND_SIMPLE: "simple", KIND_COMPOSITE: "composite",
                         KIND_FINAL: "final", KIND_CHOICE: "choice/junction",
@@ -239,24 +239,24 @@ class CppGenerator:
             # The user's NOTE goes into the code as well (see the C generator).
             aciklama = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
-                aciklama = "%s -- %s" % (aciklama, _tek_satir(st.note))
-            satirlar.append(("        %s" % st.name, "= %uU," % st.index,
+                aciklama = "%s -- %s" % (aciklama, _single_line(st.note))
+            rows.append(("        %s" % st.name, "= %uU," % st.index,
                              "///< %s" % aciklama))
-        satirlar.append(("        None", "= 255U", "///< invalid"))
-        L += align_enum(satirlar)
+        rows.append(("        None", "= 255U", "///< invalid"))
+        L += align_enum(rows)
         L += ["", "    };", ""]
 
         L += [section("events", "    ")]
         L += doc(["@brief Identifiers of the events accepted by the machine."],
                  "    ")
         L += ["    enum class Event : std::uint8_t", "    {"]
-        satirlar = []
+        rows = []
         for i, ev in enumerate(ir.events):
             note = "///< internal: the completion event" if i == 0 else ""
-            satirlar.append(("        %s" % self._ev_name(ev),
+            rows.append(("        %s" % self._ev_name(ev),
                              "= %uU," % i, note))
-        satirlar.append(("        Invalid", "= 255U", ""))
-        L += align_enum(satirlar)
+        rows.append(("        Invalid", "= 255U", ""))
+        L += align_enum(rows)
         L += ["", "    };", ""]
 
         L += [section("API", "    ")]
@@ -447,8 +447,8 @@ class CppGenerator:
             uyeler.append(("std::uint8_t", "history_[kRegionCount];",
                            "last active substate per region"))
         tip_g = max(len(t) for t, _a, _y in uyeler)
-        ad_g = max(len(a) for _t, a, _y in uyeler)
-        L += ["    %-*s %-*s  ///< %s" % (tip_g, tip, ad_g, ad, yorum)
+        name_w = max(len(a) for _t, a, _y in uyeler)
+        L += ["    %-*s %-*s  ///< %s" % (tip_g, tip, name_w, ad, yorum)
               for tip, ad, yorum in uyeler]
         # A BLANK LINE before the closing brace (same layout as the C side).
         L += ["", "};", ""]
@@ -548,9 +548,9 @@ class CppGenerator:
                 maske = 0
                 for e in st.deferred:
                     maske |= (1 << e)
-                adlar = ", ".join(ir.events[e] for e in st.deferred) or "none"
+                names = ", ".join(ir.events[e] for e in st.deferred) or "none"
                 L += ["    0x%08XU,  // %-18s %s"
-                      % (maske, c_comment(st.name), c_comment(adlar))]
+                      % (maske, c_comment(st.name), c_comment(names))]
             L += ["};", ""]
 
         L += ["// Region each vertex lives in."]
@@ -782,7 +782,7 @@ class CppGenerator:
             gruplu = {}
             for src, ev, gecikme in ucler:
                 gruplu.setdefault(src, []).append((ev, gecikme))
-            for etiket, kanca, fiil in (("Start", "timerStart", "Starts"),
+            for label, kanca, fiil in (("Start", "timerStart", "Starts"),
                                         ("Cancel", "timerCancel", "Cancels")):
                 L += doc(['@brief %s the after() timers of a state.' % fiil,
                          '',
@@ -792,7 +792,7 @@ class CppGenerator:
                          'cancelled; you write the two hooks and post the',
                          'event when your timer expires.'])
                 L += ["void %s::timers%s(std::uint8_t state) noexcept"
-                      % (cls, etiket)]
+                      % (cls, label)]
                 L += ["{"]
                 L += ["    switch (state) {"]
                 for src in sorted(gruplu):
@@ -800,7 +800,7 @@ class CppGenerator:
                           % ir.states[src].name]
                     L += ["    {"]
                     for ev, gecikme in gruplu[src]:
-                        if etiket == "Start":
+                        if label == "Start":
                             L += ["        %s(*this, state,"
                                   " static_cast<std::uint8_t>(Event::%s),"
                                   " static_cast<std::uint32_t>(%s));"

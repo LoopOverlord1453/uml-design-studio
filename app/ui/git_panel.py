@@ -456,10 +456,10 @@ class CommitGraphView(QAbstractScrollArea):
     def _commit_tooltip(commit) -> str:
         """The circle tooltip: subject, body, author, date, sha and branches."""
         satirlar = [commit.subject]
-        govde = (getattr(commit, "body", "") or "").strip()
-        if govde:
+        body = (getattr(commit, "body", "") or "").strip()
+        if body:
             satirlar.append("")
-            satirlar.append(govde)
+            satirlar.append(body)
         satirlar.append("")
         satirlar.append("%s · %s" % (commit.author, commit.when))
         satirlar.append("commit %s" % commit.sha)
@@ -913,9 +913,9 @@ class GitPanel(QWidget):
         """
         self.notice.setText(text)
         self.notice.setVisible(bool(text))
-        renk = C.RED if kind == "error" else C.WARN
+        color = C.RED if kind == "error" else C.WARN
         self.notice.setStyleSheet("background: %s; color: %s;%s"
-                                  % (C.PANEL, renk,
+                                  % (C.PANEL, color,
                                      " font-weight: bold;"
                                      if kind == "error" else ""))
 
@@ -1040,30 +1040,30 @@ class GitPanel(QWidget):
 
         try:
             if sha:
-                yeni_metin = self.repo.file_at(sha, path)
+                new_text = self.repo.file_at(sha, path)
                 ebeveyn = "%s^" % sha
                 try:
-                    eski_metin = self.repo.file_at(ebeveyn, path)
+                    old_text = self.repo.file_at(ebeveyn, path)
                 except GitError:
-                    eski_metin = ""      # the first commit: no parent
+                    old_text = ""      # the first commit: no parent
             elif untracked:
-                eski_metin = ""
+                old_text = ""
                 with open(os.path.join(self.repo.root, path),
                           encoding="utf-8") as fh:
-                    yeni_metin = fh.read()
+                    new_text = fh.read()
             else:
-                eski_metin = self.repo.file_at("HEAD", path) if not staged \
+                old_text = self.repo.file_at("HEAD", path) if not staged \
                     else self.repo.file_at("HEAD", path)
                 if staged:
-                    yeni_metin = self.repo.staged_text(path)
+                    new_text = self.repo.staged_text(path)
                 else:
                     with open(os.path.join(self.repo.root, path),
                               encoding="utf-8") as fh:
-                        yeni_metin = fh.read()
+                        new_text = fh.read()
         except (GitError, OSError, UnicodeDecodeError):
             return None
 
-        rows = model_diff.diff_for(path, eski_metin, yeni_metin)
+        rows = model_diff.diff_for(path, old_text, new_text)
         if rows is None:
             return None
         add, dele, degisen = model_diff.summary(rows)
@@ -1091,11 +1091,11 @@ class GitPanel(QWidget):
         if model_yollari and len(model_yollari) == len(files):
             parcalar, ta, td, tm = [], 0, 0, 0
             for yol in model_yollari:
-                sonuc = self._model_diff_text(yol, sha=sha)
-                if sonuc is None:
+                result = self._model_diff_text(yol, sha=sha)
+                if result is None:
                     parcalar = []
                     break
-                metin, a, d, m = sonuc
+                metin, a, d, m = result
                 parcalar.append("### %s\n%s" % (yol, metin or "  (no model changes)"))
                 ta, td, tm = ta + a, td + d, tm + m
             if parcalar:
@@ -1323,14 +1323,14 @@ def _build_tree(agac: QTreeWidget, kayitlar) -> None:
     """
     kokler: dict = {}
 
-    def klasor(parcalar) -> QTreeWidgetItem:
+    def folder(parcalar) -> QTreeWidgetItem:
         anahtar = "/".join(parcalar)
         if anahtar in kokler:
             return kokler[anahtar]
         if len(parcalar) == 1:
             dugum = QTreeWidgetItem(agac, [parcalar[0] + "/"])
         else:
-            dugum = QTreeWidgetItem(klasor(parcalar[:-1]), [parcalar[-1] + "/"])
+            dugum = QTreeWidgetItem(folder(parcalar[:-1]), [parcalar[-1] + "/"])
         dugum.setData(0, FOLDER_ROLE, anahtar)
         dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
         dugum.setExpanded(True)
@@ -1340,7 +1340,7 @@ def _build_tree(agac: QTreeWidget, kayitlar) -> None:
     for gf, colour in kayitlar:
         parcalar = gf.path.split("/")
         ad = parcalar[-1]
-        ust = klasor(parcalar[:-1]) if len(parcalar) > 1 else agac
+        ust = folder(parcalar[:-1]) if len(parcalar) > 1 else agac
         metin = "%s  %s" % (gf.label(), ad)
         if gf.orig_path:
             metin += "   ← %s" % gf.orig_path
@@ -1352,8 +1352,8 @@ def _build_tree(agac: QTreeWidget, kayitlar) -> None:
 
     # Write how many files are in a folder row: it should inform when collapsed too.
     for dugum in kokler.values():
-        sayi = len(_dosyalari(dugum))
-        dugum.setText(0, "%s   (%d)" % (dugum.text(0), sayi))
+        count = len(_dosyalari(dugum))
+        dugum.setText(0, "%s   (%d)" % (dugum.text(0), count))
 
 
 def _expanded_folders(agac: QTreeWidget) -> set:

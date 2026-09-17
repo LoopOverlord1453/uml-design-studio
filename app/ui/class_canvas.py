@@ -189,19 +189,19 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         and KILLED THE PROCESS (0xC0000409). Clicking a class model closed the app.
         """
         self._diff_marks = marks or {}
-        eklenen = self._diff_marks.get("added") or set()
+        added = self._diff_marks.get("added") or set()
         degisen = self._diff_marks.get("changed") or set()
 
         for kimlik, item in list(self.class_items.items()) \
                 + list(self.rel_items.items()):
-            if kimlik in eklenen:
-                yeni = "added"
+            if kimlik in added:
+                new = "added"
             elif kimlik in degisen:
-                yeni = "changed"
+                new = "changed"
             else:
-                yeni = ""
-            if getattr(item, "diff_mark", "") != yeni:
-                item.diff_mark = yeni
+                new = ""
+            if getattr(item, "diff_mark", "") != new:
+                item.diff_mark = new
                 item.update()
 
         self._rebuild_ghosts(self._diff_marks.get("removed") or {})
@@ -212,12 +212,12 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
         self._ghosts = []
-        for veri in (removed or {}).values():
+        for data in (removed or {}).values():
             # Relationships hang off their end points, and the ends may have been
             # deleted too; only items that HAVE a position can be drawn.
-            if "x" not in veri or "y" not in veri:
+            if "x" not in data or "y" not in data:
                 continue
-            ghost = GhostItem(veri)
+            ghost = GhostItem(data)
             self._scene.addItem(ghost)
             self._ghosts.append(ghost)
 
@@ -574,11 +574,11 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         dragged.
         """
         kutular = []
-        for baska in self.class_items.values():
-            if baska is item or baska.isSelected():
+        for other in self.class_items.values():
+            if other is item or other.isSelected():
                 continue
-            kutular.append((baska.pos().x(), baska.pos().y(),
-                            baska.cls.w, baska.cls.h))
+            kutular.append((other.pos().x(), other.pos().y(),
+                            other.cls.w, other.cls.h))
         return kutular
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:

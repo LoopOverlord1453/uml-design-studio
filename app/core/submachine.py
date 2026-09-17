@@ -110,7 +110,7 @@ def flatten(sm: StateMachine, resolve: Resolver,
             % MAX_SUBMACHINE_DEPTH)
 
     yigin = set(_yigin or set())
-    sonuc = copy.deepcopy(sm)
+    result = copy.deepcopy(sm)
 
     for dis in submachine_states(sm):
         ref = (dis.submachine_ref or "").strip()
@@ -131,41 +131,41 @@ def flatten(sm: StateMachine, resolve: Resolver,
                 % (dis.name, ref))
         ic = flatten(ic, resolve, _derinlik + 1, yigin | {anahtar})
 
-        _yerine_koy(sonuc, dis.id, ic)
+        _substitute(result, dis.id, ic)
 
-    return sonuc
+    return result
 
 
-def _yerine_koy(hedef: StateMachine, dis_id: str, ic: StateMachine) -> None:
+def _substitute(hedef: StateMachine, dis_id: str, ic: StateMachine) -> None:
     """Turns a submachine state into a COMPOSITE state filled with the
     content of the inner machine."""
     dis = hedef.states[dis_id]
-    dis_ad = dis.name
+    outer_name = dis.name
 
     # The outer vertex is now an ordinary composite state. entry/exit/do are
     # KEPT: in UML a submachine state may carry them.
     dis.kind = StateKind.COMPOSITE
     dis.regions = max(1, ic.region_count(None))
 
-    ad_esleme: Dict[str, str] = {}
+    name_map: Dict[str, str] = {}
     for s in ic.ordered_states():
-        yeni = copy.deepcopy(s)
-        yeni.id = "%s__%s" % (dis_id, s.id)
-        yeni.name = qualified_name(dis_ad, s.name)
+        new = copy.deepcopy(s)
+        new.id = "%s__%s" % (dis_id, s.id)
+        new.name = qualified_name(outer_name, s.name)
         # The ROOT vertices of the inner machine become children of the outer state.
-        yeni.parent = ("%s__%s" % (dis_id, s.parent)) if s.parent else dis_id
+        new.parent = ("%s__%s" % (dis_id, s.parent)) if s.parent else dis_id
         # The position is moved inside the outer state, so it looks sane on the canvas.
-        yeni.x = float(s.x) + 14.0
-        yeni.y = float(s.y) + 34.0
-        ad_esleme[s.id] = yeni.id
-        hedef.add_state(yeni)
+        new.x = float(s.x) + 14.0
+        new.y = float(s.y) + 34.0
+        name_map[s.id] = new.id
+        hedef.add_state(new)
 
     for t in ic.ordered_transitions():
-        yeni = copy.deepcopy(t)
-        yeni.id = "%s__%s" % (dis_id, t.id)
-        yeni.source = ad_esleme.get(t.source, t.source)
-        yeni.target = ad_esleme.get(t.target, t.target)
-        hedef.add_transition(yeni)
+        new = copy.deepcopy(t)
+        new.id = "%s__%s" % (dis_id, t.id)
+        new.source = name_map.get(t.source, t.source)
+        new.target = name_map.get(t.target, t.target)
+        hedef.add_transition(new)
 
     _includes_birlestir(hedef, ic)
 
@@ -185,16 +185,16 @@ def _includes_birlestir(hedef: StateMachine, ic: StateMachine) -> None:
     The same line is never written twice and the ORDER is preserved: the lines of
     the outer machine first, then the new ones from the inner machine.
     """
-    satirlar = (hedef.user_includes or "").splitlines()
-    gorulen = {ln.strip() for ln in satirlar if ln.strip()}
-    eklenen = []
+    rows = (hedef.user_includes or "").splitlines()
+    gorulen = {ln.strip() for ln in rows if ln.strip()}
+    added = []
     for ln in (ic.user_includes or "").splitlines():
         anahtar = ln.strip()
         if anahtar and anahtar not in gorulen:
             gorulen.add(anahtar)
-            eklenen.append(ln)
-    if eklenen:
-        hedef.user_includes = "\n".join(satirlar + eklenen).strip("\n")
+            added.append(ln)
+    if added:
+        hedef.user_includes = "\n".join(rows + added).strip("\n")
 
 
 def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None

@@ -134,10 +134,10 @@ class CodePanel(QWidget):
         self.tabs.currentChanged.connect(
             lambda _i: self.find.attach(self.current_editor()))
 
-        for dizi, islev in ((QKeySequence.StandardKey.Find, self.show_find),
+        for array, islev in ((QKeySequence.StandardKey.Find, self.show_find),
                             (QKeySequence("F3"), self.find.find_next),
                             (QKeySequence("Shift+F3"), self.find.find_prev)):
-            kisayol = QShortcut(dizi, self)
+            kisayol = QShortcut(array, self)
             kisayol.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             kisayol.activated.connect(islev)
 
@@ -159,11 +159,11 @@ class CodePanel(QWidget):
         scaling, a different DPI) the strip grows and the panel clips again.
         """
         kenar = 10 + 10 + 8 * 4          # margins + spacing between items
-        gerekli = kenar + self.language.minimumWidth()
-        for dugme in self._header_buttons:
-            gerekli += dugme.sizeHint().width()
-        if gerekli != self.minimumWidth():
-            self.setMinimumWidth(gerekli)
+        needed = kenar + self.language.minimumWidth()
+        for button in self._header_buttons:
+            needed += button.sizeHint().width()
+        if needed != self.minimumWidth():
+            self.setMinimumWidth(needed)
 
     def retheme(self) -> None:
         """Rebuilds the inline styles and the editors on a theme change."""

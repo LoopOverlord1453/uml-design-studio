@@ -89,11 +89,11 @@ def align_enum(rows, gap: int = 1) -> List[str]:
     Inside an enum body both the "=" signs and the comments stay in the same
     column; aligning a single column left the values ragged.
     """
-    ad_g = max((len(a) for a, _d, _y in rows), default=0)
-    deger_g = max((len(d) for _a, d, _y in rows), default=0)
+    name_w = max((len(a) for a, _d, _y in rows), default=0)
+    value_w = max((len(d) for _a, d, _y in rows), default=0)
     out = []
-    for ad, deger, yorum in rows:
-        sol = "%-*s %-*s" % (ad_g, ad, deger_g, deger)
+    for ad, value, yorum in rows:
+        sol = "%-*s %-*s" % (name_w, ad, value_w, value)
         out.append((sol + " " * gap + yorum).rstrip() if yorum else sol.rstrip())
     return out
 
@@ -110,10 +110,10 @@ def align_enum(rows, gap: int = 1) -> List[str]:
 _SONDA_SUSLU = re.compile(r"^(?P<pad>\s*)(?P<govde>.*\S)\s*\{\s*$")
 
 #: A trailing `// ...` note.
-_SATIR_NOTU = re.compile(r"\s*(//[^\n]*)$")
+_ROW_NOTE = re.compile(r"\s*(//[^\n]*)$")
 
 #: The START of a control statement (its parenthesis may be on another line).
-_KONTROL_BAS = re.compile(
+_CONTROL_START = re.compile(
     r"^(?P<pad>\s*)(?:\}\s*)?"
     r"(?:if|else\s+if|for|while|switch)\b")
 
@@ -152,7 +152,7 @@ def blank_before_close(lines: List[str]) -> List[str]:
     return out
 
 
-def _tek_satir(metin: str) -> str:
+def _single_line(metin: str) -> str:
     """Reduces a user note to a SINGLE-LINE comment.
 
     The note field may be written over several lines, while `///<` and
@@ -218,7 +218,7 @@ def allman(lines: List[str]) -> List[str]:
         # the brace would make the note meaningless.
         notu = ""
         kod = line
-        eslesme = _SATIR_NOTU.search(line)
+        eslesme = _ROW_NOTE.search(line)
         if eslesme is not None:
             notu = "  " + eslesme.group(1)
             kod = line[:eslesme.start()]
@@ -231,7 +231,7 @@ def allman(lines: List[str]) -> List[str]:
                 if acik_derinlik <= 0:
                     acik_pad = None
             else:
-                bas = _KONTROL_BAS.match(kod)
+                bas = _CONTROL_START.match(kod)
                 if bas is not None:
                     fark = _paren_farki(kod)
                     if fark > 0:
@@ -240,7 +240,7 @@ def allman(lines: List[str]) -> List[str]:
             out.append(line)
             continue
 
-        govde = m.group("govde").rstrip()
+        body = m.group("govde").rstrip()
         # Indentation of the brace: the indentation the statement STARTS at when
         # we are inside a multi-line condition, otherwise the line's own.
         if acik_pad is not None:
@@ -249,16 +249,16 @@ def allman(lines: List[str]) -> List[str]:
         else:
             pad = m.group("pad")
 
-        if govde.startswith("}"):
+        if body.startswith("}"):
             # `} else {`  ->  `}` / `else` / `{`
             out.append(m.group("pad") + "}")
-            govde = govde[1:].strip()
-            if govde:
-                out.append(pad + govde + notu)
+            body = body[1:].strip()
+            if body:
+                out.append(pad + body + notu)
             elif notu:
                 out.append(pad + notu.strip())
         else:
-            out.append(m.group("pad") + govde + notu)
+            out.append(m.group("pad") + body + notu)
         out.append(pad + "{")
     return blank_before_close(out)
 
@@ -328,8 +328,8 @@ class CGenerator:
 
     def _demo_required_note(self) -> List[str]:
         """Counts the functions that come FROM THE MODEL in the MCU example."""
-        gerekli = self.ir.required_functions()
-        if not gerekli:
+        needed = self.ir.required_functions()
+        if not needed:
             return ["/*",
                     " * This model's behaviours are self-contained: they call",
                     " * nothing outside the generated code.",
@@ -339,7 +339,7 @@ class CGenerator:
              " * The model's behaviours call these. Write them yourself; the",
              " * state machine calls them at the moments the diagram shows.",
              " *"]
-        for sembol in gerekli:
+        for sembol in needed:
             L.append(" *   %s" % sembol.summary())
             L.append(" *     -> %s" % ", ".join(sembol.sites))
         L += [
@@ -365,7 +365,7 @@ class CGenerator:
         information; an invented `void led_write();` declaration can silently
         disagree with the real signature, which is worse than declaring nothing.
         """
-        gerekli = self.ir.required_functions()
+        needed = self.ir.required_functions()
         L: List[str] = [
             "/* %s you must provide -- */"
             % ("-" * (79 - len("/*  you must provide -- */"))),
@@ -377,13 +377,13 @@ class CGenerator:
             " * in your own sources (or include the header that declares",
             " * them) before linking.",
         ]
-        if not gerekli:
+        if not needed:
             L += [" *",
                   " * This model calls none: every behaviour is self-contained.",
                   " */", ""]
             return L
         L += [" *"]
-        for sembol in gerekli:
+        for sembol in needed:
             L.append(" * - %s" % sembol.summary())
             L.append(" *     used by: %s" % ", ".join(sembol.sites))
         if self.ir.has_context():
@@ -408,8 +408,8 @@ class CGenerator:
         The FIRST quoted or angled line is scanned; when there is none, a
         neutral expression is returned.
         """
-        for satir in self.ir.user_includes:
-            eslesme = re.search(r'[<"]([^>"]+)[>"]', satir)
+        for row in self.ir.user_includes:
+            eslesme = re.search(r'[<"]([^>"]+)[>"]', row)
             if eslesme is not None:
                 return eslesme.group(1)
         return "your own header"
@@ -464,10 +464,10 @@ class CGenerator:
             olculer.append(
                 ("%s_DEFER_POOL_SIZE" % self.P, "(16U)",
                  "Retained deferred event occurrences; a full pool is reported."))
-        genislik = max(len(ad) for ad, _d, _a in olculer)
-        for ad, deger, aciklama in olculer:
+        width = max(len(ad) for ad, _d, _a in olculer)
+        for ad, value, aciklama in olculer:
             L += ["/** @brief %s */" % aciklama]
-            L += ["#define %-*s %s" % (genislik, ad, deger)]
+            L += ["#define %-*s %s" % (width, ad, value)]
         L += [""]
 
         L += ["/* --------------------------------------------------------------- states -- */"]
@@ -494,7 +494,7 @@ class CGenerator:
             # notes this way.
             aciklama = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
-                aciklama = "%s -- %s" % (aciklama, _tek_satir(st.note))
+                aciklama = "%s -- %s" % (aciklama, _single_line(st.note))
             satirlar.append(
                 ("    %s" % self.state_enum(st), "= %uU," % st.index,
                  "/**< %s */" % aciklama))
@@ -527,7 +527,7 @@ class CGenerator:
         # The type, the field name and the comment are aligned as THREE SEPARATE
         # COLUMNS. With fixed padding a long name such as "terminated" shifted the
         # comment and the struct looked untidy.
-        alanlar = [
+        fields = [
             (self.type_state(), "state;", "/**< active leaf state */"),
             (self.ctx_type(), "*ctx;",
              "/**< user context, visible as 'ctx' in actions */"),
@@ -537,24 +537,24 @@ class CGenerator:
              "completion_pending[%s_REGION_COUNT];" % self.P,
              "/**< per region: a state was entered, completion is due */"),
         ]
-        alanlar.append(("uint8_t",
+        fields.append(("uint8_t",
                         "active[%s_REGION_COUNT];" % self.P,
                         "/**< active leaf of each region (255 = inactive) */"))
         if self.ir.has_deferred():
-            alanlar.append(("uint8_t",
+            fields.append(("uint8_t",
                             "deferred[%s_DEFER_POOL_SIZE];" % self.P,
                             "/**< retained deferred event occurrences */"))
-            alanlar.append(("uint8_t", "deferred_count;",
+            fields.append(("uint8_t", "deferred_count;",
                             "/**< how many of them are in the pool */"))
-            alanlar.append(("bool", "defer_overflow;",
+            fields.append(("bool", "defer_overflow;",
                             "/**< the pool was full and one was dropped */"))
         if self.ir.has_history():
-            alanlar.append(("uint8_t",
+            fields.append(("uint8_t",
                             "history[%s_REGION_COUNT];" % self.P,
                             "/**< last active substate PER REGION */"))
-        tip_g = max(len(t) for t, _a, _y in alanlar)
+        tip_g = max(len(t) for t, _a, _y in fields)
         L += align_rows([("    %-*s %s" % (tip_g, tip, ad), yorum)
-                         for tip, ad, yorum in alanlar])
+                         for tip, ad, yorum in fields])
         # A BLANK LINE before the close: the body and "} type;" were stuck
         # together.
         L += ["", "} %s;" % self.type_obj(), ""]
@@ -864,9 +864,9 @@ class CGenerator:
                 maske = 0
                 for e in st.deferred:
                     maske |= (1 << e)
-                adlar = ", ".join(ir.events[e] for e in st.deferred) or "none"
+                names = ", ".join(ir.events[e] for e in st.deferred) or "none"
                 L += ["    0x%08XU,  /* %-20s %s */"
-                      % (maske, c_comment(st.name), c_comment(adlar))]
+                      % (maske, c_comment(st.name), c_comment(names))]
             L += ["};", ""]
 
         L += ["/** @brief Region each vertex lives in. */"]
@@ -1048,17 +1048,17 @@ class CGenerator:
         p = self.p
         obj = self.type_obj()
         L: List[str] = []
-        for etiket, kanca, aciklama in (
+        for label, kanca, aciklama in (
                 ("start", "%s_timer_start" % p, "starts"),
                 ("cancel", "%s_timer_cancel" % p, "cancels")):
             L += ["/* --------------------------------------------------- timer %s -- */"
-                  % etiket]
+                  % label]
             L += ["/**"]
             L += [" * @brief %s the after() timers of a state."
-                  % ("Starts" if etiket == "start" else "Cancels")]
+                  % ("Starts" if label == "start" else "Cancels")]
             L += [" */"]
             L += ["static void %s_timers_%s(%s *me, uint8_t state)"
-                  % (p, etiket, obj)]
+                  % (p, label, obj)]
             L += ["{"]
             L += ["    switch (state) {"]
             gruplu = {}
@@ -1068,7 +1068,7 @@ class CGenerator:
                 L += ["    case %s:" % self.state_enum(ir.states[src])]
                 L += ["    {"]
                 for ev, gecikme in gruplu[src]:
-                    if etiket == "start":
+                    if label == "start":
                         # THE DELAY IS CAST TO THE PARAMETER TYPE. The expression is not
                         # always a constant: an int value such as `after(timeout_ms())`
                         # or `after(g_timeout)`, passed untouched into a uint32_t
