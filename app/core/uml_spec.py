@@ -1,29 +1,29 @@
-"""Dogrulama kurallari -> OMG UML 2.5.1 spesifikasyonu atiflari.
+"""Validation rules -> references into the OMG UML 2.5.1 specification.
 
-Sorunlar panelindeki her bulgunun yaninda, ihlal edilen kuralin
-spesifikasyondaki BOLUMU, BASILI SAYFA numarasi ve tek cumlelik ozeti
-gosterilir. Boylece kullanici "neden hata veriyor" sorusunu aracin
-soyledigiyle degil, belgeyle yanitlayabilir.
+Next to every finding in the Problems panel, the CLAUSE of the violated rule
+in the specification, its PRINTED PAGE number and a one-sentence summary are
+shown. That lets the user answer "why is this an error" from the document
+rather than from what the tool says.
 
-KAYNAK
+SOURCE
 ------
 OMG Unified Modeling Language (OMG UML), Version 2.5.1,
-OMG belge numarasi ``formal/2017-12-05``.
+OMG document number ``formal/2017-12-05``.
 
-SAYFA NUMARALARI ELLE YAZILMAZ. ``uml_spec_index.json`` belgenin
-KENDISINDEN uretilir (``tools/build_spec_index.py``); burada yalnizca bolum
-numarasi tutulur ve sayfa calisma aninda o dizinden okunur. Belge surumu
-degisince dizin yeniden uretilir, bu tablo oldugu gibi kalir.
+PAGE NUMBERS ARE NOT WRITTEN BY HAND. ``uml_spec_index.json`` is generated
+FROM THE DOCUMENT ITSELF (``tools/build_spec_index.py``); only the clause
+number is kept here and the page is read from that index at run time. When
+the document version changes the index is regenerated and this table stays.
 
-CUMLELER ALINTI DEGILDIR. Her ``rule`` alani, ilgili normatif kisitin
-kendi sozlerimizle yazilmis tek cumlelik OZETIDIR; kisitin spesifikasyondaki
-ADI ayrica ``constraint`` alaninda verilir, boylece okuyucu belgede birebir
-arayabilir.
+THE SENTENCES ARE NOT QUOTES. Every ``rule`` field is a one-sentence SUMMARY
+of the relevant normative constraint, in our own words; the NAME of the
+constraint in the specification is given separately in ``constraint``, so the
+reader can look it up verbatim.
 
-ARAC KISITI ile UML KURALI AYRILIR. Ad cakismasi, gecersiz C tanimlayicisi
-gibi bulgular UML'in degil, KOD URETECININ kurallaridir; bunlarin spec
-atfi YOKTUR ve panelde "tool rule" olarak gorunurler. Uydurma bir sayfa
-numarasi vermek, belgeye bakan kullaniciyi yaniltirdi.
+A TOOL CONSTRAINT IS SEPARATED FROM A UML RULE. Findings such as a name
+collision or an invalid C identifier are rules of the CODE GENERATOR, not of
+UML; they have NO spec reference and appear in the panel as "tool rule".
+Inventing a page number would mislead a user who opens the document.
 """
 
 from __future__ import annotations
@@ -45,11 +45,11 @@ _index_cache: Optional[Dict[str, dict]] = None
 
 
 def _index() -> Dict[str, dict]:
-    """Bolum -> {"page", "title"} dizini; dosya yoksa BOS sozluk.
+    """Clause -> {"page", "title"} index; an EMPTY dict when the file is missing.
 
-    Dizin bulunamazsa arayuz calismaya devam eder, yalnizca sayfa numarasi
-    gosterilmez. Eksik bir veri dosyasi yuzunden dogrulama panelini
-    coketmek kabul edilemez.
+    If the index cannot be found the interface keeps working, only the page
+    number is not shown. Crashing the validation panel over a missing data
+    file would be unacceptable.
     """
     global _index_cache
     if _index_cache is None:
@@ -63,20 +63,20 @@ def _index() -> Dict[str, dict]:
 
 @dataclass(frozen=True)
 class SpecRef:
-    """Bir dogrulama kuralinin spesifikasyondaki karsiligi."""
+    """What a validation rule corresponds to in the specification."""
 
-    section: str          #: "14.5.11.8"  (bos ise arac kurali)
-    rule: str             #: ihlal edilen kuralin tek cumlelik ozeti
+    section: str          #: "14.5.11.8"  (empty means a tool rule)
+    rule: str             #: a one-sentence summary of the violated rule
     constraint: str = ""  #: normatif kisitin belgedeki adi ("state_is_internal")
 
     @property
     def is_tool_rule(self) -> bool:
-        """UML'de karsiligi olmayan, koda ozgu kural mi?"""
+        """A code-specific rule with no counterpart in UML?"""
         return not self.section
 
     @property
     def page(self) -> Optional[int]:
-        """Belgedeki BASILI sayfa numarasi (dizin yoksa None)."""
+        """The PRINTED page number in the document (None without the index)."""
         kayit = _index().get(self.section)
         if kayit is None:
             return None
@@ -104,17 +104,17 @@ class SpecRef:
         return metin
 
 
-#: Arac kurali (UML atfi yok) icin kisayol.
+#: Shorthand for a tool rule (no UML reference).
 def _tool(rule: str) -> SpecRef:
     return SpecRef(section="", rule=rule)
 
 
 # --------------------------------------------------------------------------- #
-#  Durum makinesi kurallari  (app/core/validator.py)
+#   State machine rules  (app/core/validator.py)
 # --------------------------------------------------------------------------- #
 
 STATE_MACHINE_RULES: Dict[str, SpecRef] = {
-    # -- arac kurallari: uretilen C/C++ sembolleri -------------------------- #
+    # -- tool rules: generated C/C++ symbols # ------------------------------ #
     "V001": _tool("The symbol prefix becomes a C identifier in every generated "
                   "name, so it must itself be a valid C identifier."),
     "V010": _tool("State names become C enum constants, so they must be valid "
@@ -162,7 +162,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "Region that never contributes to a state configuration.",
         constraint="isSimple"),
 
-    # -- gecisler ------------------------------------------------------------ #
+    # -- transitions # ------------------------------------------------------- #
     "V030": SpecRef(
         "14.5.11.6",
         "A Transition has exactly one source Vertex, so an unattached end is "
@@ -196,7 +196,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "specification resolves them by priority, and equal priority leaves "
         "the choice undefined."),
 
-    # -- initial sozde-durumu ------------------------------------------------ #
+    # -- initial pseudostate # ----------------------------------------------- #
     "V033": SpecRef(
         "14.2.3.7",
         "An initial Pseudostate marks where a Region starts and is not a "
@@ -225,12 +225,12 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "A Region owns a set of Vertices and Transitions that determine the "
         "behavioral flow within it; an orthogonal Region with no Vertex has "
         "no flow to execute."),
-    # Bos bolge ve initial'siz bolge icin belge TEK bir davranis DAYATMAZ:
-    # "no specific approach is defined if there is no initial Pseudostate...
-    # One possible approach is to deem the model ill defined." Arac, bu iki
-    # secenekten ILKINI secer ve modeli reddeder; ikinci secenek (bolge
-    # etkin olmadan kalir) kod uretiminde sessiz bir yanlis davranisa
-    # doner. Secim burada ACIKCA yazilidir.
+    # For an empty region, and for a region without an initial, the spec
+    # IMPOSES no single behaviour: "no specific approach is defined if there
+    # is no initial Pseudostate... One possible approach is to deem the model
+    # ill defined." The tool picks the FIRST of those two and rejects the
+    # model; the second (the region simply stays inactive) turns into silently
+    # wrong behaviour in the generated code. The choice is written down here.
     "V101": SpecRef(
         "14.2.3.2",
         "Default activation starts with the Transition originating from the "
@@ -343,8 +343,8 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "Submachines are distinct Behavior specifications, which may be "
         "defined in a different context than the one where they are used, "
         "so the referenced specification must exist."),
-    # Dongu ve derinlik sinirinin UML'de KARSILIGI YOKTUR; bu bir ARAC
-    # kuralidir: makro genislemesi dongusel bir referans grafiginde durmaz.
+    # The cycle and depth limits have NO COUNTERPART in UML; this is a TOOL
+    # rule: macro expansion does not terminate on a cyclic reference graph.
     "V163": SpecRef(
         "",
         "A submachine reference must expand to a finite machine: the tool "
@@ -357,7 +357,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
                   "the same generated constant."),
     "V165": _tool("Expanding a submachine must not produce a state name that "
                   "is invalid as a C identifier."),
-    # -- Ertelenen olaylar (UML 2.5.1, 14.2.3.4.4 ve 14.5.9.6) -------------- #
+    # -- Deferred events (UML 2.5.1, 14.2.3.4.4 and 14.5.9.6) # ------------- #
     "V180": SpecRef(
         "14.5.9.6",
         "deferrableTrigger is a feature of a State: a list of Triggers that "
@@ -382,7 +382,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "A deferred Event type is retained until a state configuration is "
         "reached where it is no longer deferred; an event no Transition ever "
         "uses would simply be held forever."),
-    # -- Zaman olaylari (UML 2.5.1, TimeEvent) ------------------------------ #
+    # -- Time events (UML 2.5.1, TimeEvent) # ------------------------------- #
     "V190": SpecRef(
         "13.3.3",
         "A TimeEvent specifies a point in time by an expression; a relative "
@@ -423,9 +423,9 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "14.2.3.4.6",
         "A branch Vertex exists to split a compound Transition, so a single "
         "outgoing path makes it redundant."),
-    # Choice icin HATA, junction icin BILGI: belge ikisini ayirir. Choice
-    # "ill formed" der; junction icin yalnizca bilesik gecisin devre disi
-    # kaldigini soyler (ikisi de 14.2.3.7, basili s.313).
+    # An ERROR for a choice, INFORMATION for a junction: the spec separates
+    # the two. For a choice it says "ill formed"; for a junction it only says
+    # the compound transition is disabled (both 14.2.3.7, printed p.313).
     "V062": SpecRef(
         "14.2.3.7",
         "If none of the Guards of a choice Vertex evaluates to true the "
@@ -474,7 +474,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
         "in a Region of a composite State, so a second one of the same kind "
         "in the same Region is ambiguous."),
 
-    # -- sozde-durum davranislari -------------------------------------------- #
+    # -- pseudostate behaviours # -------------------------------------------- #
     "V067": SpecRef(
         "14.2.3.4.3",
         "entry, exit and doActivity Behaviors belong to States; a "
@@ -501,7 +501,7 @@ STATE_MACHINE_RULES: Dict[str, SpecRef] = {
 
 
 # --------------------------------------------------------------------------- #
-#  Sinif diyagrami kurallari  (app/core/class_validator.py)
+#   Class diagram rules  (app/core/class_validator.py)
 # --------------------------------------------------------------------------- #
 
 CLASS_RULES: Dict[str, SpecRef] = {
@@ -612,12 +612,12 @@ ALL_RULES.update(CLASS_RULES)
 
 
 def lookup(code: str) -> Optional[SpecRef]:
-    """Kural kodu -> spesifikasyon atfi; bilinmeyen kod icin None."""
+    """Rule code -> specification reference; None for an unknown code."""
     return ALL_RULES.get(code)
 
 
 def describe(code: str) -> str:
-    """Panelde gosterilecek tam metin: kural cumlesi + atif."""
+    """The full text shown in the panel: the rule sentence plus the reference."""
     ref = lookup(code)
     if ref is None:
         return ""

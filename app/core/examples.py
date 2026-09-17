@@ -1,13 +1,13 @@
-"""Ornek galerisi: her arac icin AYRI, calisir bir model.
+"""Example gallery: a SEPARATE, working model for every tool.
 
-Tek bir "demo" model butun ozellikleri ayni anda gosterdigi icin hicbirini
-ogretmiyordu. Burada her ornek TEK BIR KONUYA odaklanir, gecerlidir (kod
-uretimine girer) ve `teaches` alaninda hangi araclari kullandigini yazar.
-Menude bu alan ipucu olarak gorunur.
+A single "demo" model showed every feature at once and so taught none of
+them. Here each example focuses on ONE SUBJECT, is valid (it goes through
+code generation), and states in its `teaches` field which tools it uses.
+The menu shows that field as a tooltip.
 
-Kaynak: UML 2.5.1 (formal/2017-12-05) -- ilgili madde numaralari her
-ornegin `reference` alanindadir; arac icindeki Help > UML Specification
-ile ayni numaralara gidilebilir.
+Source: UML 2.5.1 (formal/2017-12-05) -- the relevant clause numbers are in
+each example's `reference` field; Help > UML Specification inside the tool
+jumps to the same numbers.
 """
 
 from __future__ import annotations
@@ -25,19 +25,19 @@ __all__ = ["Example", "STATE_EXAMPLES", "CLASS_EXAMPLES", "all_examples",
 
 @dataclass
 class Example:
-    """Menude bir satir; `build()` modeli uretir."""
+    """One row in the menu; `build()` produces the model."""
 
     key: str
     title: str
     kind: str                     # "state" | "class"
-    teaches: str                  # hangi araclar/kavramlar
-    summary: str                  # tek cumlelik aciklama
-    reference: str                # UML 2.5.1 madde numaralari
+    teaches: str                  # which tools/concepts
+    summary: str                  # a one-sentence description
+    reference: str                # UML 2.5.1 clause numbers
     build: Callable = field(repr=False, default=None)
 
 
 # --------------------------------------------------------------------------- #
-#  Kucuk yardimcilar
+#   Small helpers
 # --------------------------------------------------------------------------- #
 
 def _machine(name, prefix, description, context="void", includes=""):
@@ -45,25 +45,25 @@ def _machine(name, prefix, description, context="void", includes=""):
                         context_type=context, user_includes=includes)
 
 
-#: Karakter basina piksel BUTCESI.
+#: The pixel BUDGET per character.
 #:
-#: Olculdu: JetBrains Mono bu boyda tam 7.0 px surer. Ama o yazi tipi
-#: `assets/fonts/` bos oldugu icin uygulamayla GELMIYOR; bulunamazsa
-#: tuval yedek zincire duser (Cascadia Mono ~7.4, Consolas ~7.4,
-#: Courier New ~7.2). Butce en genis yedege gore secildi ki ornek kutulari
-#: o makinelerde de yaziyi kirpmasin.
+#: Measured: JetBrains Mono takes exactly 7.0 px at this size. But that font
+#: DOES NOT SHIP with the application because `assets/fonts/` is empty; when
+#: it is missing the canvas falls back down the chain (Cascadia Mono ~7.4,
+#: Consolas ~7.4, Courier New ~7.2). The budget was chosen for the widest
+#: fallback so the example boxes do not clip the text on those machines either.
 _CH_BODY = 7.6
 _CH_TITLE = 8.6
-#: Davranis seridinin satir yuksekligi (fm.height() + 1).
+#: The line height of the behaviour strip (fm.height() + 1).
 _LINE_H = 15.0
 
 
 def _fit(nm, w, h, kind, kw):
-    """Kutuyu icerigine gore BUYUTUR (asla kucultmez).
+    """GROWS the box to fit its content (it never shrinks it).
 
-    Davranis satiri kutuya sigmazsa tuval onu kirpar ve ornek yarim
-    okunur; bu yuzden genislik en uzun satirdan, yukseklik de satir
-    sayisindan hesaplanir.
+    When a behaviour line does not fit the box the canvas clips it and the
+    example reads only half; so the width is computed from the longest line
+    and the height from the number of lines.
     """
     if kind not in (StateKind.SIMPLE, StateKind.COMPOSITE,
                     StateKind.SUBMACHINE):
@@ -110,14 +110,14 @@ def _class_helpers():
 # --------------------------------------------------------------------------- #
 
 def traffic_light() -> StateMachine:
-    """Zaman olayi (after) + basit durum zinciri."""
+    """A time event (after) plus a simple chain of states."""
     sm = _machine("TrafficLight", "traffic",
                   "Fixed-time traffic light: four states driven only by "
                   "time events.", "traffic_ctx_t",
                   '#include "traffic_api.h"')
     st, tr = _adder(sm)
-    # Araliklar en uzun etikete gore: "after(RED_AMBER_MS)" 19 karakter,
-    # yaklasik 143 px; 200 px bosluk onu rahat tasir.
+    # The gaps follow the longest label: "after(RED_AMBER_MS)" is 19 characters,
+    # about 143 px; a 200 px gap carries it comfortably.
     st("i", "Start", StateKind.INITIAL, None, 96, 20, 24, 24)
     st("red", "Red", StateKind.SIMPLE, None, 40, 90,
        entry="lamp_set(LAMP_RED);",
@@ -138,7 +138,7 @@ def traffic_light() -> StateMachine:
 
 
 def composite_state() -> StateMachine:
-    """Bilesik durum + tamamlanma gecisi."""
+    """A composite state plus a completion transition."""
     sm = _machine("Washer", "washer",
                   "Washing machine: a composite state holds the whole cycle "
                   "and completes into a final state.", "washer_ctx_t")
@@ -152,7 +152,7 @@ def composite_state() -> StateMachine:
        note="A composite state. When its region reaches the final state a "
             "COMPLETION event is generated (14.2.3.8.3).")
     st("ci", "CycleStart", StateKind.INITIAL, "cyc", 40, 96, 24, 24)
-    # Sirali uc adim; aradaki 150 px "after(FILL_MS)" (110 px) icin yeterli.
+    # Three steps in a row; the 150 px between them is enough for "after(FILL_MS)".
     st("fill", "Fill", StateKind.SIMPLE, "cyc", 26, 150, 174, 78,
        entry="valve_open();", exit="valve_close();")
     st("wash", "Wash", StateKind.SIMPLE, "cyc", 350, 150, 174, 78,
@@ -168,14 +168,14 @@ def composite_state() -> StateMachine:
     tr("t3", "fill", "wash", event="after(FILL_MS)")
     tr("t4", "wash", "spin", event="after(WASH_MS)")
     tr("t5", "spin", "cend", event="after(SPIN_MS)")
-    # Olaysiz gecis = TAMAMLANMA gecisi: Cycle'in bolgesi final'e varinca alinir.
+    # An event-less transition is a COMPLETION transition: taken when Cycle's
     tr("t6", "cyc", "done")
     tr("t7", "done", "idle", event="ACK")
     return sm
 
 
 def orthogonal_regions() -> StateMachine:
-    """Ayni anda calisan iki bolge."""
+    """Two regions running at the same time."""
     sm = _machine("Player", "player",
                   "Media player: playback and the display clock run at the "
                   "same time in two orthogonal regions.", "player_ctx_t")
@@ -185,13 +185,13 @@ def orthogonal_regions() -> StateMachine:
        entry="panel_on();", exit="panel_off();",
        note="Two regions: the upper one plays, the lower one keeps the "
             "clock. Both are active at once (14.2.3.2).")
-    # --- bolge 0: oynatma
+    # --- region 0: playback
     st("ai", "PlayStart", StateKind.INITIAL, "on", 40, 70, 24, 24, region=0)
     st("play", "Playing", StateKind.SIMPLE, "on", 26, 116, 170, 70, region=0,
        entry="audio_start();", exit="audio_stop();")
     st("pause", "Paused", StateKind.SIMPLE, "on", 330, 116, 170, 70, region=0,
        entry="audio_pause();")
-    # --- bolge 1: saat
+    # --- region 1: clock
     st("bi", "ClockStart", StateKind.INITIAL, "on", 40, 270, 24, 24, region=1)
     st("show", "ShowTime", StateKind.SIMPLE, "on", 26, 316, 170, 70, region=1,
        entry="display_time();")
@@ -208,15 +208,15 @@ def orthogonal_regions() -> StateMachine:
 
 
 def choice_and_junction() -> StateMachine:
-    """Dinamik (choice) ve statik (junction) dallanma yan yana."""
+    """Dynamic (choice) and static (junction) branching side by side."""
     sm = _machine("Grader", "grader",
                   "Choice branches AFTER the effect runs; junction branches "
                   "BEFORE the source is left.", "grader_ctx_t")
     st, tr = _adder(sm)
     st("i", "Start", StateKind.INITIAL, None, 96, 20, 24, 24)
     st("idle", "Idle", StateKind.SIMPLE, None, 40, 200)
-    # "MEASURE / value = read_sensor()" 31 karakter (~227 px); Idle ile
-    # elmas arasinda o kadar acik alan birakildi.
+    # "MEASURE / value = read_sensor()" is 31 characters (~227 px); that much
+    # clear space was left between Idle and the diamond.
     st("ch", "Choice", StateKind.CHOICE, None, 560, 96, 40, 40,
        note="DYNAMIC: the guards are evaluated after the incoming effect "
             "has run, so they see the fresh measurement (14.2.3.7).")
@@ -246,7 +246,7 @@ def choice_and_junction() -> StateMachine:
 
 
 def history_states() -> StateMachine:
-    """Sig (H) ve derin (H*) tarih sozde-durumlari."""
+    """Shallow (H) and deep (H*) history pseudostates."""
     sm = _machine("Menu", "menu",
                   "An interrupt returns the user to the exact screen they "
                   "were on: shallow history restores the page, deep history "
@@ -257,10 +257,10 @@ def history_states() -> StateMachine:
        note="H remembers which page was open; H* remembers the sub-page "
             "inside it as well (14.2.3.4.5).")
     st("bi", "UiStart", StateKind.INITIAL, "ui", 40, 62, 24, 24)
-    # Ad bir C tanimlayicisina donusur: "H*" gecersizdir ve "H" ile
-    # ayni sabite duserdi. Cizimde yine H / H* simgesi gorunur.
-    # Iki tarih dugumu BIRBIRINDEN UZAK durur: Alarm'dan gelen iki gecis
-    # neredeyse ust uste bindiginde etiketleri de cakisiyordu.
+    # The name becomes a C identifier: "H*" is invalid and would fall on the
+    # same constant as "H". The drawing still shows the H / H* symbol.
+    # The two history vertices stay FAR APART: when the two transitions from
+    # Alarm nearly overlapped, their labels collided as well.
     st("h", "Resume", StateKind.SHALLOW_HISTORY, "ui", 150, 58, 30, 30)
     st("hs", "ResumeDeep", StateKind.DEEP_HISTORY, "ui", 420, 58, 30, 30)
     st("p1", "Settings", StateKind.COMPOSITE, "ui", 26, 130, 390, 210,
@@ -276,16 +276,16 @@ def history_states() -> StateMachine:
     tr("t0", "i", "ui")
     tr("t1", "bi", "p1")
     tr("t2", "p1i", "p1a")
-    # Kaydirma YOK: iki kutu arasindaki 90 px bosluk etiketleri
-    # zaten tasiyor ve tuval paralel gecisleri yay uzerinde AYRI
-    # noktalara yerlestiriyor. Elle kaydirinca NEXT, Network'un
+    # NO offset: the 90 px between the two boxes already carries the labels,
+    # and the canvas places parallel transitions at SEPARATE points along the
+    # arc. Offsetting by hand put NEXT on the top right corner of Network.
     # sag ust kosesine biniyordu.
     tr("t3", "p1a", "p1b", event="NEXT")
     tr("t4", "p1b", "p1a", event="PREV")
     tr("t5", "p1", "p2", event="ABOUT")
     tr("t6", "p2", "p1", event="BACK")
     tr("t7", "ui", "alarm", event="FAULT", waypoints=[[900.0, 420.0]])
-    # Iki donus yolu AYRI yuksekliklerden gecer, etiketleri de oyle.
+    # The two return paths run at DIFFERENT heights, and so do their labels.
     tr("t8", "alarm", "h", event="ACK_SHALLOW",
        waypoints=[[880.0, 60.0]], label_dy=-16.0)
     tr("t9", "alarm", "hs", event="ACK_DEEP",
@@ -294,7 +294,7 @@ def history_states() -> StateMachine:
 
 
 def fork_and_join() -> StateMachine:
-    """Fork ile bolgelere dagit, join ile birlestir."""
+    """Spread across regions with a fork, merge them with a join."""
     sm = _machine("Startup", "startup",
                   "A fork starts two independent bring-up branches; the join "
                   "waits until BOTH are finished.", "startup_ctx_t")
@@ -306,8 +306,8 @@ def fork_and_join() -> StateMachine:
             "(14.2.3.7 fork).")
     st("par", "BringUp", StateKind.COMPOSITE, None, 420, 80, 560, 320,
        regions=2)
-    # Her bolge, fork DISINDAN girildiginde de bir varsayilana
-    # inebilmelidir (14.2.3.2); arac bunu zorunlu tutar.
+    # Every region must be able to fall to a default when it is entered from
+    # OUTSIDE the fork too (14.2.3.2); the tool requires that.
     st("pa0", "RadioStart", StateKind.INITIAL, "par", 30, 48, 22, 22,
        region=0)
     st("pa1", "StorageStart", StateKind.INITIAL, "par", 30, 178, 22, 22,
@@ -336,15 +336,15 @@ def fork_and_join() -> StateMachine:
     tr("t8", "jn", "run")
     tr("t9", "pa0", "a1")
     tr("t10", "pa1", "b1")
-    # Donus yolu bilesik durumun ALTINDAN dolasir; yoksa etiketi Radio'nun
-    # baslik seridine oturuyordu.
+    # The return path goes UNDER the composite state; otherwise its label sat
+    # on Radio's title strip.
     tr("t11", "run", "boot", event="SHUTDOWN",
        waypoints=[[1220.0, 470.0], [120.0, 470.0]])
     return sm
 
 
 def deferred_events() -> StateMachine:
-    """Ertelenen olay: simdi islenemeyen olay saklanir."""
+    """A deferred event: an event that cannot be handled now is kept."""
     sm = _machine("Printer", "printer",
                   "A PRINT request arriving during calibration is not lost: "
                   "the state defers it and it is delivered afterwards.",
@@ -361,15 +361,15 @@ def deferred_events() -> StateMachine:
     tr("t0", "i", "idle")
     tr("t1", "idle", "cal", event="CALIBRATE")
     tr("t2", "cal", "idle", event="after(CAL_MS)", waypoints=[[300.0, 40.0]])
-    # PRINT, Calibrating'in ALTINDAN gecer: duz cizilirse etiketi tam
-    # onun baslik seridine oturuyordu.
+    # PRINT passes UNDER Calibrating: drawn straight, its label landed exactly
+    # on that title strip.
     tr("t3", "idle", "prt", event="PRINT", waypoints=[[460.0, 330.0]])
     tr("t4", "prt", "idle", event="DONE", waypoints=[[460.0, 430.0]])
     return sm
 
 
 def internal_transition() -> StateMachine:
-    """Ic gecis: eylem calisir, durumdan CIKILMAZ."""
+    """An internal transition: the effect runs, the state IS NOT EXITED."""
     sm = _machine("Counter", "counter",
                   "An internal transition runs its effect without leaving "
                   "the state, so entry and exit behaviours do NOT re-run.",
@@ -382,7 +382,7 @@ def internal_transition() -> StateMachine:
             "self-transition: exit and entry both run, so the LED blinks.")
     st("done", "Done", StateKind.SIMPLE, None, 660, 140)
     tr("t0", "i", "arm")
-    # Iki oz-gecis ayni yay uzerinde durur; etiketleri yatayda ayrilir.
+    # The two self-transitions sit on the same arc; their labels separate
     tr("t1", "arm", "arm", event="PULSE", kind=TransitionKind.INTERNAL,
        action="ctx->pulses++;", label_dx=-120.0)
     tr("t2", "arm", "arm", event="RESTART", action="ctx->pulses = 0U;",
@@ -393,7 +393,7 @@ def internal_transition() -> StateMachine:
 
 
 def terminate_and_final() -> StateMachine:
-    """Final durum ile terminate sozde-durumunun farki."""
+    """The difference between a final state and a terminate pseudostate."""
     sm = _machine("Session", "session",
                   "A final state completes the region; a terminate "
                   "pseudostate stops the whole machine WITHOUT running any "
@@ -413,7 +413,7 @@ def terminate_and_final() -> StateMachine:
 
 
 def entry_exit_points() -> StateMachine:
-    """Bilesik duruma ADLANDIRILMIS giris/cikis noktalari."""
+    """NAMED entry/exit points on a composite state."""
     sm = _machine("Pump", "pump",
                   "Named entry and exit points let a caller jump straight to "
                   "a chosen substate instead of the default one.",
@@ -440,7 +440,7 @@ def entry_exit_points() -> StateMachine:
     tr("t2", "idle", "ep", event="PRIME", waypoints=[[300.0, 320.0]])
     tr("t3", "ep", "fast")
     tr("t4", "oi", "slow")
-    # Iki yonlu gecisin etiketleri yay uzerinde yatayda ayrilir.
+    # The labels of the two-way transition separate horizontally along the arc.
     tr("t5", "slow", "fast", event="BOOST", label_dx=-34.0)
     tr("t6", "fast", "slow", event="EASE", label_dx=34.0)
     tr("t7", "fast", "xp", event="HOT")
@@ -451,14 +451,14 @@ def entry_exit_points() -> StateMachine:
 
 
 def button_debounce() -> StateMachine:
-    """Gercek is: buton sicramasini bastirma."""
+    """Real work: debouncing a button."""
     sm = _machine("Debounce", "debounce",
                   "Contact bounce filter: a level change is believed only "
                   "after it has been stable for the whole settle time.",
                   "debounce_ctx_t", '#include "debounce_api.h"')
     st, tr = _adder(sm)
-    # En uzun etiket "after(SETTLE_MS) [pin_is_low(ctx)]" 34 karakter,
-    # yaklasik 248 px; yatay bosluklar ona gore acildi.
+    # The longest label, "after(SETTLE_MS) [pin_is_low(ctx)]", is 34 characters,
+    # about 248 px; the horizontal gaps were opened to match.
     st("i", "Start", StateKind.INITIAL, None, 96, 20, 24, 24)
     st("rel", "Released", StateKind.SIMPLE, None, 40, 120, 230, 84,
        entry="ctx->pressed = false;")
@@ -473,7 +473,7 @@ def button_debounce() -> StateMachine:
     tr("t2", "mdown", "rel", event="EDGE_HIGH", label_dx=40.0)
     tr("t3", "mdown", "prs", event="after(SETTLE_MS)",
        guard="pin_is_low(ctx)")
-    # Basarisiz bekleme Released'a doner; yolu YUKARIDAN dolasir.
+    # A failed wait returns to Released; its path goes round ABOVE.
     tr("t4", "mdown", "rel", event="after(SETTLE_MS)", guard="else",
        waypoints=[[360.0, 40.0]])
     tr("t5", "prs", "mup", event="EDGE_HIGH", waypoints=[[820.0, 448.0]])
@@ -486,14 +486,14 @@ def button_debounce() -> StateMachine:
 
 
 def guard_playground() -> StateMachine:
-    """Benzetim panelindeki DEGISKENLER sekmesini denemek icin."""
+    """For trying out the VARIABLES tab in the simulation panel."""
     sm = _machine("Thermostat", "thermostat",
                   "Every guard is written in plain variables, so the "
                   "Variables tab of the simulator can drive the whole run.",
                   "thermostat_ctx_t")
     st, tr = _adder(sm)
-    # "[temperature < setpoint - hysteresis]" 37 karakter (~269 px):
-    # elmas ile isitma/bekleme durumlari arasinda o kadar yer birakildi.
+    # "[temperature < setpoint - hysteresis]" is 37 characters (~269 px): that
+    # much room was left between the diamond and the heating/waiting states.
     st("i", "Start", StateKind.INITIAL, None, 96, 20, 24, 24)
     st("off", "Off", StateKind.SIMPLE, None, 40, 220,
        entry="heater_off();")
@@ -510,7 +510,7 @@ def guard_playground() -> StateMachine:
     tr("t2", "meas", "dec", event="after(SAMPLE_MS)")
     tr("t3", "dec", "heat", guard="temperature < setpoint - hysteresis")
     tr("t4", "dec", "hold", guard="else")
-    # Donus yollari ayri yuksekliklerden gecer.
+    # The return paths run at different heights.
     tr("t5", "heat", "meas", event="after(SAMPLE_MS)",
        waypoints=[[860.0, 60.0]])
     tr("t6", "hold", "meas", event="after(SAMPLE_MS)",
@@ -673,7 +673,7 @@ def dependency_example() -> ClassModel:
 
 
 def debouncer_class() -> ClassModel:
-    """Gercek is: buton sicrama bastirici sinifi (govdeleriyle)."""
+    """Real work: a button debouncer class (with bodies)."""
     attr, op = _class_helpers()
     cm = ClassModel(
         name="ButtonKit", prefix="buttonkit",
@@ -720,8 +720,8 @@ def debouncer_class() -> ClassModel:
              "returns true only on a settled change."))
     cm.add_class(UmlClass(
         id="c_btn", name="Button", x=470, y=360, w=330, h=150,
-        # "port" ve "filter" uyeleri iliskilerin ROL adlarindan
-        # uretilir; ozellik olarak da yazmak cakisma olurdu.
+        # "port" and "filter" members are generated from the ROLE names of the
+        # relationships; writing them as attributes too would be a clash.
         attributes=[],
         operations=[op("tick", ret="bool",
                        body="return this->filter.poll("
@@ -740,7 +740,7 @@ def debouncer_class() -> ClassModel:
 
 
 def visibility_example() -> ClassModel:
-    """Gorunurluk isaretleri, static uyeler ve cokluk."""
+    """Visibility markers, static members and multiplicity."""
     attr, op = _class_helpers()
     cm = ClassModel(name="Registry", prefix="registry",
                     description="Every visibility marker, a static member "
@@ -749,8 +749,8 @@ def visibility_example() -> ClassModel:
         id="c_reg", name="DeviceRegistry", x=120, y=60, w=380, h=260,
         attributes=[attr("instance", "DeviceRegistry *", vis="+",
                          default="nullptr"),
-                    # NOT: "slots" uyesini ASAGIDAKI iliski uretir;
-                    # burada bir kez daha yazmak ayni uyeyi iki kez
+                    # NOTE: the "slots" member is generated by the relationship BELOW;
+                    # writing it once more here would define the same member twice.
                     # tanimlardi.
                     attr("used", "uint8_t", vis="#", default="0"),
                     attr("magic", "uint32_t", vis="~", default="0xC0FFEE")],
@@ -774,7 +774,7 @@ def visibility_example() -> ClassModel:
 
 
 # --------------------------------------------------------------------------- #
-#  Katalog
+#   Catalogue
 # --------------------------------------------------------------------------- #
 
 STATE_EXAMPLES: List[Example] = [
