@@ -92,9 +92,9 @@ def _balanced(expr: str) -> bool:
     return not stack
 
 
-def _baglamli(tip: str) -> bool:
+def _baglamli(type_name: str) -> bool:
     """Does the machine carry a USER CONTEXT (`void` does not)."""
-    return (tip or "").strip() not in ("", "void")
+    return (type_name or "").strip() not in ("", "void")
 
 
 def _submachine_flatten(sm, resolve):
@@ -524,7 +524,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     for sahip in sahipler:
         if sahip is not None and not sm.children(sahip):
             continue
-        bolge_sayisi = sm.region_count(sahip)
+        n_regions = sm.region_count(sahip)
 
         # THERE MUST BE NO CHILD OUTSIDE THE DECLARED REGION COUNT.
         #
@@ -542,23 +542,23 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         if sahip is not None:
             for child in sm.children(sahip):
                 region_no = int(getattr(child, "region", 0) or 0)
-                if region_no < 0 or region_no >= bolge_sayisi:
+                if region_no < 0 or region_no >= n_regions:
                     err("V103",
                         "'%s' says it is in region %d of '%s', but that state "
                         "has only %d region(s). Drag it into one of the bands "
                         "shown in the diagram."
                         % (child.name, region_no + 1,
-                           sm.states[sahip].name, bolge_sayisi),
+                           sm.states[sahip].name, n_regions),
                         child.id)
-        for region in range(bolge_sayisi):
+        for region in range(n_regions):
             content = sm.children_in(sahip, region)
             if sahip is None:
                 rname = "root region"
-            elif bolge_sayisi > 1:
+            elif n_regions > 1:
                 rname = "region %d of '%s'" % (region + 1, sm.states[sahip].name)
             else:
                 rname = "'%s'" % sm.states[sahip].name
-            if sahip is not None and bolge_sayisi > 1 and not content:
+            if sahip is not None and n_regions > 1 and not content:
                 err("V100", "%s is empty; every region of an orthogonal state "
                             "must contain at least one state." % rname, sahip)
                 continue
@@ -689,26 +689,26 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             bilinen = {t.event.strip() for t in sm.transitions.values()
                        if t.event.strip()}
             gorulen = set()
-            for ad in s.deferred:
-                ad = str(ad).strip()
-                if not ad:
+            for ident in s.deferred:
+                ident = str(ident).strip()
+                if not ident:
                     continue
-                if not IDENT_RE.match(ad):
+                if not IDENT_RE.match(ident):
                     err("V181", "'%s' is not a valid event name to defer in "
-                                "'%s'." % (ad, s.name), s.id)
-                elif ad in gorulen:
+                                "'%s'." % (ident, s.name), s.id)
+                elif ident in gorulen:
                     warn("V182", "'%s' is listed twice in the deferred events "
-                                 "of '%s'." % (ad, s.name), s.id)
-                gorulen.add(ad)
+                                 "of '%s'." % (ident, s.name), s.id)
+                gorulen.add(ident)
                 # When a state's OWN outgoing transition carries the same event, UML
                 # gives the transition priority ("a kind of override option"). That is
                 # VALID but easily misread, so it IS REPORTED.
                 # BILDIRILIR.
                 for t in sm.outgoing(s.id):
-                    if t.event.strip() == ad:
+                    if t.event.strip() == ident:
                         info("V183", "'%s' both defers '%s' and has a "
                                      "transition triggered by it; the "
-                                     "transition wins." % (s.name, ad), s.id)
+                                     "transition wins." % (s.name, ident), s.id)
                         break
             empty = gorulen - bilinen
             if empty:
@@ -731,14 +731,14 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             # for now and is refused explicitly; see core/submachine.py.
             if ref and resolve is not None:
                 try:
-                    hedef = resolve(ref)
+                    dest = resolve(ref)
                 except Exception:               # noqa: BLE001
-                    hedef = None
-                if hedef is None:
+                    dest = None
+                if dest is None:
                     err("V162", "The machine referenced by '%s' could not be "
                                 "found: %s" % (s.name, ref), s.id)
-                elif (_baglamli(hedef.context_type)
-                      and hedef.context_type.strip()
+                elif (_baglamli(dest.context_type)
+                      and dest.context_type.strip()
                       != sm.context_type.strip()):
                     # THE CONTEXT TYPE WAS BEING DROPPED SILENTLY.
                     #
@@ -757,7 +757,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         "machine's behaviour against the wrong context. "
                         "Make the two match, or give the referenced machine "
                         "the context type 'void'."
-                        % (s.name, hedef.name, hedef.context_type.strip(),
+                        % (s.name, dest.name, dest.context_type.strip(),
                            sm.context_type.strip()), s.id)
                 elif not _genisletme_bildirildi:
                     # The expansion and its checks are for the WHOLE MACHINE, not for a
@@ -778,22 +778,22 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         # The codes are given as plain text, not through a VARIABLE: the
                         # reference test looks for the `err("Vxxx"` pattern in the source and
                         # a code passed in a variable looks like a "dead entry".
-                        for kod, message, hedef in _expanded_name_problems(
+                        for kod, message, dest in _expanded_name_problems(
                                 sm, genis):
                             if kod == "V164":
-                                err("V164", message, hedef)
+                                err("V164", message, dest)
                             else:
-                                err("V165", message, hedef)
+                                err("V165", message, dest)
 
         # connection points
         if s.kind.is_connection_point:
-            ad = ("entry point" if s.kind is StateKind.ENTRY_POINT
+            ident = ("entry point" if s.kind is StateKind.ENTRY_POINT
                   else "exit point")
             sahip = sm.states.get(s.parent) if s.parent else None
             if sahip is None or sahip.kind is not StateKind.COMPOSITE:
                 err("V140", "The %s '%s' must belong to a composite state; "
                             "drag it onto the state whose boundary it sits "
-                            "on." % (ad, s.name), s.id)
+                            "on." % (ident, s.name), s.id)
             giden = sm.outgoing(s.id)
             gelen = sm.incoming(s.id)
 

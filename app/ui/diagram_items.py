@@ -396,9 +396,9 @@ class StateItem(QGraphicsObject):
         if count <= 1:
             return field
         index = max(0, min(index, count - 1))
-        yukseklik = field.height() / float(count)
-        return QRectF(field.left(), field.top() + index * yukseklik,
-                      field.width(), yukseklik)
+        px_height = field.height() / float(count)
+        return QRectF(field.left(), field.top() + index * px_height,
+                      field.width(), px_height)
 
     def region_at(self, y: float) -> int:
         """The region the local `y` coordinate falls into."""
@@ -1007,11 +1007,11 @@ class TransitionItem(QGraphicsItem):
         self._path = path
         self._arrow = self._arrow_head(p2, p2 - pts[-1])
 
-    def _arrow_head(self, tip: QPointF, direction: QPointF) -> QPolygonF:
+    def _arrow_head(self, type_name: QPointF, direction: QPointF) -> QPolygonF:
         d = _unit(direction)
         normal = QPointF(-d.y(), d.x())
-        base = tip - d * self.ARROW
-        return QPolygonF([tip,
+        base = type_name - d * self.ARROW
+        return QPolygonF([type_name,
                           base + normal * (self.ARROW * 0.42),
                           base - normal * (self.ARROW * 0.42)])
 

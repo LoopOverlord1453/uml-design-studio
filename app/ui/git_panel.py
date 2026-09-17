@@ -999,12 +999,12 @@ class GitPanel(QWidget):
         # they are left alone.
         model = self._model_diff_text(path, staged=staged, untracked=untracked)
         if model is not None:
-            metin, add, dele, degisen = model
+            txt, add, dele, degisen = model
             self.diff_header.setText(
                 "DIFF — %s   +%d −%d ~%d   (model, %s)"
                 % (path, add, dele, degisen,
                    "staged" if staged else "unstaged"))
-            self.diff.show_diff(metin, "No model changes.")
+            self.diff.show_diff(txt, "No model changes.")
             # Show it ON THE PICTURE too: the textual summary says WHAT changed,
             # the diagram shows WHERE.
             if self.repo is not None:
@@ -1090,13 +1090,13 @@ class GitPanel(QWidget):
                          if f.path.lower().endswith((".usm", ".ucd"))]
         if model_yollari and len(model_yollari) == len(files):
             parts, ta, td, tm = [], 0, 0, 0
-            for yol in model_yollari:
-                result = self._model_diff_text(yol, sha=sha)
+            for fpath in model_yollari:
+                result = self._model_diff_text(fpath, sha=sha)
                 if result is None:
                     parts = []
                     break
-                metin, a, d, m = result
-                parts.append("### %s\n%s" % (yol, metin or "  (no model changes)"))
+                txt, a, d, m = result
+                parts.append("### %s\n%s" % (fpath, txt or "  (no model changes)"))
                 ta, td, tm = ta + a, td + d, tm + m
             if parts:
                 self.diff_header.setText(
@@ -1341,10 +1341,10 @@ def _build_tree(tree: QTreeWidget, kayitlar) -> None:
         parts = gf.path.split("/")
         name = parts[-1]
         parent_node = folder(parts[:-1]) if len(parts) > 1 else tree
-        metin = "%s  %s" % (gf.label(), name)
+        txt = "%s  %s" % (gf.label(), name)
         if gf.orig_path:
-            metin += "   ← %s" % gf.orig_path
-        oge = QTreeWidgetItem(parent_node, [metin])
+            txt += "   ← %s" % gf.orig_path
+        oge = QTreeWidgetItem(parent_node, [txt])
         oge.setData(0, PATH_ROLE, gf.path)
         oge.setData(0, UNTRACKED_ROLE, gf.untracked)
         oge.setForeground(0, QBrush(QColor(colour)))
@@ -1362,11 +1362,11 @@ def _expanded_folders(tree: QTreeWidget) -> set:
 
     def gez(node):
         for i in range(node.childCount()):
-            cocuk = node.child(i)
-            key = cocuk.data(0, FOLDER_ROLE)
-            if key and cocuk.isExpanded():
+            kid = node.child(i)
+            key = kid.data(0, FOLDER_ROLE)
+            if key and kid.isExpanded():
                 acik.add(key)
-            gez(cocuk)
+            gez(kid)
 
     gez(tree.invisibleRootItem())
     return acik
@@ -1378,11 +1378,11 @@ def _restore_expanded(tree: QTreeWidget, acik: set) -> None:
 
     def gez(node):
         for i in range(node.childCount()):
-            cocuk = node.child(i)
-            key = cocuk.data(0, FOLDER_ROLE)
+            kid = node.child(i)
+            key = kid.data(0, FOLDER_ROLE)
             if key:
-                cocuk.setExpanded(key in acik)
-            gez(cocuk)
+                kid.setExpanded(key in acik)
+            gez(kid)
 
     gez(tree.invisibleRootItem())
 
@@ -1399,11 +1399,11 @@ def _restore_path(lst: QTreeWidget, path: str) -> None:
 
     def gez(node):
         for i in range(node.childCount()):
-            cocuk = node.child(i)
-            if cocuk.data(0, PATH_ROLE) == path:
-                lst.setCurrentItem(cocuk)
+            kid = node.child(i)
+            if kid.data(0, PATH_ROLE) == path:
+                lst.setCurrentItem(kid)
                 return True
-            if gez(cocuk):
+            if gez(kid):
                 return True
         return False
 

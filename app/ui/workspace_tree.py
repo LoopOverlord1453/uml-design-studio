@@ -154,19 +154,19 @@ class WorkspaceTree(QTreeWidget):
             self._suppress = False
             return
 
-        kok = QTreeWidgetItem(self, ["▣  %s" % self._workspace.name])
+        root_item = QTreeWidgetItem(self, ["▣  %s" % self._workspace.name])
         f = ui_font(9)
         f.setBold(True)
-        kok.setFont(0, f)
+        root_item.setFont(0, f)
         # STATE_TITLE is for the coloured title strip on the canvas and is white in
         # both themes; it would vanish on the white tree background in the light theme.
-        kok.setForeground(0, QBrush(QColor(C.TEXT_BRIGHT)))
-        kok.setData(0, NODE_ROLE, "dir")
-        kok.setData(0, PATH_ROLE, self._workspace.model_path)
-        kok.setToolTip(0, self._workspace.root)
+        root_item.setForeground(0, QBrush(QColor(C.TEXT_BRIGHT)))
+        root_item.setData(0, NODE_ROLE, "dir")
+        root_item.setData(0, PATH_ROLE, self._workspace.model_path)
+        root_item.setToolTip(0, self._workspace.root)
 
-        self._fill_dir(kok, self._workspace.model_path)
-        kok.setExpanded(True)
+        self._fill_dir(root_item, self._workspace.model_path)
+        root_item.setExpanded(True)
         self._restore_expanded(genisleyenler)
         self._suppress = False
 
@@ -375,21 +375,21 @@ class WorkspaceTree(QTreeWidget):
             # behaviours was inconsistent. And the exit/do behaviour of a composite
             # state may not fit in its box -- the tree is then the only reliable
             # source.
-            for etiket, text in (("entry /", st.entry),
+            for caption, text in (("entry /", st.entry),
                                   ("exit  /", st.exit),
                                   ("do    /", st.do)):
                 if not text.strip():
                     continue
                 self._member(node, st.id,
-                             "%s %s" % (etiket, " ".join(text.split())),
+                             "%s %s" % (caption, " ".join(text.split())),
                              C.STATE_TEXT)
 
             self._fill_states(node, sm, st.id)
             for tr in sm.outgoing(st.id):
-                hedef = sm.states.get(tr.target)
-                etiket = tr.label() or "(completion)"
+                dest = sm.states.get(tr.target)
+                caption = tr.label() or "(completion)"
                 leaf = QTreeWidgetItem(
-                    node, ["→ %s : %s" % (hedef.name if hedef else "?", etiket)])
+                    node, ["→ %s : %s" % (dest.name if dest else "?", caption)])
                 leaf.setData(0, ID_ROLE, tr.id)
                 leaf.setData(0, NODE_ROLE, "element")
                 leaf.setForeground(0, QBrush(QColor(C.TRANSITION)))

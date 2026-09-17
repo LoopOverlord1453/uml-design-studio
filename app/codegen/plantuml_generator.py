@@ -310,7 +310,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                 # The regions of an ORTHOGONAL state are separated with "--"; PlantUML
                 # draws that as concurrent regions. For a single-region state no
                 # separator is written and the output stays as it was.
-                bolge_sayisi = sm.region_count(s.id)
+                n_regions = sm.region_count(s.id)
 
                 def inner_transitions(sahip: str, which: Optional[int]) -> None:
                     """The inner arrows of an owner (optionally of one region).
@@ -332,8 +332,8 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                                  % (pad, alias[src.id], _yon(sm, src, tgt),
                                     alias[tgt.id], _label(t)))
 
-                if bolge_sayisi > 1:
-                    for r in range(bolge_sayisi):
+                if n_regions > 1:
+                    for r in range(n_regions):
                         if r > 0:
                             L.append("%s  --" % pad)
                         emit_region(s.id, pad + "  ", r)

@@ -446,10 +446,10 @@ class CppGenerator:
         if ir.has_history():
             uyeler.append(("std::uint8_t", "history_[kRegionCount];",
                            "last active substate per region"))
-        tip_g = max(len(t) for t, _a, _y in uyeler)
+        type_w = max(len(t) for t, _a, _y in uyeler)
         name_w = max(len(a) for _t, a, _y in uyeler)
-        L += ["    %-*s %-*s  ///< %s" % (tip_g, tip, name_w, ad, yorum)
-              for tip, ad, yorum in uyeler]
+        L += ["    %-*s %-*s  ///< %s" % (type_w, type_name, name_w, ident, yorum)
+              for type_name, ident, yorum in uyeler]
         # A BLANK LINE before the closing brace (same layout as the C side).
         L += ["", "};", ""]
         if ir.has_time_events():

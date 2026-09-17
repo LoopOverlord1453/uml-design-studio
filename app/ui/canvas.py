@@ -504,9 +504,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
 
         if self._label_drag is not None:
-            oge, dx0, dy0, baslangic = self._label_drag
+            oge, dx0, dy0, begin = self._label_drag
             now = self.mapToScene(event.position().toPoint())
-            fark = now - baslangic
+            fark = now - begin
             oge.transition.label_dx = round(dx0 + fark.x(), 2)
             oge.transition.label_dy = round(dy0 + fark.y(), 2)
             oge.update_path()
@@ -784,7 +784,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                             for x, y in tr.waypoints]
 
     @staticmethod
-    def _region_for(ust: Optional[QGraphicsItem],
+    def _region_for(upper: Optional[QGraphicsItem],
                     local_top_edge: float, height: float) -> int:
         """Computes WHICH BAND of `parent` was landed in, from LOCAL coordinates.
 
@@ -794,9 +794,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         `pos()` gives the old scene position and `parentItem()` the old parent.
         The region computed at those moments came out wrong.
         """
-        if not isinstance(ust, StateItem) or ust.region_count() <= 1:
+        if not isinstance(upper, StateItem) or upper.region_count() <= 1:
             return 0
-        return ust.region_at(local_top_edge + height / 2.0)
+        return upper.region_at(local_top_edge + height / 2.0)
 
     def _fit_pasted_into(self, host: StateItem, ids: List[str],
                          scene_pos: QPointF) -> None:
@@ -819,10 +819,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                   if i in sm.states and sm.states[i].parent == host.state.id]
         if not roots:
             return
-        sol = min(st.x for st in roots)
-        ust = min(st.y for st in roots)
-        width = max(st.x + st.w for st in roots) - sol
-        height = max(st.y + st.h for st in roots) - ust
+        left_x = min(st.x for st in roots)
+        upper = min(st.y for st in roots)
+        width = max(st.x + st.w for st in roots) - left_x
+        height = max(st.y + st.h for st in roots) - upper
 
         field = host.content_rect()
         yerel = host.mapFromScene(scene_pos)
@@ -833,8 +833,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         target_y = min(max(target_y, field.top()),
                       max(field.top(), field.bottom() - height))
 
-        dx = target_x - sol
-        dy = target_y - ust
+        dx = target_x - left_x
+        dy = target_y - upper
         for st in roots:
             st.x = round(st.x + dx, 2)
             st.y = round(st.y + dy, 2)

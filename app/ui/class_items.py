@@ -67,8 +67,8 @@ class ClassItem(QGraphicsObject):
         en = QFontMetricsF(self.f_title).horizontalAdvance(self.cls.name) + 24.0
         row = 0
         for uye in list(self.cls.attributes) + list(self.cls.operations):
-            etiket = uye.label()
-            en = max(en, fm.horizontalAdvance(etiket) + 24.0)
+            caption = uye.label()
+            en = max(en, fm.horizontalAdvance(caption) + 24.0)
             row += 1
         boy = 34.0 + row * (fm.height() + 2.0) + 20.0
         return (max(MIN_W, en), max(MIN_H, boy))
@@ -364,38 +364,38 @@ class RelationItem(QGraphicsItem):
 
         if kind in (RelationKind.AGGREGATION, RelationKind.COMPOSITION):
             # the diamond sits at the WHOLE (source) end
-            tip = p1
+            type_name = p1
             back = p1 + d1 * self.DIAMOND
             n = QPointF(-d1.y(), d1.x())
             half = self.DIAMOND * 0.38
-            poly = QPolygonF([tip, tip + d1 * (self.DIAMOND / 2) + n * half,
-                              back, tip + d1 * (self.DIAMOND / 2) - n * half])
+            poly = QPolygonF([type_name, type_name + d1 * (self.DIAMOND / 2) + n * half,
+                              back, type_name + d1 * (self.DIAMOND / 2) - n * half])
             self._src_marker.addPolygon(poly)
             self._src_marker.closeSubpath()
             self._src_fill = kind is RelationKind.COMPOSITION
             start = back
         if kind in (RelationKind.GENERALIZATION, RelationKind.REALIZATION):
-            tip = p2
+            type_name = p2
             back = p2 + d2 * self.TRIANGLE
             n = QPointF(-d2.y(), d2.x())
             half = self.TRIANGLE * 0.55
-            poly = QPolygonF([tip, back + n * half, back - n * half])
+            poly = QPolygonF([type_name, back + n * half, back - n * half])
             self._dst_marker.addPolygon(poly)
             self._dst_marker.closeSubpath()
             self._dst_fill = False
             end = back
         if kind in (RelationKind.ASSOCIATION, RelationKind.DEPENDENCY):
-            tip = p2
+            type_name = p2
             back = p2 + d2 * self.ARROW
             n = QPointF(-d2.y(), d2.x())
             half = self.ARROW * 0.42
             self._dst_marker.moveTo(back + n * half)
-            self._dst_marker.lineTo(tip)
+            self._dst_marker.lineTo(type_name)
             self._dst_marker.lineTo(back - n * half)
             # Association and Dependency use an OPEN arrow head: two lines,
             # not a closed triangle -- hence no fill.
             self._dst_fill = None
-            end = tip
+            end = type_name
 
         path = QPainterPath(start)
         if abs(self.bow) > 0.01:

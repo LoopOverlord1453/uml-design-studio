@@ -748,7 +748,7 @@ class MainWindow(QMainWindow):
     # actions
 
     def _build_actions(self) -> None:
-        def act(text, slot, shortcut=None, icon=None, tip=None, checkable=False):
+        def act(text, slot, shortcut=None, icon=None, type_name=None, checkable=False):
             a = QAction(text, self)
             if icon:
                 a.setIcon(icon())
@@ -756,9 +756,9 @@ class MainWindow(QMainWindow):
                 self._action_icons[a] = icon
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
-            if tip:
-                a.setToolTip(tip)
-                a.setStatusTip(tip)
+            if type_name:
+                a.setToolTip(type_name)
+                a.setStatusTip(type_name)
             a.setCheckable(checkable)
             if slot:
                 a.triggered.connect(slot)
@@ -779,7 +779,7 @@ class MainWindow(QMainWindow):
 
         self.a_workspace = act("Workspace…", self.choose_workspace,
                                "Ctrl+Shift+W",
-                               tip="Choose the folder that holds the model and the generated code")
+                               type_name="Choose the folder that holds the model and the generated code")
         self.a_workspace_open = act("Reveal Workspace in File Manager",
                                     self.reveal_workspace)
         self.a_write_now = act("Write Generated Code to Workspace",
@@ -788,7 +788,7 @@ class MainWindow(QMainWindow):
                                 self.toggle_auto_write, checkable=True)
         self.a_auto_write.setChecked(True)
         self.a_git_refresh = act("Refresh Repository", self.refresh_git, "F6",
-                                 tip="Re-read the git status and history")
+                                 type_name="Re-read the git status and history")
         self.a_git_tab = act("Open Repository Panel", self.show_git_tab, "F8")
 
         self.a_undo = act("Undo", self._undo, None, icons.undo_icon)
@@ -896,7 +896,7 @@ class MainWindow(QMainWindow):
 
         self.a_spec = act("UML 2.5.1 Specification (PDF)…",
                           self.show_spec, "Shift+F1",
-                          tip="Open the OMG UML 2.5.1 specification "
+                          type_name="Open the OMG UML 2.5.1 specification "
                               "in a separate window")
         self.a_about = act("About", self.show_about)
         self.a_shortcuts = act("Shortcuts", self.show_shortcuts, "F1")
@@ -906,12 +906,12 @@ class MainWindow(QMainWindow):
         self.tool_group = QActionGroup(self)
         self.tool_group.setExclusive(True)
         self.tool_actions: Dict[Tool, QAction] = {}
-        for tool, text, key, icon, tip in STATE_TOOLS:
+        for tool, text, key, icon, type_name in STATE_TOOLS:
             a = QAction(icon(), text, self)
             a.setCheckable(True)
             a.setShortcut(QKeySequence(key))
-            a.setToolTip(tip)
-            a.setStatusTip(tip)
+            a.setToolTip(type_name)
+            a.setStatusTip(type_name)
             a.triggered.connect(lambda _c, t=tool: self.set_tool(t))
             self.tool_group.addAction(a)
             self.tool_actions[tool] = a
@@ -922,12 +922,12 @@ class MainWindow(QMainWindow):
         self.class_tool_group = QActionGroup(self)
         self.class_tool_group.setExclusive(True)
         self.class_tool_actions: Dict[ClassTool, QAction] = {}
-        for tool, text, key, icon, tip in CLASS_TOOLS:
+        for tool, text, key, icon, type_name in CLASS_TOOLS:
             a = QAction(icon(), text, self)
             a.setCheckable(True)
             a.setShortcut(QKeySequence(key))
-            a.setToolTip(tip)
-            a.setStatusTip(tip)
+            a.setToolTip(type_name)
+            a.setStatusTip(type_name)
             a.triggered.connect(lambda _c, t=tool: self.set_class_tool(t))
             self.class_tool_group.addAction(a)
             self.class_tool_actions[tool] = a
@@ -1333,12 +1333,12 @@ class MainWindow(QMainWindow):
             if not old:
                 return
             marks = element_status(old, acik.machine.to_json())
-            tuval = (self.class_canvas if acik is self.class_doc
+            view = (self.class_canvas if acik is self.class_doc
                      else self.canvas)
-            other = (self.canvas if tuval is self.class_canvas
+            other = (self.canvas if view is self.class_canvas
                      else self.class_canvas)
             other.set_diff_marks(None)
-            tuval.set_diff_marks(marks)
+            view.set_diff_marks(marks)
             self.flash("%s — %d added, %d removed, %d changed (vs %s)."
                        % (os.path.basename(path), len(marks["added"]),
                           len(marks["removed"]), len(marks["changed"]),
@@ -1425,11 +1425,11 @@ class MainWindow(QMainWindow):
 
         marks = element_status(old, new)
         # A diff is only meaningful in the mode of that model.
-        tuval = (self.class_canvas if acik_doc is self.class_doc
+        view = (self.class_canvas if acik_doc is self.class_doc
                  else self.canvas)
-        other = self.canvas if tuval is self.class_canvas else self.class_canvas
+        other = self.canvas if view is self.class_canvas else self.class_canvas
         other.set_diff_marks(None)
-        tuval.set_diff_marks(marks)
+        view.set_diff_marks(marks)
         total = (len(marks["added"]) + len(marks["removed"])
                   + len(marks["changed"]))
         if total == 0:
@@ -2168,10 +2168,10 @@ class MainWindow(QMainWindow):
         """
         gal = parent_menu.addMenu("&Examples")
         self._menus_examples = gal
-        for baslik, liste, mode in (("&State Machine", STATE_EXAMPLES, "state"),
+        for heading, items, mode in (("&State Machine", STATE_EXAMPLES, "state"),
                                    ("&Class Diagram", CLASS_EXAMPLES, "class")):
-            submenu = gal.addMenu(baslik)
-            for example in liste:
+            submenu = gal.addMenu(heading)
+            for example in items:
                 action = QAction(example.title, self)
                 tooltip = "%s\n%s\nUML 2.5.1 §%s" % (
                     example.teaches, example.summary, example.reference)
@@ -2192,8 +2192,8 @@ class MainWindow(QMainWindow):
         belge.replace(example.build(), None)
         if mode == "state":
             self.set_tool(Tool.SELECT)
-        tuval = self.class_canvas if mode == "class" else self.canvas
-        QTimer.singleShot(40, tuval.zoom_fit)
+        view = self.class_canvas if mode == "class" else self.canvas
+        QTimer.singleShot(40, view.zoom_fit)
         self.flash("%s — %s" % (example.title, example.teaches))
 
     def load_demo(self) -> None:

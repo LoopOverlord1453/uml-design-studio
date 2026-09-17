@@ -319,11 +319,11 @@ if _eksik_light or _eksik_dark:
 # black or transparent and the reason shows up nowhere. It happened once
 # ("#4A5costs"), so the format is validated at import time.
 _bozuk = sorted(
-    "%s.%s = %r" % (ad, anahtar, deger)
-    for ad, palet in (("DARK", DARK), ("LIGHT", LIGHT))
-    for anahtar, deger in palet.items()
-    if not (isinstance(deger, str) and len(deger) == 7 and deger[0] == "#"
-            and all(ch in "0123456789abcdefABCDEF" for ch in deger[1:])))
+    "%s.%s = %r" % (ident, map_key, val)
+    for ident, palet in (("DARK", DARK), ("LIGHT", LIGHT))
+    for map_key, val in palet.items()
+    if not (isinstance(val, str) and len(val) == 7 and val[0] == "#"
+            and all(ch in "0123456789abcdefABCDEF" for ch in val[1:])))
 if _bozuk:
     raise RuntimeError("Invalid colour value: %s" % ", ".join(_bozuk))
 

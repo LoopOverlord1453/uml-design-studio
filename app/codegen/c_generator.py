@@ -552,9 +552,9 @@ class CGenerator:
             fields.append(("uint8_t",
                             "history[%s_REGION_COUNT];" % self.P,
                             "/**< last active substate PER REGION */"))
-        tip_g = max(len(t) for t, _a, _y in fields)
-        L += align_rows([("    %-*s %s" % (tip_g, tip, name), yorum)
-                         for tip, name, yorum in fields])
+        type_w = max(len(t) for t, _a, _y in fields)
+        L += align_rows([("    %-*s %s" % (type_w, type_name, name), yorum)
+                         for type_name, name, yorum in fields])
         # A BLANK LINE before the close: the body and "} type;" were stuck
         # together.
         L += ["", "} %s;" % self.type_obj(), ""]

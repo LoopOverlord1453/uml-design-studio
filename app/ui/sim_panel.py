@@ -106,8 +106,8 @@ class SimulatorPanel(QWidget):
         window hands it over through `submachine_resolver()`. When none is
         found it returns None and models without submachines work as before.
         """
-        pencere = self.window()
-        fn = getattr(pencere, "submachine_resolver", None)
+        win = self.window()
+        fn = getattr(win, "submachine_resolver", None)
         if callable(fn):
             try:
                 return fn()

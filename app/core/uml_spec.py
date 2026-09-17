@@ -93,12 +93,12 @@ class SpecRef:
         """Panelde gosterilen kisa atif: 'UML 2.5.1 §14.5.11.8, p. 361'."""
         if self.is_tool_rule:
             return "Tool rule - no UML 2.5.1 counterpart"
-        sayfa = self.page
+        page_no = self.page
         text = "UML 2.5.1 §%s" % self.section
         if self.section_title:
             text += " %s" % self.section_title
-        if sayfa is not None:
-            text += ", p. %d" % sayfa
+        if page_no is not None:
+            text += ", p. %d" % page_no
         if self.constraint:
             text += "  [%s]" % self.constraint
         return text

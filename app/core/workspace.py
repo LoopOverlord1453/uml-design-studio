@@ -288,7 +288,7 @@ def suggest_root(parent_dir: str, name: str) -> str:
     if not os.path.exists(candidate):
         return candidate
     for i in range(2, 100):
-        alt = "%s-%d" % (candidate, i)
-        if not os.path.exists(alt):
-            return alt
+        lower = "%s-%d" % (candidate, i)
+        if not os.path.exists(lower):
+            return lower
     return candidate

@@ -642,8 +642,8 @@ class Inspector(QScrollArea):
         travels up and becomes visible.
         """
         import os
-        pencere = self.window()
-        ws = getattr(pencere, "workspace", None)
+        win = self.window()
+        ws = getattr(win, "workspace", None)
         if ws is None:
             return []
         root = ws.model_path

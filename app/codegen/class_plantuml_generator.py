@@ -132,15 +132,15 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
 
     for c in sirali:
         if c.stereotype is Stereotype.INTERFACE:
-            tur = "interface"
+            rel_kind = "interface"
         elif c.is_abstract:
-            tur = "abstract class"
+            rel_kind = "abstract class"
         else:
-            tur = "class"
+            rel_kind = "class"
         if alias[c.id] == c.name:
-            bas = "%s %s" % (tur, c.name)
+            bas = "%s %s" % (rel_kind, c.name)
         else:
-            bas = '%s "%s" as %s' % (tur, _esc(c.name), alias[c.id])
+            bas = '%s "%s" as %s' % (rel_kind, _esc(c.name), alias[c.id])
         L.append(bas + " {")
         for a in c.attributes:
             isaret = "{static} " if a.static else ""
@@ -161,14 +161,14 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         if src is None or tgt is None:
             continue
         # In PlantUML whole-part arrows point "Whole *-- Part".
-        sol = "%s " % alias[src.id]
+        left_x = "%s " % alias[src.id]
         if r.source_mult:
-            sol += '"%s" ' % _esc(r.source_mult)
+            left_x += '"%s" ' % _esc(r.source_mult)
         right = " "
         if r.target_mult:
             right += '"%s" ' % _esc(r.target_mult)
         right += alias[tgt.id]
-        row = sol + _yon(src, tgt, r.kind) + right
+        row = left_x + _yon(src, tgt, r.kind) + right
 
         # End names (roles) and the label are collected into ONE ":" section;
         # PlantUML does not accept a second ":".

@@ -113,21 +113,21 @@ class Simulator:
 
     def transition_label(self, tran) -> str:
         """Turns a transition into one readable line: Src --EV [g] / effect--> Dst."""
-        kaynak = self._name(tran.source)
-        hedef = self._name(tran.target)
-        olay = "" if tran.event == COMPLETION else self.ir.events[tran.event]
-        koruma = "" if tran.guard < 0 else self.ir.guards[tran.guard]
-        eylem = "" if tran.action < 0 else " ".join(
+        src = self._name(tran.source)
+        dest = self._name(tran.target)
+        ev = "" if tran.event == COMPLETION else self.ir.events[tran.event]
+        guard_expr = "" if tran.guard < 0 else self.ir.guards[tran.guard]
+        act = "" if tran.action < 0 else " ".join(
             self.ir.actions[tran.action].split())
 
-        middle = olay if olay else "completion"
-        if koruma:
-            middle += " [%s]" % koruma
-        if eylem:
-            middle += " / %s" % eylem
+        middle = ev if ev else "completion"
+        if guard_expr:
+            middle += " [%s]" % guard_expr
+        if act:
+            middle += " / %s" % act
         if tran.kind == TKIND_INTERNAL:
-            return "%s --%s-- (internal, stays in %s)" % (kaynak, middle, kaynak)
-        return "%s --%s--> %s" % (kaynak, middle, hedef)
+            return "%s --%s-- (internal, stays in %s)" % (src, middle, src)
+        return "%s --%s--> %s" % (src, middle, dest)
 
     def _name(self, index: int) -> str:
         return self.ir.states[index].name if index != NONE else "<none>"
@@ -343,13 +343,13 @@ class Simulator:
     def _resolve_history(self, h: int) -> int:
         """Turns a history pseudostate into a real target and runs the entry chain."""
         st = self.ir.states[h]
-        bolge = st.region
+        region_ix = st.region
         sahip = st.parent
-        stored = self.history[bolge] if bolge != REGION_NONE else NONE
+        stored = self.history[region_ix] if region_ix != REGION_NONE else NONE
         if stored == NONE:
             stored = st.history_default
-        if stored == NONE and bolge != REGION_NONE:
-            stored = self.ir.regions[bolge].initial_state
+        if stored == NONE and region_ix != REGION_NONE:
+            stored = self.ir.regions[region_ix].initial_state
         if stored == NONE:
             return sahip                       # safety: the owner of the region
         self._enter_path(stored, sahip)

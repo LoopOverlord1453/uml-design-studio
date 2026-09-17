@@ -136,10 +136,10 @@ def flatten(sm: StateMachine, resolve: Resolver,
     return result
 
 
-def _substitute(hedef: StateMachine, outer_id: str, inner: StateMachine) -> None:
+def _substitute(dest: StateMachine, outer_id: str, inner: StateMachine) -> None:
     """Turns a submachine state into a COMPOSITE state filled with the
     content of the inner machine."""
-    outer = hedef.states[outer_id]
+    outer = dest.states[outer_id]
     outer_name = outer.name
 
     # The outer vertex is now an ordinary composite state. entry/exit/do are
@@ -158,16 +158,16 @@ def _substitute(hedef: StateMachine, outer_id: str, inner: StateMachine) -> None
         new.x = float(s.x) + 14.0
         new.y = float(s.y) + 34.0
         name_map[s.id] = new.id
-        hedef.add_state(new)
+        dest.add_state(new)
 
     for t in inner.ordered_transitions():
         new = copy.deepcopy(t)
         new.id = "%s__%s" % (outer_id, t.id)
         new.source = name_map.get(t.source, t.source)
         new.target = name_map.get(t.target, t.target)
-        hedef.add_transition(new)
+        dest.add_transition(new)
 
-    _merge_includes(hedef, inner)
+    _merge_includes(dest, inner)
 
 
 def _merge_includes(target: StateMachine, inner: StateMachine) -> None:
@@ -218,13 +218,13 @@ def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
         if ws is None:
             return None
         try:
-            yol = ws.resolve(ref)
+            fpath = ws.resolve(ref)
         except Exception:                       # noqa: BLE001
             return None
-        if not os.path.isfile(yol):
+        if not os.path.isfile(fpath):
             return None
         try:
-            with open(yol, encoding="utf-8") as fh:
+            with open(fpath, encoding="utf-8") as fh:
                 makine = StateMachine.from_json(fh.read())
         except Exception:                       # noqa: BLE001
             return None

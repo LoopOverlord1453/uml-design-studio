@@ -245,10 +245,10 @@ class CanvasNavigation:
         """
         if not getattr(self, "align_enabled", True):
             return False
-        sahne = self.scene()
-        if sahne is None or sahne.mouseGrabberItem() is not item:
+        scene_obj = self.scene()
+        if scene_obj is None or scene_obj.mouseGrabberItem() is not item:
             return False
-        return len(sahne.selectedItems()) <= 1
+        return len(scene_obj.selectedItems()) <= 1
 
     def align_drag(self, item, pt: QPointF, size, komsular) -> QPointF:
         """Aligns the dragged item to its neighbours.

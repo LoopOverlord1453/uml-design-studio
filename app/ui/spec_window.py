@@ -108,8 +108,8 @@ def spec_pdf_candidates() -> List[str]:
         adaylar.append(os.path.join(root, "UML-Design-Studio", SPEC_FILE))
 
     benzersiz: List[str] = []
-    for yol in adaylar:
-        normal = os.path.normpath(yol)
+    for fpath in adaylar:
+        normal = os.path.normpath(fpath)
         if normal not in benzersiz:
             benzersiz.append(normal)
     return benzersiz
@@ -117,9 +117,9 @@ def spec_pdf_candidates() -> List[str]:
 
 def find_spec_pdf() -> Optional[str]:
     """The path of the local PDF, if there is one."""
-    for yol in spec_pdf_candidates():
-        if os.path.isfile(yol):
-            return yol
+    for fpath in spec_pdf_candidates():
+        if os.path.isfile(fpath):
+            return fpath
     return None
 
 
@@ -155,9 +155,9 @@ class _Downloader(QThread):
         temp = self.target + ".part"
         try:
             os.makedirs(os.path.dirname(self.target), exist_ok=True)
-            istek = urllib.request.Request(
+            req = urllib.request.Request(
                 SPEC_URL, headers={"User-Agent": "UML-Design-Studio"})
-            with urllib.request.urlopen(istek, timeout=30) as answer:
+            with urllib.request.urlopen(req, timeout=30) as answer:
                 total = int(answer.headers.get("Content-Length") or 0)
                 inen = 0
                 # Progress is reported SPARSELY. Emitting a signal on every 64 KB chunk
@@ -195,10 +195,10 @@ class _Downloader(QThread):
             self._clear(temp)
 
     @staticmethod
-    def _clear(yol: str) -> None:
+    def _clear(fpath: str) -> None:
         try:
-            if os.path.exists(yol):
-                os.remove(yol)
+            if os.path.exists(fpath):
+                os.remove(fpath)
         except OSError:
             pass
 
@@ -369,15 +369,15 @@ class _PageRenderer(QThread):
             # LIFO: the page requested LAST is rendered first. When the user scrolls
             # quickly, the page being looked at now takes priority over the older ones
             # waiting in the queue.
-            page, genislik, yukseklik = self._queue.pop()
+            page, px_width, px_height = self._queue.pop()
             self._kilit.unlock()
             try:
                 measure = self._belge.pagePointSize(page)
                 if measure.width() <= 0.0 or measure.height() <= 0.0:
                     continue
                 image = self._belge.render(
-                    page, QSize(max(1, genislik), max(1, yukseklik)))
-                self.ready.emit(page, genislik, image,
+                    page, QSize(max(1, px_width), max(1, px_height)))
+                self.ready.emit(page, px_width, image,
                                 measure.width(), measure.height())
             except Exception:                  # noqa: BLE001
                 continue
@@ -543,22 +543,22 @@ class ContinuousPdfView(QAbstractScrollArea):
         ycubuk.setPageStep(max(1, measure.width()))
         ycubuk.setSingleStep(max(1, measure.width() // 12))
 
-    def _page_x(self, genislik: float) -> float:
+    def _page_x(self, px_width: float) -> float:
         visible = self.viewport().width()
-        if genislik + 2 * self.MARGIN <= visible:
-            return float(int((visible - genislik) / 2.0))
+        if px_width + 2 * self.MARGIN <= visible:
+            return float(int((visible - px_width) / 2.0))
         return float(self.MARGIN - self.horizontalScrollBar().value())
 
     # anchor
 
     def _capa_al(self) -> Tuple[int, float]:
         """Records the point being looked at, relative to the page, before a scale change."""
-        deger = float(self.verticalScrollBar().value())
-        page = self._page_at(deger)
+        val = float(self.verticalScrollBar().value())
+        page = self._page_at(val)
         height = self._h[page] if self._h else 1.0
         if height <= 0.0:
             return (page, 0.0)
-        return (page, (deger - self._y[page]) / height)
+        return (page, (val - self._y[page]) / height)
 
     def _capa_uygula(self, capa: Tuple[int, float]) -> None:
         page, oran = capa
@@ -1029,14 +1029,14 @@ class SpecWindow(QMainWindow):
         gerek = self.centralWidget().minimumSizeHint().width()
         for bar in self.findChildren(QToolBar):
             gerek = max(gerek, bar.sizeHint().width() + 16)
-        genislik = max(980, gerek)
-        yukseklik = 900
+        px_width = max(980, gerek)
+        px_height = 900
         ekran = QGuiApplication.primaryScreen()
         if ekran is not None:
             field = ekran.availableGeometry()
-            genislik = min(genislik, int(field.width() * 0.92))
-            yukseklik = min(yukseklik, int(field.height() * 0.92))
-        self.resize(genislik, yukseklik)
+            px_width = min(px_width, int(field.width() * 0.92))
+            px_height = min(px_height, int(field.height() * 0.92))
+        self.resize(px_width, px_height)
 
     def closeEvent(self, event) -> None:        # noqa: N802 - Qt naming
         # The worker thread must be stopped BEFORE the document is destroyed.

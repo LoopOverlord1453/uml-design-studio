@@ -536,15 +536,15 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
     # The defer lists are converted into event indices.
     for i, s_ in enumerate(vertices):
         indeksler = []
-        for ad in (s_.deferred or []):
-            ad = str(ad).strip()
-            if not ad:
+        for ident in (s_.deferred or []):
+            ident = str(ident).strip()
+            if not ident:
                 continue
-            if ad not in event_index:
+            if ident not in event_index:
                 raise CodegenError(
-                    "State '%s' defers an unknown event: %s" % (s_.name, ad))
-            if event_index[ad] not in indeksler:
-                indeksler.append(event_index[ad])
+                    "State '%s' defers an unknown event: %s" % (s_.name, ident))
+            if event_index[ident] not in indeksler:
+                indeksler.append(event_index[ident])
         ir.states[i].deferred = sorted(indeksler)
 
     # THE DEFER MASK IS 32 BITS WIDE.
@@ -589,13 +589,13 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             st.region = ir.root_regions[min(sm.region_of(s.id),
                                             len(ir.root_regions) - 1)]
             continue
-        ust = ir.states[index_of[s.parent]]
-        if ust.region_count <= 0:
+        upper = ir.states[index_of[s.parent]]
+        if upper.region_count <= 0:
             raise CodegenError(
                 "State '%s' is inside '%s', which owns no region; only a "
-                "composite state can contain states." % (st.name, ust.name))
-        st.region = ust.first_region + min(sm.region_of(s.id),
-                                           ust.region_count - 1)
+                "composite state can contain states." % (st.name, upper.name))
+        st.region = upper.first_region + min(sm.region_of(s.id),
+                                           upper.region_count - 1)
 
     # --- 3) Fold the initial transitions into tables ---------------------------
     def compile_initial(region: Optional[str],
@@ -626,7 +626,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             sahip = ir.states[reg.owner]
             sahip_id = sahip.model_id
             yerel = reg.index - sahip.first_region
-        child, eylem = compile_initial(sahip_id, yerel)
+        child, act = compile_initial(sahip_id, yerel)
         if child == NONE:
             if sahip_id is None:
                 raise CodegenError("The root region has no initial pseudostate.")
@@ -634,15 +634,15 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 "Region %d of composite state '%s' has no initial pseudostate."
                 % (yerel + 1, ir.states[reg.owner].name))
         reg.initial_state = child
-        reg.initial_action = eylem
+        reg.initial_action = act
 
     # The old fields point at the FIRST region; for single-region models
     # that is exactly the previous behaviour.
     for st in ir.states:
         if st.kind == KIND_COMPOSITE and st.region_count > 0:
-            ilk = ir.regions[st.first_region]
-            st.initial_child = ilk.initial_state
-            st.initial_action = ilk.initial_action
+            first_one = ir.regions[st.first_region]
+            st.initial_child = first_one.initial_state
+            st.initial_action = first_one.initial_action
 
     # --- 3b) Default targets of the history pseudostates -----------------------
     for st in ir.states:
@@ -774,12 +774,12 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             raise CodegenError(
                 "The exit point '%s' has no transition out of the state."
                 % nokta.name)
-        cikis = cikislar[0]
-        if cikis.target not in index_of:
+        leaving = cikislar[0]
+        if leaving.target not in index_of:
             raise CodegenError(
                 "The target of the transition leaving exit point '%s' could "
                 "not be resolved." % nokta.name)
-        return cikis
+        return leaving
 
     def _fork_cozumle(fork_id: str):
         """Resolves the fork segments into (owner, target list)."""
@@ -854,7 +854,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             # When compiling, the arrow is bound to the OUTER target of the point;
             # the LCA calculation already provides the exit from the composite state.
             if tr.target in exit_ids:
-                cikis = _exit_cozumle(tr.target)
+                leaving = _exit_cozumle(tr.target)
                 ev_name = tr.event.strip()
                 if ev_name and ev_name not in event_index:
                     raise CodegenError("Unknown event: %s" % ev_name)
@@ -862,16 +862,16 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                     index=idx,
                     model_id=tr.id,
                     source=st.index,
-                    target=index_of[cikis.target],
+                    target=index_of[leaving.target],
                     event=event_index[ev_name] if ev_name else 0,
                     guard=_dedup_add(ir.guards, _branch_guard(tr.guard)),
                     action=_dedup_add(ir.actions, _combine_action(
                         [expand_breaks(tr.action).strip(),
-                         expand_breaks(cikis.action).strip()])),
+                         expand_breaks(leaving.action).strip()])),
                     kind=TKIND_EXTERNAL,
                     text="%s --> exit %s --> %s"
                          % (st.name, sm.states[tr.target].name,
-                            sm.states[cikis.target].name),
+                            sm.states[leaving.target].name),
                 ))
                 idx += 1
                 continue
@@ -966,10 +966,10 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         # (14.2.3.7: "all incoming Transitions have to complete before execution
         # can continue through an outgoing Transition").
         for join_id in sorted(join_ids):
-            sahip, kaynaklar, cikis = _join_cozumle(join_id)
+            sahip, kaynaklar, leaving = _join_cozumle(join_id)
             if index_of.get(sahip) != st.index:
                 continue
-            if cikis.target not in index_of:
+            if leaving.target not in index_of:
                 raise CodegenError(
                     "The target of the transition leaving join '%s' could "
                     "not be resolved." % sm.states[join_id].name)
@@ -978,12 +978,12 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 for t in sorted((x for x in sm.transitions.values()
                                  if x.target == join_id),
                                 key=lambda x: x.id)]
-            segment_eylemleri.append(expand_breaks(cikis.action).strip())
+            segment_eylemleri.append(expand_breaks(leaving.action).strip())
             ir.transitions.append(IrTransition(
                 index=idx,
-                model_id=cikis.id,
+                model_id=leaving.id,
                 source=st.index,
-                target=index_of[cikis.target],
+                target=index_of[leaving.target],
                 event=0,                      # a join carries no trigger
                 guard=-1,                     # a join carries no guard
                 action=_dedup_add(ir.actions,
@@ -991,7 +991,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 kind=TKIND_EXTERNAL,
                 join_sources=kaynaklar,
                 text="join %s --> %s" % (sm.states[join_id].name,
-                                         sm.states[cikis.target].name),
+                                         sm.states[leaving.target].name),
             ))
             idx += 1
 
