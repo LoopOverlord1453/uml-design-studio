@@ -11,7 +11,7 @@ Two concrete complaints this solves:
   recomputed only when the mouse was released; when the range of the scroll
   bars changed all at once, everything in the view jumped. The scene now
   grows DURING the drag and the view position is compensated on every change.
-  konumu telafi edilir.
+
 * "scroll left/right/up/down automatically when it would go off the window" --
   the viewport was never scrolled and an item reaching the edge disappeared.
   The view now scrolls like draw.io as the cursor approaches an edge.
@@ -185,7 +185,7 @@ class CanvasNavigation:
     # THE SAME COLUMN as its neighbours, and a dashed line shows the alignment
     # (draw.io / Visio behaviour). Aligning by eye is off by a pixel, and that
     # shows up immediately once the diagram is printed or put into a document.
-    # bu hemen goze carpar.
+    # 
     #
     # The measures compared are OF THE SAME KIND: left-left, centre-centre,
     # right-right (column) and top-top, centre-centre, bottom-bottom (row).

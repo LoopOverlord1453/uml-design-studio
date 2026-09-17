@@ -10,9 +10,9 @@ folder by hand through File > Open.
 Here there is a single tree:
 
     model/
-      pump/                     <- alt sistem (klasor)
-        pump.usm                <- model dosyasi (ACILIR)
-          ● Initial · Start     <- modelin ICERIGI
+      pump/                     <- subsystem (folder)
+        pump.usm                <- model file (EXPANDABLE)
+          ● Initial · Start     <- the CONTENT of the model
           ▣ Composite · Running
       classes.ucd
 
@@ -93,7 +93,7 @@ class WorkspaceTree(QTreeWidget):
         # workspace had been applied; before any was chosen, the panel title
         # ("WORKSPACE") was there but not a single row below it -- nothing telling
         # the user what had happened or what to do.
-        # anlatan hicbir sey yok.
+        # 
         self.rebuild()
 
         self.itemExpanded.connect(self._on_expanded)
@@ -146,7 +146,7 @@ class WorkspaceTree(QTreeWidget):
         # while the user worked on blinky.usm, two "untitled" entries with no
         # connection to the workspace sat at the top of the tree. The panel is
         # called WORKSPACE; its content should be the workspace.
-        # icerigi de calisma alani olmali.
+        # 
         if self._workspace is None:
             self._bilgi_satiri(
                 "No workspace is open.",

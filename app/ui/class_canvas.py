@@ -256,7 +256,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
     # ================================================================== editing
 
     def edit_element(self, eid: str) -> None:
-        """Cift tiklama: ozellik diyalogunu acar ve degisikligi uygular."""
+        """Double click: opens the property dialog and applies the change."""
         from .class_dialogs import ClassDialog, RelationDialog
         cm = self.doc.machine
 

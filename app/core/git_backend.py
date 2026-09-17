@@ -420,7 +420,7 @@ class Repo:
         diff for merges, and ``--cc`` shows only conflict resolutions (EMPTY on
         a clean merge). A diff against the first parent is the answer to "what
         did this merge bring in". On non-merge commits the option has no effect.
-        olmayan commit'lerde secenek etkisizdir.
+
         """
         _, out, _ = _run(["show", "--format=", "--name-status",
                           "-r", "-z", "--root", "-m", "--first-parent", sha],

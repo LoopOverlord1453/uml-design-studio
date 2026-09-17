@@ -106,7 +106,7 @@ def _class_helpers():
 
 
 # --------------------------------------------------------------------------- #
-#  DURUM MAKINESI ORNEKLERI
+#   STATE MACHINE EXAMPLES
 # --------------------------------------------------------------------------- #
 
 def traffic_light() -> StateMachine:
@@ -424,8 +424,8 @@ def entry_exit_points() -> StateMachine:
     st("op", "Operating", StateKind.COMPOSITE, None, 420, 60, 600, 330,
        note="Two ways in: the default initial pseudostate, or the named "
             "entry point 'Priming' (14.2.3.7 entryPoint).")
-    # Giris ve cikis noktalari AYRI yuksekliklerde: ikisi de ust durumun
-    # kenarinda durur, ama gelen/giden etiketler birbirine binmesin.
+    # The entry and exit points sit at DIFFERENT heights: both stay on the edge
+    # of the parent state, but the incoming/outgoing labels must not overlap.
     st("ep", "Priming", StateKind.ENTRY_POINT, "op", -9, 240, 18, 18)
     st("xp", "Overheat", StateKind.EXIT_POINT, "op", 591, 96, 18, 18)
     st("oi", "OpStart", StateKind.INITIAL, "op", 60, 76, 22, 22)

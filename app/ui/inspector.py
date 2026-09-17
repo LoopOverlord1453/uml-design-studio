@@ -683,7 +683,7 @@ class Inspector(QScrollArea):
         The clamping here is so the model stays valid until the canvas is drawn
         next; and if an old or hand-edited file points at a region that does not
         exist, it tidies that up too (the validator also reports it with V103).
-        (dogrulayici ayrica V103 ile bildirir).
+
         """
         def mutate(machine):
             st = machine.states.get(sid)
@@ -723,7 +723,7 @@ class Inspector(QScrollArea):
                 # Pseudostate ones. The deferred events used never to be cleared: turning
                 # a simple state into a junction left a record in the generated
                 # `deferred[]` table that no diagram element accounted for.
-                # diyagram ogesinin anlatmadigi bir kayit birakiyordu.
+                # 
                 target.entry = ""
                 target.exit = ""
                 target.do = ""

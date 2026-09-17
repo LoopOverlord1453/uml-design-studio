@@ -950,7 +950,7 @@ class TransitionItem(QGraphicsItem):
 
         The bending operations run over this: the user has to be able to pull
         the arrow from ANY of its points, not from a single waypoint.
-        degil.
+
         """
         pts = [QPointF(x, y) for x, y in self.transition.waypoints]
         if pts:

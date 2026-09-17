@@ -464,7 +464,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                     # selection: clicking the label left the properties panel empty and Del
                     # deleted nothing. The label is part of the transition; clicking it must
                     # select the transition. With Shift held it is ADDED to the selection.
-                    # secmelidir. Shift basiliysa secime EKLENIR.
+                    # 
                     if not (event.modifiers()
                             & Qt.KeyboardModifier.ShiftModifier):
                         self._scene.clearSelection()
@@ -537,7 +537,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # existing point THAT POINT is moved, otherwise a new point is inserted into
             # the grabbed SEGMENT and that one is moved. So the arrow can be shaped with
             # as many bends as wanted, pulled from any of its points.
-            # cekilerek istenen kadar kivrimla sekillendirilir.
+            # 
             pos = self.mapToScene(event.position().toPoint())
             if self.snap_enabled:
                 pos = QPointF(snap(pos.x()), snap(pos.y()))
@@ -895,7 +895,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # dragging an item into an orthogonal state got a state drawn in the second
             # band on the diagram but showing up in the first region of the generated
             # `state_region[]` table -- without a single warning.
-            # uyari vermeden.
+            # 
             item.state.region = self._region_for(target, local.y(),
                                                  item.state.h)
             moved.add(item.state.id)

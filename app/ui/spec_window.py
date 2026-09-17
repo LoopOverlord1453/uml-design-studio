@@ -610,7 +610,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         point falls not on the page being looked at but a few below it.
         MEASURED: in a 1453 pixel high window at 20% zoom, going to page 16 made
         the counter say 18; the user typed 16 into the page box and saw 18.
-        yaziyordu; kullanici sayfa kutusuna 16 yazip 18 goruyordu.
+
         A TIE normally goes to the TOPMOST page, so that goto(n) returns n at
         every zoom. The one exception is the END of the document: there the
         scroll bar can go no further, so the last page can never reach the top,
@@ -618,7 +618,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         PAGE unselectable (measured: on a 400 page document the counter said 399
         while the last page filled the screen). With the bar at the end, a tie
         goes to the BOTTOMMOST fully visible page.
-        ALTTAKI tam gorunen sayfaya verilir.
+
         """
         if not self._alt:
             return

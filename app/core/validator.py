@@ -955,7 +955,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             # composite state as "unreachable" -- and once that composite counted as
             # unreachable, its children were never scanned and came out unreachable
             # as well. A textbook fork drawing warned about all three.
-            # Ders kitabi bir fork ciziminde ucu birden uyariliyordu.
+            # 
             for a in sm.ancestors(cur):
                 if a.id not in reachable:
                     stack.append(a.id)

@@ -694,7 +694,7 @@ class Simulator:
         a composite State or submachine States, in which case it remains
         deferred as long as the composite State remains in the active
         configuration." So not only the leaf but THE WHOLE CHAIN is examined.
-        bakilir.
+
         """
         for index in self.active_indices():
             if event_index in self.ir.states[index].deferred:

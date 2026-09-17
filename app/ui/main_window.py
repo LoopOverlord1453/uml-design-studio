@@ -601,7 +601,7 @@ class MainWindow(QMainWindow):
         # clicks went to it, and to the user it felt as if "the mouse was stuck". Qt
         # only marks the REPARENTED widget as hidden; the children keep their own
         # state and become visible when the parent is shown.
-        # durumlarini korur ve ust bilesen gosterilince gorunur olur.
+        # 
         page.show()
         win.resize(1100, 780)
         self._detached[mode] = (win, page)
@@ -1134,7 +1134,7 @@ class MainWindow(QMainWindow):
             # AT ALL -- the only keyboard route into the menu was closed.
             # QAbstractButton sets up an Alt shortcut from the `&` in the text by
             # itself and opens this menu on an InstantPopup button.
-            # dugmesinde bu menuyu acar.
+            # 
             btn.setText(menu.title())
             btn.setMenu(menu)
             btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -2557,7 +2557,7 @@ class MainWindow(QMainWindow):
 
         It brings hidden panels back too: when the user says "reset the layout"
         they expect WHAT THEY SAW AT FIRST START, not some half-way state.
-        ara durum degil.
+
         """
         self.a_code_panel.setChecked(True)
         self.code_panel.setVisible(True)
