@@ -1,20 +1,20 @@
-"""Tuvallerin ORTAK davranisi: gezinme, kenardan kaydirma ve HIZALAMA.
+"""The SHARED behaviour of the canvases: navigation, edge scrolling, ALIGNMENT.
 
-Iki tuval de (durum makinesi ve sinif diyagrami) ayni QGraphicsView
-sorunlarini yasar, bu yuzden kural TEK YERDE durur. Ayri ayri yazilsaydi
-biri duzeltilip oteki unutulurdu -- nitekim fark isaretleri tam boyle
-yalnizca durum tuvaline eklenmis, sinif tuvalinde eksik kalmisti.
+Both canvases (state machine and class diagram) hit the same QGraphicsView
+problems, so the rule lives in ONE PLACE. Written separately, one would get
+fixed and the other forgotten -- which is exactly how the diff marks ended up
+on the state canvas only and missing on the class canvas.
 
-Cozulen iki somut sikayet:
+Two concrete complaints this solves:
 
-* "surukleyince surekli baska yerlere atiyor" -- sahne dikdortgeni ancak
-  fare birakildiginda yeniden hesaplaniyordu; kaydirma cubuklarinin
-  araligi bir anda degisince goruntudeki her sey yerinden ziplyordu.
-  Artik sahne surukleme SIRASINDA buyur ve her degisiklikte goruntu
+* "it keeps jumping somewhere else while I drag" -- the scene rectangle was
+  recomputed only when the mouse was released; when the range of the scroll
+  bars changed all at once, everything in the view jumped. The scene now
+  grows DURING the drag and the view position is compensated on every change.
   konumu telafi edilir.
-* "pencere disina tasinacaksa otomatik sola/saga/yukari/asagi git" --
-  goruntu alani hic kaydirilmiyordu; kenara gelen oge gozden kayboluyordu.
-  Artik imlec kenara yaklasinca goruntu draw.io gibi kayar.
+* "scroll left/right/up/down automatically when it would go off the window" --
+  the viewport was never scrolled and an item reaching the edge disappeared.
+  The view now scrolls like draw.io as the cursor approaches an edge.
 """
 
 from __future__ import annotations
@@ -29,54 +29,54 @@ from .theme import C
 
 
 class CanvasNavigation:
-    """QGraphicsView tureyen tuvallere eklenen gezinme karisimi.
+    """A navigation mixin added to canvases derived from QGraphicsView.
 
-    Kullanan sinif ``self._scene`` alanini kurmali ve ``__init__``
-    icinde :meth:`_init_navigation` cagirmalidir.
+    The using class must set up the ``self._scene`` field and call
+    :meth:`_init_navigation` inside its ``__init__``.
     """
 
-    # -- SURUKLERKEN KENARDAN KAYDIRMA (draw.io davranisi) ------------------- #
-    #: Imlec goruntu alani kenarina bu kadar yaklasinca kaydirma baslar (px).
+    # EDGE SCROLLING WHILE DRAGGING (draw.io behaviour) #
+    #: Scrolling starts when the cursor comes this close to the viewport edge (px).
     AUTOSCROLL_MARGIN = 34.0
-    #: Kenara tam yapisikken bir tikta kaydirilan piksel.
+    #: Pixels scrolled per tick while pressed right against the edge.
     AUTOSCROLL_STEP = 26.0
-    #: Kaydirma tik araligi (ms) -- ~60 Hz.
+    #: The scroll tick interval (ms) -- about 60 Hz.
     AUTOSCROLL_MS = 16
-    #: Surukleme sirasinda imlecin cevresinde tutulan bos sahne payi.
+    #: The empty scene margin kept around the cursor during a drag.
     SCENE_PAD = 600.0
 
     def _init_navigation(self) -> None:
-        """Kaydirma zamanlayicisini ve surukleme durumunu kurar."""
+        """Sets up the scroll timer and the drag state."""
         self._autoscroll = QTimer(self)
         self._autoscroll.setInterval(self.AUTOSCROLL_MS)
         self._autoscroll.timeout.connect(self._autoscroll_step)
-        #: Her tikta kaydirilacak piksel (x, y); sifirsa kaydirma durur.
+        #: Pixels to scroll on each tick (x, y); zero stops the scrolling.
         self._autoscroll_vec = QPointF()
-        #: Suruklemedeki son fare konumu (goruntu alani pikseli).
+        #: The last mouse position in the drag (in viewport pixels).
         self._drag_pos: Optional[QPoint] = None
         self._init_alignment()
 
     def _set_scene_rect(self, rect: QRectF) -> None:
-        """Sahne dikdortgenini GORUNTUYU KAYDIRMADAN degistirir.
+        """Changes the scene rectangle WITHOUT SCROLLING THE VIEW.
 
-        YASANAN HATA: sahne dikdortgeni `itemsBoundingRect()` ile yeniden
-        hesaplaniyordu. Kullanici bir kutuyu sagda uzaga surukleyip
-        biraktiginda sahne bir anda genisliyor (1917 -> 3082 px olctuk),
-        kaydirma cubuklarinin araligi degistigi icin de goruntudeki HER SEY
-        yerinden ziplyordu. Kullanici bunu "surekli baska yerlere atiyor"
+        THE BUG WE HIT: the scene rectangle was recomputed with
+        `itemsBoundingRect()`. When the user dragged a box far to the right and
+        let go, the scene widened all at once (we measured 1917 -> 3082 px),
+        and because the range of the scroll bars changed, EVERYTHING in the
+        view jumped. The user reported it as "it keeps jumping somewhere else".
         diye bildirdi.
 
-        Cozum: yeni dikdortgen verildikten sonra goruntu alaninin sol ust
-        kosesinin SAHNEDEKI karsiligi olculur; kaydiysa kaydirma cubuklari
-        aradaki fark kadar geri alinir. Boylece sahne buyur ama goruntu
-        kimildamaz.
+        The fix: after the new rectangle is set, the SCENE position of the top
+        left corner of the viewport is measured; if it moved, the scroll bars
+        are moved back by the difference. So the scene grows but the view does
+        not budge.
         """
-        # SU AN GORUNEN alan her zaman sahnenin icinde kalmali.
+        # THE AREA CURRENTLY VISIBLE must always stay inside the scene.
         #
-        # Aksi halde sahne kuculdugunde kaydirma cubugunun araligi daralir,
-        # Qt degeri KIRPAR ve goruntu bir anda baska bir yere atlar --
-        # olctugumuz kadariyla dikeyde -399'dan 0'a. Yeniden kurulumda
-        # sahne icerige gore kuculdugu icin bu, surukleme bittigi anda
+        # Otherwise, when the scene shrinks, the range of the scroll bar narrows,
+        # Qt CLIPS the value and the view jumps somewhere else -- from -399 to 0
+        # vertically, as far as we measured. On a rebuild the scene shrinks to fit
+        # the content, so this happened the moment a drag ended.
         # yasaniyordu.
         gorunen = self.mapToScene(self.viewport().rect()).boundingRect()
         rect = rect.united(gorunen)
@@ -96,19 +96,19 @@ class CanvasNavigation:
         dikey_cubuk.setValue(dikey_cubuk.value() + int(round(kayma.y() * dikey)))
 
     def _grow_scene(self, rect: QRectF) -> None:
-        """Sahneyi verilen dikdortgeni kapsayacak kadar BUYUTUR (kucultmez)."""
+        """GROWS the scene to cover the given rectangle (it never shrinks it)."""
         simdiki = self._scene.sceneRect()
         birlesik = simdiki.united(rect)
         if birlesik != simdiki:
             self._set_scene_rect(birlesik)
 
     def _room_for_drag(self, view_pos: QPoint) -> None:
-        """Imlecin cevresinde ve secili ogelerin etrafinda yer acar.
+        """Makes room around the cursor and around the selected items.
 
-        Sahne surukleme SIRASINDA buyursa, birakma aninda buyuyecek bir
-        sey kalmaz; sicrama da olmaz. Ayrica kaydirma cubuklarinin
-        araligi genisledigi icin kenardan kaydirma gercekten ilerler --
-        aksi halde imlec kenara dayandiginda kaydirilacak yer bulunamaz.
+        If the scene grows DURING the drag there is nothing left to grow on
+        release, and so there is no jump. It also widens the range of the
+        scroll bars, so edge scrolling actually advances -- otherwise there is
+        nowhere to scroll to once the cursor reaches the edge.
         """
         nokta = self.mapToScene(view_pos)
         pay = self.SCENE_PAD
@@ -118,7 +118,7 @@ class CanvasNavigation:
         self._grow_scene(alan)
 
     def _autoscroll_vector(self, pos: QPoint) -> QPointF:
-        """Imlec kenara ne kadar yakinsa o kadar hizli kaydirma vektoru."""
+        """A scroll vector: the closer the cursor to an edge, the faster."""
         alan = self.viewport().rect()
         kenar = self.AUTOSCROLL_MARGIN
         adim = self.AUTOSCROLL_STEP
@@ -136,7 +136,7 @@ class CanvasNavigation:
                              float(alan.bottom())))
 
     def _update_autoscroll(self, pos: QPoint) -> None:
-        """Surukleme sirasinda kenardan kaydirmayi baslatir/durdurur."""
+        """Starts/stops edge scrolling during a drag."""
         self._drag_pos = QPoint(pos)
         self._autoscroll_vec = self._autoscroll_vector(pos)
         calisiyor = self._autoscroll.isActive()
@@ -152,12 +152,12 @@ class CanvasNavigation:
         self._drag_pos = None
 
     def _autoscroll_step(self) -> None:
-        """Bir kaydirma tiki: goruntuyu kaydirir ve SURUKLEMEYI ilerletir.
+        """One scroll tick: scrolls the view and ADVANCES THE DRAG.
 
-        Yalnizca kaydirmak yetmez: fare kimildamadigi icin Qt'nin oge
-        surukleme makinesi tetiklenmez ve kutu oldugu yerde kalirdi --
-        imlec kutudan uzaklasirdi. Bu yuzden kaydirmadan sonra AYNI fare
-        konumu yeniden islenir; kutu imleci izler.
+        Scrolling alone is not enough: because the mouse does not move, Qt's
+        item drag machinery is not triggered and the box would stay where it
+        was -- the cursor would drift away from it. So the SAME mouse position
+        is reprocessed after the scroll; the box follows the cursor.
         """
         if self._drag_pos is None or self._autoscroll_vec.isNull():
             self._stop_autoscroll()
@@ -179,49 +179,49 @@ class CanvasNavigation:
                            Qt.KeyboardModifier.NoModifier)
         self.mouseMoveEvent(olay)
 
-    # == HIZALAMA KILAVUZLARI =============================================== #
+    # == ALIGNMENT GUIDES =============================================== #
     #
-    # Kullanici bir durumu surukleyince, komsulariyla AYNI SATIRDA ya da
-    # AYNI SUTUNDA oldugunda oraya yapisir ve hizayi gosteren kesikli bir
-    # cizgi belirir (draw.io / Visio davranisi). Elle "goz kararı" hizalama
-    # bir piksel sasar; diyagram basildiginda ya da bir belgeye konuldugunda
+    # When the user drags a state, it snaps once it is ON THE SAME ROW or in
+    # THE SAME COLUMN as its neighbours, and a dashed line shows the alignment
+    # (draw.io / Visio behaviour). Aligning by eye is off by a pixel, and that
+    # shows up immediately once the diagram is printed or put into a document.
     # bu hemen goze carpar.
     #
-    # Karsilastirilan olcutler AYNI TURDEN olanlardir: sol-sol, orta-orta,
-    # sag-sag (sutun) ve ust-ust, orta-orta, alt-alt (satir). Capraz
-    # eslesme (ornegin benim solum, onun sagi) BILEREK yapilmaz: yakalama
-    # noktalarini cogaltir ve kullanici nereye yapistigini kestiremez.
+    # The measures compared are OF THE SAME KIND: left-left, centre-centre,
+    # right-right (column) and top-top, centre-centre, bottom-bottom (row).
+    # Cross matching (my left against their right, say) is DELIBERATELY not
+    # done: it multiplies the snap points and the user cannot predict them.
 
-    #: Yakalama yaricapi. EKRAN pikselidir: yakinlastirmadan bagimsiz
-    #: olarak ayni "his" verir. Sahne biriminde sabitlenseydi uzaklasinca
-    #: her sey birbirine yapisir, yakinlasinca hicbir sey yakalanmazdi.
+    #: The snap radius. It is in SCREEN pixels, so it feels the same at any
+    #: zoom. Fixed in scene units, everything would stick together when zoomed
+    #: out and nothing would snap when zoomed in.
     ALIGN_PX = 7.0
-    #: Kilavuz cizgisinin hizalanan kutularin disina tastigi pay (sahne px).
+    #: How far the guide line runs past the aligned boxes (scene px).
     ALIGN_PAD = 26.0
 
     def _init_alignment(self) -> None:
-        """Hizalama durumunu kurar."""
+        """Sets up the alignment state."""
         self.align_enabled = True
-        #: Su an cizilecek kilavuzlar; sahne koordinatinda (bas, son).
+        #: The guides to draw right now; in scene coordinates (start, end).
         self._align_guides: List[Tuple[QPointF, QPointF]] = []
 
-    # ------------------------------------------------------------- kilavuzlar
+    # guides
 
     def align_clear(self) -> None:
-        """Kilavuzlari siler (surukleme bitince)."""
+        """Clears the guides (when the drag ends)."""
         if getattr(self, "_align_guides", None):
             self._align_guides = []
             self.viewport().update()
 
     def align_paint(self, painter) -> None:
-        """Kilavuzlari cizer; `drawForeground` icinden cagrilir."""
+        """Draws the guides; called from ``drawForeground``."""
         cizgiler = getattr(self, "_align_guides", None)
         if not cizgiler:
             return
         kalem = QPen(QColor(C.ORANGE), 0.0)
-        # KOZMETIK kalem: kalinlik yakinlastirmayla buyumez. Sahne
-        # biriminde 1 px verilseydi %400 yakinlikta 4 px kalinliginda
-        # bir serit olur, hizanin kendisini gizlerdi.
+        # A COSMETIC pen: the width does not grow with the zoom. Given 1 px in
+        # scene units, at 400% zoom it would be a 4 px band and would hide the
+        # very alignment it marks.
         kalem.setCosmetic(True)
         kalem.setStyle(Qt.PenStyle.DashLine)
         painter.save()
@@ -230,18 +230,18 @@ class CanvasNavigation:
             painter.drawLine(bas, son)
         painter.restore()
 
-    # --------------------------------------------------------------- yakalama
+    # snapping
 
     def _align_uygun(self, item) -> bool:
-        """Hizalama YALNIZCA elle surukleme sirasinda calisir.
+        """Alignment runs ONLY during a manual drag.
 
-        `itemChange` programli `setPos()` cagrilarinda da tetiklenir:
-        dosya yuklerken, geri al/yinele yaparken, ok tuslariyla
-        kaydirirken. Oralarda yapismak modeli sessizce degistirirdi.
-        Fareyle tutulan oge sahnenin `mouseGrabberItem()` degeridir.
+        `itemChange` fires on programmatic `setPos()` calls too: while loading
+        a file, while undoing/redoing, while nudging with the arrow keys.
+        Snapping there would change the model silently. The item held by the
+        mouse is the scene's `mouseGrabberItem()`.
 
-        Cok secimde de yapilmaz: Qt her ogeye AYRI `ItemPositionChange`
-        gonderir, yalnizca tutulan oge kaydirilirsa secim daginir.
+        It does not run on a multiple selection either: Qt sends a SEPARATE
+        `ItemPositionChange` per item; snapping only the held one scatters it.
         """
         if not getattr(self, "align_enabled", True):
             return False
@@ -251,13 +251,13 @@ class CanvasNavigation:
         return len(sahne.selectedItems()) <= 1
 
     def align_drag(self, item, pt: QPointF, boyut, komsular) -> QPointF:
-        """Suruklenen ogeyi komsularina hizalar.
+        """Aligns the dragged item to its neighbours.
 
-        ``pt``      -- onerilen sol ust kose (ogenin EBEVEYN koordinati)
-        ``boyut``   -- (genislik, yukseklik)
-        ``komsular``-- ayni uzaydaki komsular: [(x, y, w, h), ...]
+        ``pt``          -- the proposed top left corner (in PARENT coordinates)
+        ``size``        -- (width, height)
+        ``neighbours``  -- neighbours in the same space: [(x, y, w, h), ...]
 
-        Hizalanmis konumu dondurur ve cizilecek kilavuzlari hazirlar.
+        Returns the aligned position and prepares the guides to be drawn.
         """
         onceki = getattr(self, "_align_guides", [])
         if not self._align_uygun(item) or not komsular:
@@ -288,19 +288,19 @@ class CanvasNavigation:
 
     @staticmethod
     def _align_olcutler(bas: float, uzunluk: float):
-        """Bir eksendeki olcutler: ORTA once gelir.
+        """The measures on one axis: the CENTRE comes first.
 
-        Esitlik halinde orta hizanin secilmesi icin sira onemli: iki
-        kutunun hem ortasi hem kenari ayni uzaklikta olabilir ve o
-        durumda gozle en dogal duran orta hizadir.
+        The order matters so that a tie picks the centre alignment: the centre
+        and the edge of two boxes can be the same distance away, and in that
+        case the centre line is what looks most natural.
         """
         return (bas + uzunluk / 2.0, bas, bas + uzunluk)
 
     def _align_eksen(self, bas: float, uzunluk: float, komsular, eksen: int,
                      esik: float):
-        """Tek eksende en yakin hizayi bulur.
+        """Finds the nearest alignment on a single axis.
 
-        ``(kaydirma, hedef_deger)`` doner; hiza yoksa ``(0.0, None)``.
+        Returns ``(offset, target_value)``; ``(0.0, None)`` when there is none.
         """
         benim = self._align_olcutler(bas, uzunluk)
         en_iyi = None
@@ -320,12 +320,12 @@ class CanvasNavigation:
         return (en_iyi[2], en_iyi[3])
 
     def _align_cizgi(self, item, deger: float, kutu, komsular, eksen: int):
-        """Kilavuz cizgisini SAHNE koordinatinda uretir.
+        """Produces the guide line in SCENE coordinates.
 
-        Cizgi, hizayi PAYLASAN butun kutulari kapsayacak kadar uzatilir;
-        boylece kullanici neye hizalandigini tek bakista gorur.
+        The line is stretched to cover every box that SHARES the alignment, so
+        the user sees at a glance what they snapped to.
         """
-        # Hizayi paylasan kutular (suruklenen dahil).
+        # The boxes that share the alignment (the dragged one included).
         ilgili = [kutu]
         for komsu in komsular:
             olcutler = self._align_olcutler(komsu[eksen], komsu[eksen + 2])
@@ -340,8 +340,8 @@ class CanvasNavigation:
         else:
             p1, p2 = QPointF(bas, deger), QPointF(son, deger)
 
-        # Oge bir bilesik durumun ICINDEYSE koordinatlari o ebeveyne
-        # goredir; kilavuz sahnede cizildigi icin cevrilmesi gerekir.
+        # When the item is INSIDE a composite state its coordinates are relative
+        # to that parent; the guide is drawn on the scene, so it must be converted.
         ebeveyn = item.parentItem()
         if ebeveyn is not None:
             p1 = ebeveyn.mapToScene(p1)

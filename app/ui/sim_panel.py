@@ -1,25 +1,25 @@
-"""Simulasyon paneli (tuvalin altinda yatay serit).
+"""The simulation panel (a horizontal strip above the canvas).
 
-Diyagrami kod uretmeden calistirir. Referans yorumlayici
-(app/core/simulator.py) uretilen C/C++ kodla ayni ara temsili ve ayni
-run-to-completion algoritmasini kullanir; burada gorulen davranis uretilen
-kodun davranisiyla birebir aynidir (tools/test_semantics.py dogrular).
+Runs the diagram without generating code. The reference interpreter
+(app/core/simulator.py) uses the same intermediate representation and the same
+run-to-completion algorithm as the generated C/C++, so the behaviour seen here
+is identical to that of the generated code (tools/test_semantics.py verifies it).
 
-Panel uc seyi bir arada gosterir:
+The panel shows three things at once:
 
-  * DEGISKENLER -- korumalarin okudugu adlar (`ctx->sayac`, `limit`...)
-    tabloda cikar ve deger verilebilir. Koruma ifadesi bu degerlerden
-    HESAPLANIR; elle anahtar cevirmeye gerek kalmaz.
-  * KORUMALAR -- her ifade icin "auto / true / false" ve o an cozulen
-    deger. Hesaplanamayan ifadeler (ornegin `app_over_limit(ctx)`) acikca
-    oyle yazilir ve elle verilen degere duser.
-  * IZ KAYDI -- her adimda secilen gecis, degerlendirilen korumalar,
-    calisan exit/effect/entry davranislari ve adim sonundaki ETKIN
-    KONFIGURASYON.
+  * VARIABLES -- the names the guards read (`ctx->counter`, `limit`...) appear
+    in a table and can be given values. The guard expression is COMPUTED from
+    those values; no switch has to be flipped by hand.
+  * GUARDS -- "auto / true / false" for every expression, plus the value
+    currently resolved. Expressions that cannot be evaluated (for instance
+    `app_over_limit(ctx)`) say so plainly and fall back to the manual value.
+  * TRACE -- the transition chosen at each step, the guards evaluated, the
+    exit/effect/entry behaviours that ran, and the ACTIVE CONFIGURATION at
+    the end of the step.
 
-Terimler UML 2.5.1 sozlugundendir: event dispatch, guard, entry/exit
-behavior, effect, completion transition, run-to-completion (RTC),
-active state configuration.
+The terms come from the UML 2.5.1 glossary: event dispatch, guard, entry/exit
+behavior, effect, completion transition, run-to-completion (RTC), active
+state configuration.
 """
 
 from __future__ import annotations
@@ -41,21 +41,21 @@ from ..core.validator import has_errors, validate
 from .document import Document
 from .theme import C, mono_font, ui_font
 
-#: Koruma satirindaki secim kutusunun secenekleri.
+#: The options of the combo box on a guard row.
 _MODES = ("auto", "true", "false")
 
 
 def _drop_children(layout) -> None:
-    """Bir yerlesimdeki tum bilesenleri ONCE AYIRIR, sonra silinmeye birakir.
+    """DETACHES every widget in a layout FIRST, then leaves them to deletion.
 
-    deleteLater() tek basina yetmez: silmeyi bir sonraki olay dongusune
-    erteler, oysa bilesen o ana kadar hala ust bilesenin cocugudur ve
-    yerlesimden cikarildigi icin son -- hic yerlesmemisse varsayilan
-    640x480 -- geometrisiyle panelin UZERINE cizilmeye devam eder. rebuild()
-    model her degistiginde cagrildigindan (model yukleme tek turda birden
-    cok sinyal uretir) bu dugmeler ust uste yigilir ve panelin tamamini
-    kaplayan hayalet dugmeler gorunur. Silmeyi yine de ertelemek sarttir:
-    bu kod silinen bilesenin kendi sinyalinin icinden cagrilabilir.
+    deleteLater() alone is not enough: it defers the deletion to the next event
+    loop, while until then the widget is still a child of the parent and, having
+    been removed from the layout, keeps painting OVER the panel with its last --
+    or, if it was never laid out, the default 640x480 -- geometry. Because
+    rebuild() is called on every model change (loading a model produces several
+    signals in one go), these buttons pile up and ghost buttons cover the whole
+    panel. The deletion still has to be deferred: this code can be called from
+    inside the deleted widget's own signal.
     """
     while layout.count():
         item = layout.takeAt(0)
@@ -67,12 +67,12 @@ def _drop_children(layout) -> None:
 
 
 def _clear_table(table: QTableWidget) -> None:
-    """Tabloyu bosaltir ve HUCRE BILESENLERINI de birakir.
+    """Empties the table and RELEASES THE CELL WIDGETS too.
 
-    setRowCount(0) tek basina yetmez: satirlar dusse de hucre bilesenleri
-    (QLineEdit / QComboBox) tablonun gorunum alanina asili kalir ve olay
-    dongusu onlari toplamaz. rebuild() her model degisiminde cagrildigi
-    icin bunlar birikir; sinyal baglantilari da hayatta kalir.
+    setRowCount(0) alone is not enough: the rows go, but the cell widgets
+    (QLineEdit / QComboBox) stay hanging in the viewport of the table and the
+    event loop does not collect them. Because rebuild() is called on every model
+    change these accumulate, and their signal connections survive as well.
     """
     for satir in range(table.rowCount()):
         for sutun in range(table.columnCount()):
@@ -84,27 +84,27 @@ def _clear_table(table: QTableWidget) -> None:
                 w.setParent(None)
                 w.deleteLater()
             except RuntimeError:
-                # Qt tarafi zaten sildi; yapacak bir sey yok.
+                # Qt has already deleted it; nothing to do.
                 pass
     table.clearContents()
     table.setRowCount(0)
 
 
 class SimulatorPanel(QWidget):
-    """Event dispatch dugmeleri, degisken/koruma tablolari, aktif durum
-    konfigurasyonu ve run-to-completion iz kaydi."""
+    """Event dispatch buttons, variable/guard tables, the active state
+    configuration and the run-to-completion trace."""
 
-    active_changed = pyqtSignal(list)      # etkin durum zinciri (model id'leri)
+    active_changed = pyqtSignal(list)      # the active state chain (model ids)
     message = pyqtSignal(str)
-    #: Simulasyon basladi -- tuval diyagrami pencereye sigdirir.
+    #: The simulation has started -- the canvas fits the diagram to the window.
     started = pyqtSignal()
 
     def _resolver(self):
-        """Altmakine cozumleyicisi; ana pencere saglar.
+        """The submachine resolver; the main window supplies it.
 
-        Benzetim panelinin calisma alanina dogrudan erisimi yoktur;
-        ana pencere `submachine_resolver()` ile onu verir. Bulunamazsa
-        None doner ve altmakinesiz modeller eskisi gibi calisir.
+        The simulation panel has no direct access to the workspace; the main
+        window hands it over through `submachine_resolver()`. When none is
+        found it returns None and models without submachines work as before.
         """
         pencere = self.window()
         fn = getattr(pencere, "submachine_resolver", None)
@@ -121,23 +121,23 @@ class SimulatorPanel(QWidget):
         self.sim: Optional[Simulator] = None
         self._event_buttons: List[QPushButton] = []
 
-        #: ad -> deger (koruma hesabinda kullanilir)
+        #: name -> value (used when evaluating guards)
         self._variables: Dict[str, object] = {}
-        #: ad -> kullanicinin yazdigi ham metin (yeniden kurulumda korunur)
+        #: name -> the raw text the user typed (preserved across rebuilds)
         self._var_text: Dict[str, str] = {}
-        #: koruma ifadesi -> "auto" | "true" | "false"
+        #: guard expression -> "auto" | "true" | "false"
         self._guard_mode: Dict[str, str] = {}
-        #: son degerlendirmenin nereden geldigi ("variables" / "manual")
+        #: where the last evaluation came from ("variables" / "manual")
         self._guard_source: Dict[str, str] = {}
-        #: o an listelenen koruma ifadeleri
+        #: the guard expressions currently listed
         self._guards: List[str] = []
-        #: iz kaydindaki adim sayaci
+        #: the step counter in the trace
         self._step = 0
 
-        #: retheme() icin: kurulumda satir-ici stil verilen ogeler.
-        #: Widget agacini taramak yetmez, cunku ayni tur widget'larin
-        #: bir kismi (ornegin ayirici cizgiler) tema rengi tasir,
-        #: digerleri tasimaz.
+        #: For retheme(): the items given an inline style at set-up.
+        #: Walking the widget tree is not enough, because some widgets of the
+        #: same type (the separator lines, say) carry a theme colour while
+        #: others do not.
         self._separators: List[QFrame] = []
         self._dim_labels: List[QLabel] = []
 
@@ -145,7 +145,7 @@ class SimulatorPanel(QWidget):
         outer.setContentsMargins(10, 6, 10, 6)
         outer.setSpacing(6)
 
-        # ------------------------------------------------------------- baslik
+        # title
         head = QHBoxLayout()
         head.setSpacing(10)
         title = QLabel("SIMULATION")
@@ -177,7 +177,7 @@ class SimulatorPanel(QWidget):
         head.addWidget(self.lbl_state)
         outer.addLayout(head)
 
-        # ---------------------------------------------------------- kontroller
+        # controls
         row = QHBoxLayout()
         row.setSpacing(6)
         self.btn_start = QPushButton("▶  Start")
@@ -203,7 +203,7 @@ class SimulatorPanel(QWidget):
         row.addWidget(self.events_host, 1)
         outer.addLayout(row)
 
-        # -------------------------------------- degiskenler / korumalar + iz
+        # variables / guards + trace
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
 
@@ -228,7 +228,7 @@ class SimulatorPanel(QWidget):
         self._apply_static_styles()
         self.rebuild()
 
-    # ------------------------------------------------------------- kurulum #
+    # -------------------------------------------------------------- set-up #
 
     def _build_variables_tab(self) -> QWidget:
         page = QWidget()
@@ -244,8 +244,8 @@ class SimulatorPanel(QWidget):
         self.var_table.setSelectionMode(
             QAbstractItemView.SelectionMode.NoSelection)
         self.var_table.setFont(mono_font(8))
-        # Sikisik satir: panel yatay bir serit oldugu icin her piksel
-        # sayilir; varsayilan yukseklikte ucuncu satir kayboluyordu.
+        # A tight row: the panel is a horizontal strip so every pixel counts;
+        # at the default height the third row disappeared.
         self.var_table.verticalHeader().setDefaultSectionSize(22)
         head = self.var_table.horizontalHeader()
         head.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -336,32 +336,32 @@ class SimulatorPanel(QWidget):
         self._separators.append(sep)
         return sep
 
-    # ------------------------------------------------------------------ tema #
+    # ----------------------------------------------------------------- theme #
 
     def retheme(self) -> None:
-        """Tema degisiminde satir-ici renkleri yeniden uygular.
+        """Reapplies the inline colours on a theme change.
 
-        Panelin ZEMINI ve etiket renkleri kurulum aninda dizgi olarak
-        gomulur; ``C`` degistiginde kendiliginden guncellenmezler. Cocuk
-        widget'lari taramak yetmez: panelin KENDI stylesheet'i
-        (``SimulatorPanel { background: ... }``) hicbir cocukta degildir ve
-        atlanirsa acik temada koyu bir serit olarak kalir.
+        The BACKGROUND of the panel and the label colours are embedded as
+        strings at set-up time; they are not updated by themselves when ``C``
+        changes. Walking the child widgets is not enough: the panel's OWN
+        stylesheet (``SimulatorPanel { background: ... }``) is on no child at
+        all, and skipping it leaves a dark band in the light theme.
         """
         self._apply_static_styles()
-        # Olay dugmeleri ve tablo satirlari kurulum renkleriyle cizilir;
-        # rebuild() onlari bastan olusturur.
+        # The event buttons and the table rows are drawn with the set-up colours;
+        # rebuild() recreates them.
         self.rebuild()
 
     def _apply_static_styles(self) -> None:
-        """Kurulumda okunan renkleri (yeniden) uygular."""
+        """(Re)applies the colours read at set-up."""
         self.setStyleSheet("SimulatorPanel { background: %s; }" % C.PANEL_DARK)
         self._title.setStyleSheet("color: %s;" % C.CYAN)
         self._sub.setStyleSheet("color: %s;" % C.TEXT_DIM)
         self.btn_start.setStyleSheet(
             "QPushButton { color: %s; font-weight: 600; }" % C.GREEN)
         self.lbl_step.setStyleSheet("color: %s;" % C.TEXT_BRIGHT)
-        # Etkin durum, model agacindaki secili satirla AYNI bicimde gosterilir:
-        # kalin ve zeminden ayrisan bir renkte (bkz. app/ui/contrast.py).
+        # The active state is shown in the SAME style as the selected row in the
+        # model tree: bold and in a colour that stands out (see app/ui/contrast.py).
         self.lbl_state.setStyleSheet(
             "color: %s; font-weight: 700;" % C.SIM_ACTIVE)
         for sep in self._separators:
@@ -372,7 +372,7 @@ class SimulatorPanel(QWidget):
     # ------------------------------------------------------------------- API #
 
     def rebuild(self) -> None:
-        """Model degistiginde olay dugmelerini ve tablolari yeniler."""
+        """Refreshes the event buttons and the tables when the model changes."""
         self.reset(quiet=True)
 
         _drop_children(self.events_layout)
@@ -397,24 +397,24 @@ class SimulatorPanel(QWidget):
                 self._event_buttons.append(btn)
         self.events_layout.addStretch(1)
 
-        # KORUMA LISTESI ALTMAKINE ICINI DE KAPSAR.
+        # THE GUARD LIST COVERS THE INSIDE OF A SUBMACHINE TOO.
         #
-        # `build_ir` cozumleyicisiz cagriliyordu; benzetimin kendisi ise
-        # `Simulator(..., resolve=...)` ile cagriliyor. Ikisi FARKLI iki
-        # modele bakiyordu: altmakinenin icindeki korumalar listede hic
-        # gorunmuyor, degerleri de asagidaki varsayilanla True kabul
-        # ediliyordu.
+        # `build_ir` was being called without a resolver, while the simulation
+        # itself was called as `Simulator(..., resolve=...)`. The two were
+        # looking at DIFFERENT models: the guards inside a submachine never
+        # appeared in the list, and their values were taken as True by the
+        # default below.
         guards: List[str] = []
         guard_error = ""
         if not blocked:
             try:
                 guards = build_ir(sm, resolve=self._resolver()).guards
             except CodegenError as exc:
-                # HATAYI YUTMA. Eskiden liste sessizce bosaltiliyordu:
-                # panel "(no guard)" yaziyor, kullanici modelinde koruma
-                # olmadigina inaniyor, ama `_eval_guard` her ifadeye True
-                # dondugu icin benzetim KORUMALI her gecisi aliyordu.
-                # Yanlis olan sey ekranda dogru gorunuyordu.
+                # DO NOT SWALLOW THE ERROR. The list used to be emptied silently: the
+                # panel said "(no guard)", the user believed their model had no guard,
+                # and because `_eval_guard` returned True for every expression the
+                # simulation took EVERY guarded transition. What was wrong looked right
+                # on screen.
                 guard_error = str(exc)
 
         self._guards = list(guards)
@@ -429,10 +429,10 @@ class SimulatorPanel(QWidget):
             self.lbl_state.setStyleSheet("color: %s; font-weight: 700;"
                                          % C.SIM_ACTIVE)
 
-    # ------------------------------------------------------- degisken tablosu
+    # variable table
 
     def _guard_variables(self) -> List[str]:
-        """Butun korumalarin okudugu adlar, ilk gorulme sirasinda."""
+        """The names every guard reads, in first-seen order."""
         out: List[str] = []
         for expr in self._guards:
             for ad in guard_expr.identifiers(expr):
@@ -456,7 +456,7 @@ class SimulatorPanel(QWidget):
             kutu.textChanged.connect(
                 lambda text, a=ad: self._set_variable(a, text))
             self.var_table.setCellWidget(satir, 1, kutu)
-            # Yeniden kurulumda onceki metni degere cevir.
+            # On a rebuild, turn the previous text back into a value.
             self._set_variable(ad, kutu.text(), refresh=False)
         self.var_table.setVisible(bool(adlar))
         self.lbl_var_empty.setVisible(not adlar)
@@ -494,7 +494,7 @@ class SimulatorPanel(QWidget):
                 kutu.setToolTip("A number (12, 0x0C, 1.5) or true / false")
             return
 
-    # --------------------------------------------------------- koruma tablosu
+    # guard table
 
     def _rebuild_guards(self, guard_error: str = "") -> None:
         _clear_table(self.guard_table)
@@ -535,10 +535,10 @@ class SimulatorPanel(QWidget):
         self._refresh_guard_values()
 
     def _resolve_guard(self, expr: str):
-        """Koruma icin (deger, kaynak) dondurur.
+        """Returns (value, source) for a guard.
 
-        Kaynak "variables" ise deger degiskenlerden HESAPLANDI; "manual"
-        ise kullanicinin verdigi (ya da varsayilan) degerdir.
+        A source of "variables" means the value was COMPUTED from the
+        variables; "manual" means it is the value the user gave (or a default).
         """
         if expr.strip().lower() == "else":
             return True, "else"
@@ -549,8 +549,8 @@ class SimulatorPanel(QWidget):
             return False, "manual"
         sonuc = guard_expr.evaluate(expr, self._variables)
         if sonuc is None:
-            # Hesaplanamiyor: elle verilmis bir deger yoksa TRUE varsayilir
-            # (eski davranis), ama tabloda kaynagi acikca yazilir.
+            # It cannot be evaluated: without a manual value TRUE is assumed (the
+            # old behaviour), but the source is written out plainly in the table.
             return True, "unresolved"
         return sonuc, "variables"
 
@@ -577,7 +577,7 @@ class SimulatorPanel(QWidget):
             oge.setText(etiket)
             oge.setForeground(_brush(renk))
 
-    # ---------------------------------------------------------------- eylemler
+    # actions
 
     def start(self) -> None:
         sm = self.doc.machine
@@ -619,8 +619,8 @@ class SimulatorPanel(QWidget):
         handled = self.sim.dispatch(event)
         sonraki = len(getattr(self.sim, "deferred_pool", []))
         if handled and sonraki > onceki:
-            # Olay TUKETILDI ama bir gecisi tetiklemedi: erteleme havuzunda
-            # bekliyor (UML 2.5.1, 14.2.3.4.4).
+            # The event was CONSUMED but triggered no transition: it is waiting in
+            # the deferral pool (UML 2.5.1, 14.2.3.4.4).
             self._append("    deferred — kept until no active state defers it",
                          C.WARN)
         elif not handled:
@@ -642,7 +642,7 @@ class SimulatorPanel(QWidget):
     def _clear_trace(self) -> None:
         self.trace.clear()
 
-    # ---------------------------------------------------------------- yardimci
+    # helpers
 
     def _eval_guard(self, expr: str) -> bool:
         deger, kaynak = self._resolve_guard(expr)
@@ -650,7 +650,7 @@ class SimulatorPanel(QWidget):
         return deger
 
     def _write_legend(self) -> None:
-        """Iz kaydinin basina okuma kilavuzu yazar."""
+        """Writes a reading guide at the top of the trace."""
         self._append(
             "legend:  ▸ transition   ? guard   ← exit   » effect   "
             "→ entry   ● do   = configuration", C.TEXT_DIM)
@@ -661,11 +661,11 @@ class SimulatorPanel(QWidget):
         self._append("── %s %s" % (title, cizgi), C.CYAN)
 
     def _log(self, kind: str, detail: str) -> None:
-        """Benzetimden gelen her kaydi ize yazar.
+        """Writes every record coming from the simulation into the trace.
 
-        "T" ve "G" kayitlari `Simulator.trace` listesinde YOKTUR; yalnizca
-        panele gonderilen ANLATIMDIR (bkz. Simulator._note). Boylece
-        referans iz uretilen C/C++ iziyle birebir kalir.
+        The "T" and "G" records are NOT in the `Simulator.trace` list; they are
+        NARRATION sent only to the panel (see Simulator._note). That keeps the
+        reference trace identical to the trace of the generated C/C++.
         """
         if kind == "T":
             self._step += 1
