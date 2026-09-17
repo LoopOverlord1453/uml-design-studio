@@ -1,18 +1,18 @@
-"""Git komut satiri sarmalayicisi -- Qt'den BAGIMSIZ.
+"""A wrapper around the git command line -- INDEPENDENT of Qt.
 
-Arayuz katmani (``app/ui/git_panel.py``) yalnizca burada tanimli veri
-yapilarini tuketir; boylece git mantigi arayuzsuz olarak sinanabilir
-(``tools/test_git.py``).
+The interface layer (``app/ui/git_panel.py``) consumes only the data
+structures defined here, so the git logic can be tested without a user
+interface (``tools/test_git.py``).
 
-Tasarim kurallari
------------------
-* Her cagri **zaman asimlidir**; hicbir islem arayuzu suresiz kilitlemez.
-* Windows'ta paketlenmis (konsolsuz) uygulamada konsol penceresi acilmasin
-  diye ``CREATE_NO_WINDOW`` kullanilir.
-* Ayristirma ``--porcelain=v2 -z`` gibi **kararli** bicimlere dayanir; insan
-  icin bicimlenmis cikti hicbir yerde ayristirilmaz.
-* Hicbir islev istisna sizdirmaz: hata ``GitError`` olarak yukselir, cagiran
-  taraf tek yerde yakalar.
+Design rules
+------------
+* Every call has a **timeout**; no operation locks the interface forever.
+* On Windows ``CREATE_NO_WINDOW`` is used so that a console window does not
+  pop up in the packaged (console-less) application.
+* Parsing relies on **stable** formats such as ``--porcelain=v2 -z``; output
+  formatted for humans is never parsed anywhere.
+* No function leaks an exception: an error is raised as ``GitError`` and the
+  caller catches it in one place.
 """
 
 from __future__ import annotations
@@ -23,18 +23,18 @@ import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-#: ``git log`` bicim alanlari (sirasi ayristirmayla birebir eslesir)
+#: ``git log`` format fields (the order matches the parser exactly)
 _LOG_FIELDS = ["%H", "%h", "%P", "%an", "%ae", "%aI", "%D", "%s", "%b"]
 
-#: Alan ve kayit ayirici: NUL. Commit mesajlari ve yazar adlari git'e C dizgesi
-#: olarak gectigi icin NUL ICEREMEZ; yazdirilabilir bir ayirici secilseydi ayni
-#: karakteri tasiyan bir commit gecmisten sessizce dusebilirdi.
+#: Field and record separator: NUL. Commit messages and author names reach git
+#: as C strings and so CANNOT CONTAIN NUL; with a printable separator, a commit
+#: carrying that character could silently drop out of the history.
 _NUL = "\0"
 
 DEFAULT_TIMEOUT = 20.0
 NETWORK_TIMEOUT = 180.0
 
-#: Grafikte kullanilan serit renkleri (arayuz bu listeyi kullanir)
+#: The lane colours used in the graph (the interface uses this list)
 LANE_COLORS = [
     "#4D9FFF", "#3DDC84", "#FF9F43", "#B983FF", "#35D0BA",
     "#FFD166", "#FF5C5C", "#6FB3FF", "#C7D66D", "#FF7AB6",
@@ -42,7 +42,7 @@ LANE_COLORS = [
 
 
 class GitError(Exception):
-    """git cagrisi basarisiz oldu; ``message`` kullaniciya gosterilebilir."""
+    """A git call failed; ``message`` can be shown to the user."""
 
     def __init__(self, message: str, command: str = "", output: str = "") -> None:
         super().__init__(message)
@@ -51,15 +51,15 @@ class GitError(Exception):
         self.output = output
 
 
-# ============================================================== veri yapilari
+#  data structures
 
 @dataclass
 class GitFile:
-    """Calisma agacindaki tek bir dosyanin durumu."""
+    """The state of a single file in the working tree."""
 
     path: str
-    index_status: str = " "     # hazirlik alanindaki durum (X)
-    work_status: str = " "      # calisma agacindaki durum (Y)
+    index_status: str = " "     # the status in the staging area (X)
+    work_status: str = " "      # the status in the working tree (Y)
     orig_path: Optional[str] = None
     unmerged: bool = False
 
@@ -76,7 +76,7 @@ class GitFile:
         return self.untracked or self.work_status not in (" ", "?")
 
     def label(self) -> str:
-        """Kullaniciya gosterilecek tek harfli durum etiketi."""
+        """The single-letter status label shown to the user."""
         if self.unmerged:
             return "U"
         if self.untracked:
@@ -87,7 +87,7 @@ class GitFile:
 
 @dataclass
 class Commit:
-    """Tek bir commit kaydi; ``lane`` grafik yerlesiminde atanir."""
+    """A single commit record; ``lane`` is assigned during graph layout."""
 
     sha: str
     short: str
@@ -96,8 +96,8 @@ class Commit:
     email: str = ""
     when: str = ""              # ISO-8601
     subject: str = ""
-    #: Commit mesajinin GOVDESI (ilk satirdan sonrasi). Grafikte dugum
-    #: ipucunda gosterilir; tek satirlik commit'lerde bostur.
+    #: The BODY of the commit message (everything after the first line). Shown
+    #: in the node tooltip in the graph; empty for one-line commits.
     body: str = ""
     refs: List[str] = field(default_factory=list)
     lane: int = 0
@@ -110,14 +110,14 @@ class Commit:
 
 @dataclass
 class RepoStatus:
-    """``git status`` sonucunun yapisal ozeti."""
+    """The structured summary of a ``git status`` result."""
 
     branch: str = ""
     upstream: str = ""
     ahead: int = 0
     behind: int = 0
     detached: bool = False
-    initial: bool = False           # henuz commit yok
+    initial: bool = False           # no commit yet
     files: List[GitFile] = field(default_factory=list)
 
     def staged(self) -> List[GitFile]:
@@ -135,7 +135,7 @@ class RepoStatus:
 
 @dataclass
 class DiffLine:
-    """Fark goruntuleyicinin tek satiri."""
+    """One line of the diff viewer."""
 
     kind: str       # "hunk" | "add" | "del" | "ctx" | "meta"
     text: str
@@ -143,7 +143,7 @@ class DiffLine:
     new_no: Optional[int] = None
 
 
-# ================================================================== yardimcilar
+#  helpers
 
 def _no_window_flags() -> int:
     if sys.platform.startswith("win"):
@@ -152,15 +152,15 @@ def _no_window_flags() -> int:
 
 
 def _git_env() -> Dict[str, str]:
-    """git ortami.
+    """The git environment.
 
-    ``GIT_LITERAL_PATHSPECS``: bu modulun git'e verdigi yollar HER ZAMAN
-    ``status`` / ``show --name-status`` ciktisindan gelen GERCEK dosya
-    adlaridir. Varsayilan olarak git bunlari *pathspec* sayar ve ``*``, ``?``,
-    ``[...]`` karakterlerini joker olarak yorumlar -- Windows'ta ``[`` ve ``]``
-    gecerli dosya adi karakteri oldugundan ``foo[1].c`` icin istenen islem
-    ``foo1.c`` dosyasini da etkilerdi (hazirlama, hazirliktan cikarma ve
-    ozellikle GERI ALMA'da veri kaybi). Bu degisken jokerleri tumuyle kapatir.
+    ``GIT_LITERAL_PATHSPECS``: the paths this module hands to git are ALWAYS
+    the REAL file names coming out of ``status`` / ``show --name-status``. By
+    default git treats them as a *pathspec* and reads ``*``, ``?`` and
+    ``[...]`` as wildcards -- and since ``[`` and ``]`` are valid file name
+    characters on Windows, an operation meant for ``foo[1].c`` would also hit
+    ``foo1.c`` (staging, unstaging and, above all, DISCARD -- data loss). This
+    variable turns wildcards off completely.
     """
     env = dict(os.environ)
     env["GIT_LITERAL_PATHSPECS"] = "1"
@@ -169,9 +169,9 @@ def _git_env() -> Dict[str, str]:
 
 def _run(args: Sequence[str], cwd: Optional[str], timeout: float,
          check: bool = True) -> Tuple[int, str, str]:
-    """git'i cagirir; (donus kodu, stdout, stderr) verir.
+    """Calls git; returns (return code, stdout, stderr).
 
-    ``check`` dogruysa sifir olmayan donus ``GitError`` yukseltir.
+    With ``check`` true, a non-zero return raises ``GitError``.
     """
     cmd = ["git"] + list(args)
     try:
@@ -198,7 +198,7 @@ def _run(args: Sequence[str], cwd: Optional[str], timeout: float,
 
 
 def git_version() -> str:
-    """Kurulu git surumu; yoksa ``GitError``."""
+    """The installed git version; ``GitError`` when there is none."""
     _, out, _ = _run(["--version"], None, 10.0)
     return out.strip()
 
@@ -219,39 +219,39 @@ def _split_z(text: str) -> List[str]:
 
 
 def _split_refs(text: str) -> List[str]:
-    """``%D`` ref listesini boler.
+    """Splits the ``%D`` ref list.
 
-    git ayirici olarak ", " (virgul + BOSLUK) kullanir ve ref adlarinda bosluk
-    YASAKTIR (git-check-ref-format); virgul ise gecerli bir ref karakteridir.
-    Bu yuzden yalnizca virgulden bolmek 'a,b' adli tek bir dali iki ref gibi
-    gosterirdi.
+    git uses ", " (comma + SPACE) as the separator and spaces are FORBIDDEN in
+    ref names (git-check-ref-format), while a comma is a valid ref character.
+    So splitting on the comma alone would show one branch named 'a,b' as two
+    refs.
     """
     return [r.strip() for r in text.split(", ") if r.strip()]
 
 
-# ====================================================================== depo
+#  repository
 
 class Repo:
-    """Tek bir calisma agacinin git islemleri."""
+    """The git operations of a single working tree."""
 
     def __init__(self, root: str) -> None:
         self.root = os.path.abspath(root)
 
-    # ------------------------------------------------------------- kesif
+    # discovery
 
     def is_repo(self) -> bool:
-        """Bu klasor bir git calisma agacinin *koku* mu."""
+        """Is this folder the *root* of a git working tree?"""
         if not os.path.isdir(self.root):
             return False
         return os.path.isdir(os.path.join(self.root, ".git")) or \
             os.path.isfile(os.path.join(self.root, ".git"))
 
     def toplevel(self) -> Optional[str]:
-        """Icinde bulundugumuz deponun kok klasoru (yoksa None).
+        """The root folder of the repository we are in (None if none).
 
-        git ileri bolu isaretli ve UZUN ad bicimli yol dondurur; Windows'ta
-        cagiran taraf kisa ad (``KUBILA~1``) tutuyor olabilir, bu yuzden
-        ``realpath`` ile normallestirilir.
+        git returns a path with forward slashes and LONG names; on Windows the
+        caller may be holding a short name (``KUBILA~1``), so it is normalised
+        with ``realpath``.
         """
         if not os.path.isdir(self.root):
             return None
@@ -264,11 +264,11 @@ class Repo:
         return os.path.realpath(path) if path else None
 
     def init(self, initial_branch: str = "main") -> None:
-        """Depoyu baslatir. Zaten depoysa hicbir sey yapmaz."""
+        """Initialises the repository. Does nothing if it is one already."""
         if self.is_repo():
             return
         os.makedirs(self.root, exist_ok=True)
-        # -b eski git surumlerinde yok; once dener, olmazsa yedege duser.
+        # -b is missing in older git versions; try it first, then fall back.
         code, _, _ = _run(["init", "-b", initial_branch], self.root,
                           DEFAULT_TIMEOUT, check=False)
         if code != 0:
@@ -280,17 +280,17 @@ class Repo:
         return code == 0
 
     def identity(self) -> Tuple[str, str]:
-        """(ad, e-posta) -- tanimsizsa bos dizge."""
+        """(name, e-mail) -- empty strings when undefined."""
         def cfg(key: str) -> str:
             code, out, _ = _run(["config", "--get", key], self.root,
                                 DEFAULT_TIMEOUT, check=False)
             return out.strip() if code == 0 else ""
         return cfg("user.name"), cfg("user.email")
 
-    # ------------------------------------------------------------- durum
+    # status
 
     def status(self) -> RepoStatus:
-        """``git status --porcelain=v2`` ciktisini yapisal hale getirir."""
+        """Turns ``git status --porcelain=v2`` output into structure."""
         st = RepoStatus()
         _, out, _ = _run(["status", "--porcelain=v2", "--branch",
                           "--untracked-files=all", "-z"], self.root,
@@ -309,7 +309,7 @@ class Repo:
             if tag == "1":
                 st.files.append(self._parse_ordinary(rec))
             elif tag == "2":
-                # yeniden adlandirma: ozgun yol BIR SONRAKI NUL alanindadir
+                # a rename: the original path is in the NEXT NUL field
                 orig = parts[i] if i < len(parts) else None
                 i += 1
                 gf = self._parse_ordinary(rec, renamed=True)
@@ -323,7 +323,7 @@ class Repo:
             elif tag == "?":
                 st.files.append(GitFile(path=rec[2:], index_status="?",
                                         work_status="?"))
-            # "!" (yok sayilan) gosterilmez
+            # "!" (ignored) is not shown
         st.files.sort(key=lambda f: f.path.lower())
         return st
 
@@ -355,9 +355,9 @@ class Repo:
         # 1 XY sub mH mI mW hH hI path
         # 2 XY sub mH mI mW hH hI Xscore path
         #
-        # DIKKAT: porcelain=v2, "degisiklik yok"u BOSLUK degil NOKTA ile
-        # gosterir (v1'in aksine). Nokta bosluga cevrilmezse her dosya hem
-        # hazirlanmis hem hazirlanmamis gorunur.
+        # CAREFUL: porcelain=v2 marks "no change" with a DOT, not a SPACE (unlike
+        # v1). Unless the dot is turned into a space, every file looks both staged
+        # and unstaged.
         limit = 9 if renamed else 8
         fields = rec.split(" ", limit)
         xy = fields[1] if len(fields) > 1 else ".."
@@ -368,15 +368,15 @@ class Repo:
                        index_status=" " if index_status == "." else index_status,
                        work_status=" " if work_status == "." else work_status)
 
-    # ------------------------------------------------------------- gecmis
+    # history
 
     def log(self, limit: int = 400) -> List[Commit]:
-        """Butun dallardaki commit'leri topolojik sirada verir.
+        """The commits on every branch, in topological order.
 
-        Hem alanlar hem kayitlar NUL ile ayrilir (``%x00`` + ``-z``); cikti
-        duz bir NUL akisidir ve her commit tam ``len(_LOG_FIELDS)`` alan
-        katkilar. Boylece mesajinda ya da yazar adinda hangi karakter olursa
-        olsun hicbir commit gecmisten dusmez.
+        Both fields and records are NUL separated (``%x00`` + ``-z``); the
+        output is a flat NUL stream and each commit contributes exactly
+        ``len(_LOG_FIELDS)`` fields. So no commit can drop out of the history,
+        whatever characters its message or author name contains.
         """
         if not self.has_commits():
             return []
@@ -399,9 +399,9 @@ class Repo:
                 parents=[p for p in f[2].split() if p],
                 author=f[3], email=f[4], when=f[5],
                 refs=_split_refs(f[6]), subject=f[7].rstrip("\n"),
-                # %b EN SON alandir; tek satirlik commit'lerde bostur.
-                # Uzunluk denetimi savunmacidir: eski bir bicimden gelen
-                # kisa kayit IndexError ile paneli cokertmemeli.
+                # %b is the LAST field; it is empty for one-line commits. The length
+                # check is defensive: a short record from an older format must not
+                # crash the panel with IndexError.
                 body=f[8].strip("\n") if len(f) > 8 else "",
                 is_head=(sha == head_sha),
             ))
@@ -414,12 +414,12 @@ class Repo:
         return out.strip() if code == 0 else ""
 
     def commit_files(self, sha: str) -> List[GitFile]:
-        """Bir commit'in degistirdigi dosyalar.
+        """The files a commit changed.
 
-        ``-m --first-parent`` BIRLESME commit'leri icindir: git birlesmeler
-        icin varsayilan olarak fark URETMEZ, ``--cc`` ise yalnizca cakisma
-        cozumlerini gosterir (temiz birlesmede BOS cikar). Ilk ebeveyne gore
-        fark, "bu birlesme neyi getirdi" sorusunun karsiligidir. Birlesme
+        ``-m --first-parent`` is for MERGE commits: by default git PRODUCES no
+        diff for merges, and ``--cc`` shows only conflict resolutions (EMPTY on
+        a clean merge). A diff against the first parent is the answer to "what
+        did this merge bring in". On non-merge commits the option has no effect.
         olmayan commit'lerde secenek etkisizdir.
         """
         _, out, _ = _run(["show", "--format=", "--name-status",
@@ -447,14 +447,14 @@ class Repo:
         files.sort(key=lambda f: f.path.lower())
         return files
 
-    # ------------------------------------------------------------- farklar
+    # diffs
 
     def diff(self, path: str, staged: bool = False, untracked: bool = False,
              context: int = 3) -> str:
-        """Tek dosyanin birlesik fark metni.
+        """The unified diff text of a single file.
 
-        Izlenmeyen dosya icin git fark uretmez; icerik ``+`` onekleriyle
-        sentezlenir.
+        git produces no diff for an untracked file; the content is synthesised
+        with ``+`` prefixes.
         """
         if untracked:
             return self._synthetic_new_file_diff(path)
@@ -483,10 +483,10 @@ class Repo:
 
     def diff_commit(self, sha: str, path: Optional[str] = None,
                     context: int = 3) -> str:
-        """Bir commit'in (istege bagli tek dosyanin) farki.
+        """The diff of a commit (optionally of a single file).
 
-        BIRLESME commit'leri ilk ebeveyne gore gosterilir; bkz.
-        ::meth:`commit_files` aciklamasi.
+        MERGE commits are shown against the first parent; see the
+        ::meth:`commit_files` docstring.
         """
         args = ["show", "--no-color", "--format=", "-U%d" % max(0, context),
                 "--root", "-m", "--first-parent", sha]
@@ -496,23 +496,23 @@ class Repo:
         return out
 
     def file_at(self, sha: str, path: str) -> str:
-        """Dosyanin bir commit'teki tam icerigi."""
+        """The full content of a file at a commit."""
         _, out, _ = _run(["show", "%s:%s" % (sha, path)], self.root,
                          DEFAULT_TIMEOUT)
         return out
 
     def staged_text(self, path: str) -> str:
-        """Dosyanin HAZIRLIK ALANINDAKI (index) icerigi.
+        """The content of the file IN THE STAGING AREA (the index).
 
-        ``file_at("HEAD", ...)`` son commit'i verir; hazirlanmis ama henuz
-        commit edilmemis surum yalnizca index'tedir ve ``:path`` sozdizimi
-        ile okunur. Model karsilastirmasi hazirlanmis degisiklikleri
-        gosterebilmek icin buna ihtiyac duyar.
+        ``file_at("HEAD", ...)`` gives the last commit; a version that is staged
+        but not yet committed exists only in the index and is read with the
+        ``:path`` syntax. The model comparison needs this to be able to show
+        staged changes.
         """
         _, out, _ = _run(["show", ":%s" % path], self.root, DEFAULT_TIMEOUT)
         return out
 
-    # ------------------------------------------------------------- islemler
+    # operations
 
     def stage(self, paths: Sequence[str]) -> None:
         if not paths:
@@ -533,9 +533,9 @@ class Repo:
              DEFAULT_TIMEOUT)
 
     def discard(self, paths: Sequence[str]) -> None:
-        """Calisma agacindaki degisiklikleri geri alir; izlenmeyeni siler.
+        """Discards the changes in the working tree; deletes untracked files.
 
-        YIKICIDIR -- cagiran taraf kullanicidan onay almalidir.
+        IT IS DESTRUCTIVE -- the caller must get confirmation from the user.
         """
         if not paths:
             return
@@ -561,7 +561,7 @@ class Repo:
 
     def commit(self, message: str, amend: bool = False,
                author_name: str = "", author_email: str = "") -> str:
-        """Hazirlik alanini commit'ler; yeni commit'in kisa sha'sini verir."""
+        """Commits the staging area; returns the short sha of the new commit."""
         text = message.strip()
         if not text:
             raise GitError("The commit message cannot be empty.")
@@ -577,14 +577,14 @@ class Repo:
                          DEFAULT_TIMEOUT)
         return out.strip()
 
-    # ------------------------------------------------------------- dallar
+    # branches
 
     def branches(self) -> List[str]:
-        """Yerel dal adlari.
+        """The local branch names.
 
-        Ayrik (detached) HEAD durumunda git listeye '(HEAD detached at ...)'
-        yer tutucusunu da basar; bu bir dal DEGILDIR ve checkout edilemez, bu
-        yuzden elenir (git ref adlarinda '(' kullanilamaz).
+        On a detached HEAD git also prints the '(HEAD detached at ...)'
+        placeholder into the list; that IS NOT a branch and cannot be checked
+        out, so it is filtered out (git ref names cannot contain '(').
         """
         code, out, _ = _run(["branch", "--format=%(refname:short)"], self.root,
                             DEFAULT_TIMEOUT, check=False)
@@ -611,7 +611,7 @@ class Repo:
             return []
         return [r.strip() for r in out.splitlines() if r.strip()]
 
-    # ------------------------------------------------------------- ag islemleri
+    # network operations
 
     def fetch(self, remote: str = "") -> str:
         args = ["fetch", "--prune"] + ([remote] if remote else ["--all"])
@@ -640,15 +640,15 @@ class Repo:
         return (out + err).strip() or "Push complete."
 
 
-# ============================================================ grafik yerlesimi
+#  graph layout
 
 def assign_lanes(commits: List[Commit]) -> None:
-    """Commit'lere serit (lane) numarasi atar -- GitKraken benzeri yerlesim.
+    """Assigns a lane number to each commit -- a GitKraken-like layout.
 
-    Etkin seritler listesi tutulur; her slot o seritte BEKLENEN commit'in
-    sha'sini saklar. Commit beklenen bir seritteyse o seride oturur, degilse
-    ilk bos serite girer. Birlesme (merge) ek ebeveynleri icin de serit
-    ayrilir; boylece cizimde her kenar iki serit arasinda akar.
+    A list of active lanes is kept; every slot holds the sha of the commit
+    EXPECTED in that lane. A commit that is expected in a lane sits in it,
+    otherwise it takes the first free lane. A lane is also reserved for the
+    extra parents of a merge, so every edge in the drawing flows between two.
     """
     active: List[Optional[str]] = []
 
@@ -668,7 +668,7 @@ def assign_lanes(commits: List[Commit]) -> None:
         if lane < 0:
             lane = first_free()
         else:
-            # ayni commit'i bekleyen diger seritler burada birlesir
+            # other lanes waiting for the same commit merge here
             for idx in range(len(active)):
                 if idx != lane and active[idx] == commit.sha:
                     active[idx] = None
@@ -688,10 +688,10 @@ def lane_count(commits: Sequence[Commit]) -> int:
     return (max((c.lane for c in commits), default=-1)) + 1
 
 
-# ============================================================ fark ayristirma
+#  diff parsing
 
 def parse_diff(text: str) -> List[DiffLine]:
-    """Birlesik fark metnini satir satir yapisal hale getirir."""
+    """Turns unified diff text into structure, line by line."""
     lines: List[DiffLine] = []
     old_no = new_no = 0
     for raw in text.splitlines():
@@ -720,7 +720,7 @@ def parse_diff(text: str) -> List[DiffLine]:
 
 
 def _hunk_starts(header: str) -> Tuple[int, int]:
-    """``@@ -a,b +c,d @@`` basligindan (a, c) cikarir."""
+    """Extracts (a, c) from an ``@@ -a,b +c,d @@`` header."""
     try:
         core = header.split("@@")[1].strip()
         old_part, new_part = core.split(" ")[0], core.split(" ")[1]
@@ -732,7 +732,7 @@ def _hunk_starts(header: str) -> Tuple[int, int]:
 
 
 def diff_stats(text: str) -> Tuple[int, int]:
-    """(eklenen, silinen) satir sayisi."""
+    """The (added, removed) line counts."""
     add = dele = 0
     for raw in text.splitlines():
         if raw.startswith("+") and not raw.startswith("+++"):
