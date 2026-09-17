@@ -1,6 +1,11 @@
-"""UML State Diagram Tool - giris noktasi.
+"""UML Design Studio - entry point.
 
     python main.py
+
+Or use the launcher, which sets the environment up on the first run:
+
+    run.bat      (Windows)
+    ./run.sh     (Linux / macOS)
 """
 
 from __future__ import annotations
@@ -16,8 +21,13 @@ def main() -> int:
 
     if importlib.util.find_spec("PyQt6.QtWidgets") is None:
         sys.stderr.write(
-            "PyQt6 is not installed.\n"
-            "Install it with:  python -m pip install -r requirements.txt\n")
+            "PyQt6 is not installed.\n\n"
+            "The easiest way is the launcher, which builds a private\n"
+            "environment and installs it for you:\n\n"
+            "    run.bat      (Windows)\n"
+            "    ./run.sh     (Linux / macOS)\n\n"
+            "Or install it by hand:\n"
+            "    python -m pip install -r requirements.txt\n")
         return 2
 
     from app.ui.main_window import run

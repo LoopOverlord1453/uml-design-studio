@@ -1,2 +1,2 @@
 PyQt6>=6.5
-# EXE paketleme icin (istege bagli): pyinstaller
+# Optional, only for packaging an executable: pyinstaller

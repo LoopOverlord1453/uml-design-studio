@@ -118,13 +118,13 @@ _CONTROL_START = re.compile(
     r"(?:if|else\s+if|for|while|switch)\b")
 
 #: String and character literals -- dropped when counting parentheses.
-_SABIT = re.compile(r'"(?:[^"\\]|\\.)*"' + r"|'(?:[^'\\]|\\.)*'")
+_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"' + r"|'(?:[^'\\]|\\.)*'")
 
 
-def _paren_farki(kod: str) -> int:
+def _paren_balance(code: str) -> int:
     """The OPEN parenthesis balance of the line (strings are not counted)."""
-    duz = _SABIT.sub("", kod)
-    return duz.count("(") - duz.count(")")
+    plain = _LITERAL.sub("", code)
+    return plain.count("(") - plain.count(")")
 
 
 #: `} name;` -- the NAMED closing line of a typedef whose body has ended.
@@ -227,13 +227,13 @@ def allman(lines: List[str]) -> List[str]:
         if m is None:
             # No brace: if an open condition is running, update its balance.
             if acik_pad is not None:
-                acik_derinlik += _paren_farki(kod)
+                acik_derinlik += _paren_balance(kod)
                 if acik_derinlik <= 0:
                     acik_pad = None
             else:
                 bas = _CONTROL_START.match(kod)
                 if bas is not None:
-                    fark = _paren_farki(kod)
+                    fark = _paren_balance(kod)
                     if fark > 0:
                         acik_pad = bas.group("pad")
                         acik_derinlik = fark

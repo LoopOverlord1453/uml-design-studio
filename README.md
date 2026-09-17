@@ -87,6 +87,24 @@ the header, so a missing driver call is a compile error rather than a silent gap
 
 ## Install
 
+### The short way
+
+Download or clone the repository and run the launcher for your system:
+
+```bash
+run.bat        # Windows -- double-clicking it works too
+./run.sh       # Linux / macOS  (chmod +x run.sh the first time)
+```
+
+On the **first run** it creates a private virtual environment in `.venv` next to
+the launcher, installs PyQt6 into it, and starts the application. Every run after
+that goes straight to the app. Nothing is installed system-wide, and deleting
+`.venv` undoes all of it.
+
+If something goes wrong the launcher says what and keeps the window open — you
+only need the manual steps below when you want to control the environment
+yourself.
+
 ### What you need
 
 | | Package | Needed for |
@@ -107,9 +125,12 @@ Windows, macOS and Linux branches.
 
 | Platform | Notes |
 |---|---|
-| **Windows 10 / 11** | Primary development platform |
+| **Windows 10 / 11** | Primary development platform; the launcher is tested from a clean checkout |
 | **Linux** (X11 or Wayland) | Runs from source; see the Qt system libraries below |
 | **macOS** | Runs from source |
+
+The `run.sh` launcher is kept with LF line endings and the executable bit set
+(see `.gitattributes`), so it stays runnable after a clone on either system.
 
 Packaging is per-platform: PyInstaller builds a binary for the OS it runs on, so
 a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
