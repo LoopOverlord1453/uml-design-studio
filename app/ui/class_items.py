@@ -1,11 +1,11 @@
-"""Sinif diyagrami tuval elemanlari: sinif kutulari ve iliski oklari.
+"""Class diagram canvas elements: class boxes and relationship arrows.
 
-UML 2.5.1 gosterimi:
-  * Sinif: uc bolmeli dikdortgen (ad / nitelikler / islemler)
-  * <<interface>>: kaliba ek olarak italik ad; soyut sinif: italik ad
-  * Generalization: ici bos ucgen ok      * Realization: kesikli + bos ucgen
-  * Composition: dolu elmas (butun ucta)  * Aggregation: ici bos elmas
-  * Association: acik ok                  * Dependency: kesikli + acik ok
+UML 2.5.1 notation:
+  * Class: a rectangle with three compartments (name / attributes / operations)
+  * <<interface>>: the stereotype plus an italic name; abstract class: italic
+  * Generalization: hollow triangle arrow   * Realization: dashed + hollow
+  * Composition: filled diamond (whole end)  * Aggregation: hollow diamond
+  * Association: open arrow                  * Dependency: dashed + open arrow
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ HEADER_H = 30.0
 
 
 class ClassItem(QGraphicsObject):
-    """Bir UML sinifini cizen ve suruklenebilir kilan eleman."""
+    """The element that draws a UML class and makes it draggable."""
 
     def __init__(self, cls: UmlClass, canvas) -> None:
         super().__init__()
         self.cls = cls
         self.canvas = canvas
         self.has_error = False
-        #: FARK kipi isareti: "" | "added" | "changed" (bkz. ClassCanvas).
+        #: DIFF mode mark: "" | "added" | "changed" (see ClassCanvas).
         self.diff_mark = ""
         self._hover = False
         self._resizing = False
@@ -55,13 +55,13 @@ class ClassItem(QGraphicsObject):
         self.f_small = ui_font(7)
         self.f_member = mono_font(8)
 
-    # ------------------------------------------------------------- geometri #
+    # ------------------------------------------------------------- geometry #
 
     def min_size(self):
-        """Uyelerin GEREKTIRDIGI en kucuk kutu.
+        """The smallest box the members REQUIRE.
 
-        Sinifa oznitelik/islem eklenince kutu buyumuyordu: satirlar ya
-        kirpiliyor ya da kutunun disinda kaliyordu.
+        The box did not grow when an attribute or operation was added to the
+        class: the rows were either clipped or left outside the box.
         """
         fm = QFontMetricsF(self.f_member)
         en = QFontMetricsF(self.f_title).horizontalAdvance(self.cls.name) + 24.0
@@ -74,7 +74,7 @@ class ClassItem(QGraphicsObject):
         return (max(MIN_W, en), max(MIN_H, boy))
 
     def rect(self) -> QRectF:
-        """Cizim dikdortgeni: modeldeki boyut, ama icerikten KUCUK DEGIL."""
+        """The drawing rectangle: the size in the model, but NOT SMALLER."""
         en, boy = self.min_size()
         return QRectF(0.0, 0.0, max(self.cls.w, en), max(self.cls.h, boy))
 
@@ -97,7 +97,7 @@ class ClassItem(QGraphicsObject):
         r = self.rect()
         return QRectF(r.right() - GRIP, r.bottom() - GRIP, GRIP, GRIP)
 
-    # --------------------------------------------------------------- olaylar #
+    # ---------------------------------------------------------------- events #
 
     def hoverEnterEvent(self, event) -> None:
         self._hover = True
@@ -170,7 +170,7 @@ class ClassItem(QGraphicsObject):
             self.setZValue(1.0 if value else 0.0)
         return super().itemChange(change, value)
 
-    # ----------------------------------------------------------------- cizim #
+    # -------------------------------------------------------------- painting #
 
     @guarded_paint
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
@@ -197,7 +197,7 @@ class ClassItem(QGraphicsObject):
                         Stereotype.ABSTRACT: C.ABSTRACT_HEADER}.get(
                             c.stereotype, C.CLASS_HEADER)
 
-        # golge + govde
+        # shadow + body
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(0, 0, 0, 60))
         painter.drawRect(r.translated(0, 2))
@@ -205,7 +205,7 @@ class ClassItem(QGraphicsObject):
         painter.setPen(QPen(border, 2.0 if selected else 1.3))
         painter.drawRect(r)
 
-        # baslik
+        # title
         painter.save()
         painter.setClipRect(r)
         painter.setPen(Qt.PenStyle.NoPen)
@@ -232,7 +232,7 @@ class ClassItem(QGraphicsObject):
                                 HEADER_H - (y - r.top())),
                          int(Qt.AlignmentFlag.AlignCenter), name)
 
-        # bolme cizgisi + nitelikler
+        # compartment line + attributes
         painter.setPen(QPen(border, 1.0))
         painter.drawLine(QPointF(r.left(), r.top() + HEADER_H),
                          QPointF(r.right(), r.top() + HEADER_H))
@@ -255,7 +255,7 @@ class ClassItem(QGraphicsObject):
             y += line_h
             attr_bottom = y
 
-        # islem bolmesi
+        # operation compartment
         sep_y = max(attr_bottom + 3.0, r.top() + HEADER_H + 4.0 + 3.0)
         if sep_y < r.bottom() - 6:
             painter.setPen(QPen(border, 1.0))
@@ -275,7 +275,7 @@ class ClassItem(QGraphicsObject):
                                      | Qt.AlignmentFlag.AlignVCenter), text)
                 y += line_h
 
-        # boyutlandirma tutamagi
+        # resize handle
         if selected:
             g = self._grip_rect()
             painter.setPen(QPen(QColor(C.STATE_SELECTED), 1.4))
@@ -285,7 +285,7 @@ class ClassItem(QGraphicsObject):
 
 
 class RelationItem(QGraphicsItem):
-    """Iki sinif arasindaki iliskiyi UML ucuyla cizer."""
+    """Draws the relationship between two classes with its UML end."""
 
     ARROW = 12.0
     DIAMOND = 15.0
@@ -300,14 +300,14 @@ class RelationItem(QGraphicsItem):
         self.canvas = canvas
         self.bow = bow
         self.has_error = False
-        #: FARK kipi isareti (bkz. ClassItem.diff_mark).
+        #: DIFF mode mark (see ClassItem.diff_mark).
         self.diff_mark = ""
         self._hover = False
 
         self._path = QPainterPath()
         self._src_marker = QPainterPath()
         self._dst_marker = QPainterPath()
-        self._src_fill: Optional[bool] = None    # None = cizilmez
+        self._src_fill: Optional[bool] = None    # None = not drawn
         self._dst_fill: Optional[bool] = None
         self._label_rect = QRectF()
         self._src_mult_pt = QPointF()
@@ -319,7 +319,7 @@ class RelationItem(QGraphicsItem):
         self.font = ui_font(8)
         self.update_path()
 
-    # -------------------------------------------------------------- geometri #
+    # -------------------------------------------------------------- geometry #
 
     def boundingRect(self) -> QRectF:
         extra = self.TRIANGLE + 8.0
@@ -352,7 +352,7 @@ class RelationItem(QGraphicsItem):
         p2 = self.dst.anchor_toward(ctrl)
 
         kind = self.relation.kind
-        # Uc isaretlerinin boyu kadar cizgiyi geri cek
+        # Pull the line back by the length of the end markers
         d1 = _unit(ctrl - p1)
         d2 = _unit(ctrl - p2)
         start = p1
@@ -363,7 +363,7 @@ class RelationItem(QGraphicsItem):
         self._dst_fill = None
 
         if kind in (RelationKind.AGGREGATION, RelationKind.COMPOSITION):
-            # elmas BUTUN'un (source) ucundadir
+            # the diamond sits at the WHOLE (source) end
             tip = p1
             back = p1 + d1 * self.DIAMOND
             n = QPointF(-d1.y(), d1.x())
@@ -392,8 +392,8 @@ class RelationItem(QGraphicsItem):
             self._dst_marker.moveTo(back + n * half)
             self._dst_marker.lineTo(tip)
             self._dst_marker.lineTo(back - n * half)
-            # Association ve Dependency ACIK ok ucu kullanir: iki
-            # cizgi, kapali ucgen degil -- bu yuzden dolgu yok.
+            # Association and Dependency use an OPEN arrow head: two lines,
+            # not a closed triangle -- hence no fill.
             self._dst_fill = None
             end = tip
 
@@ -421,7 +421,7 @@ class RelationItem(QGraphicsItem):
         self._label_rect = QRectF(anchor.x() - w / 2.0,
                                   anchor.y() - h - 4.0, w, h)
 
-    # --------------------------------------------------------------- olaylar #
+    # ---------------------------------------------------------------- events #
 
     def hoverEnterEvent(self, event) -> None:
         self._hover = True
@@ -437,7 +437,7 @@ class RelationItem(QGraphicsItem):
         self.canvas.edit_element(self.relation.id)
         event.accept()
 
-    # ----------------------------------------------------------------- cizim #
+    # -------------------------------------------------------------- painting #
 
     @guarded_paint
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem,
@@ -483,7 +483,7 @@ class RelationItem(QGraphicsItem):
                                  else QBrush(QColor(C.CANVAS_BG)))
             painter.drawPath(self._dst_marker)
 
-        # cokluk etiketleri
+        # multiplicity labels
         painter.setFont(self.font)
         painter.setPen(QPen(QColor(C.STATE_TEXT)))
         if self.relation.source_mult:

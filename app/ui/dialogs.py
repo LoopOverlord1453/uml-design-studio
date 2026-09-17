@@ -1,4 +1,4 @@
-"""Cift tiklama ile acilan ozellik diyaloglari (durum makinesi)."""
+"""The property dialogs opened by double-click (state machine)."""
 
 from __future__ import annotations
 
@@ -8,12 +8,12 @@ from PyQt6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QFormLayout,
 
 
 def _fixed_row(widget: QWidget) -> QWidget:
-    """Satiri DIKEYDE sabitler.
+    """Pins the row VERTICALLY.
 
-    QFormLayout fazla yuksekligi esneyebilen satirlara dagitir. Ust
-    bilgi etiketi ve tek satirlik alanlar sabitlenmezse butun bos alani
-    onlar yutar; pencerenin yarisi bos dururken kod alani 40 pikselde
-    kalir.
+    QFormLayout hands the extra height to rows that can stretch. Unless the
+    information label at the top and the single-line fields are pinned, they
+    swallow all the free space; half the window sits empty while the code
+    field stays at 40 pixels.
     """
     widget.setSizePolicy(widget.sizePolicy().horizontalPolicy(),
                          QSizePolicy.Policy.Fixed)
@@ -48,12 +48,12 @@ TKIND_LABELS = [
 
 
 class _CodeField(QPlainTextEdit):
-    """Cok satirli kod alani: EN AZ `rows` satir, pencere buyudukce buyur.
+    """A multi-line code field: AT LEAST `rows` lines, grows with the window.
 
-    Eskiden `setFixedHeight` ile cakiliydi. Pencere buyutuldugunde fazla
-    alan bu alana degil, formun en ustundeki bilgi etiketine gidiyordu:
-    kullanici birkac satirlik bir entry davranisini 40 piksellik bir
-    kutuya sigdirmaya calisiyordu.
+    It used to be nailed down with `setFixedHeight`. When the window was
+    enlarged the extra space went to the information label at the top of the
+    form rather than to this field: the user was trying to fit a several-line
+    entry behaviour into a 40-pixel box.
     """
 
     def __init__(self, text: str = "", rows: int = 3) -> None:
@@ -69,7 +69,7 @@ class _CodeField(QPlainTextEdit):
 
 
 class _NoteField(QPlainTextEdit):
-    """Kisa, cok satirli serbest metin (kod vurgulamasi YOK)."""
+    """Short, multi-line free text (NO code highlighting)."""
 
     def __init__(self, text: str = "", rows: int = 2) -> None:
         super().__init__()
@@ -81,7 +81,7 @@ class _NoteField(QPlainTextEdit):
                            QSizePolicy.Policy.Expanding)
 
 class StateDialog(QDialog):
-    """Durum / sozde-durum ozellikleri."""
+    """State / pseudostate properties."""
 
     def __init__(self, state: State, parent=None) -> None:
         super().__init__(parent)
@@ -112,8 +112,8 @@ class StateDialog(QDialog):
             form.addRow("exit /", self.exit_edit)
             form.addRow("do /", self.do_edit)
 
-        # Not da cok satirli: bir durumun aciklamasi tek satira sigmiyor
-        # ve tuval zaten satir sonlarini ciziyor.
+        # The note is multi-line too: the description of a state does not fit on
+        # one line and the canvas already draws the line breaks.
         self.note_edit = _NoteField(state.note)
         form.addRow("Note", self.note_edit)
 
@@ -138,7 +138,7 @@ class StateDialog(QDialog):
 
 
 class TransitionDialog(QDialog):
-    """Gecis ozellikleri:  trigger [guard] / effect"""
+    """Transition properties:  trigger [guard] / effect"""
 
     def __init__(self, tr: Transition, src_name: str, dst_name: str,
                  events, parent=None) -> None:

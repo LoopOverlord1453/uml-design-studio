@@ -1,4 +1,4 @@
-"""Sorun listesi paneli ve agac gosterimi icin ortak sembol tablolari."""
+"""Shared symbol tables for the problem list panel and the tree view."""
 
 from __future__ import annotations
 
@@ -28,8 +28,8 @@ KIND_GLYPH = {
     StateKind.SHALLOW_HISTORY: "Ⓗ",
     StateKind.DEEP_HISTORY: "Ⓗ*",
     StateKind.TERMINATE: "✕",
-    # UML'de fork/join KALIN BIR CUBUK, baglanti noktalari ise bilesik
-    # durumun sinirindaki kucuk dairelerdir; agacta da oyle anilirlar.
+    # In UML a fork/join is A THICK BAR and the connection points are small
+    # circles on the border of a composite state; the tree names them so too.
     StateKind.FORK: "▬",
     StateKind.JOIN: "▬",
     StateKind.ENTRY_POINT: "○",
@@ -37,12 +37,12 @@ KIND_GLYPH = {
     StateKind.SUBMACHINE: "▤",
 }
 
-#: Simgenin YANINA yazilan arac adi (UML terimleri).
+#: The tool name written NEXT TO the symbol (UML terms).
 #:
-#: Sembol tek basina yeterli degildi: 12 pikselde "◇" ile "◆" (choice /
-#: junction) ve "▢" ile "▣" (simple / composite) birbirinden ayirt
-#: edilemiyordu. Arac adi yazili oldugu icin agac artik tuvaldeki arac
-#: cubugu ile ayni dili konusur.
+#: The symbol alone was not enough: at 12 pixels "◇" and "◆" (choice /
+#: junction) and "▢" and "▣" (simple / composite) could not be told
+#: apart. With the tool name written out, the tree now speaks the same
+#: language as the toolbar on the canvas.
 KIND_LABEL = {
     StateKind.SIMPLE: "State",
     StateKind.COMPOSITE: "Composite",
@@ -60,14 +60,14 @@ KIND_LABEL = {
     StateKind.SUBMACHINE: "Submachine",
 }
 
-# HER StateKind ICIN BIR KAYIT SART.
+# EVERY StateKind MUST HAVE AN ENTRY.
 #
-# Agac dugumleri `KIND_GLYPH[st.kind]` ile kuruluyor; eksik bir tur orada
-# KeyError'a donuyordu. Fork, join, giris/cikis noktasi ve altmakine
-# eklendiginde bu iki tablo guncellenmemisti: o ogelerden birini iceren
-# bir modeli calisma alaninda GORUNTULEMEK bile mumkun degildi. Sessiz
-# bir varsayilana dusmek yerine burada patlamak dogrudur -- ama testin
-# yakalamasi icin (bkz. test_regressions 41. bolum) once bu kontrol var.
+# Tree nodes are built with `KIND_GLYPH[st.kind]`, and a missing kind
+# turned into a KeyError there. When fork, join, entry/exit point and
+# submachine were added, these two tables were not updated: a model
+# containing any of those could not even be VIEWED in the workspace.
+# Blowing up here is right, rather than falling back to a silent default
+# -- but this check comes first so a test can catch it (test_regressions 41).
 assert set(KIND_GLYPH) == set(StateKind), \
     "KIND_GLYPH eksik: %s" % sorted(k.value for k in StateKind
                                     if k not in KIND_GLYPH)
@@ -80,15 +80,15 @@ SEVERITY_COLOR = {"error": C.RED, "warning": C.WARN, "info": C.INFO}
 SEVERITY_TEXT = {"error": "Error", "warning": "Warning", "info": "Info"}
 
 
-# OutlinePanel / ClassOutlinePanel KALDIRILDI.
+# OutlinePanel / ClassOutlinePanel WERE REMOVED.
 #
-# Ayri bir "MODEL TREE" paneli, calisma alani agacinin zaten
-# gosterdigi bilgiyi ikinci kez gosteriyordu. Asagidaki sembol ve
-# etiket tablolari KALIR: hem durum makinesi hem sinif diyagrami
-# dugumleri workspace_tree.py tarafindan bu tablolarla cizilir.
+# A separate "MODEL TREE" panel showed, a second time, information the
+# workspace tree already displayed. The symbol and label tables below
+# STAY: workspace_tree.py draws both state machine and class diagram
+# nodes with these tables.
 
 
-#: Sinif diyagrami agacinda kullanilan UML sembolleri ve arac adlari.
+#: The UML symbols and tool names used in the class diagram tree.
 CLASS_GLYPH = {
     Stereotype.CLASS: "▭",
     Stereotype.ABSTRACT: "▱",
@@ -121,15 +121,15 @@ RELATION_LABEL = {
 
 
 class ProblemsPanel(QTreeWidget):
-    """Dogrulama sonuclari; cift tiklaninca ilgili elemani secer."""
+    """Validation results; double-clicking selects the matching element."""
 
     element_activated = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setColumnCount(4)
-        # SPEC sutunu: ihlal edilen kuralin OMG UML 2.5.1'deki bolumu ve
-        # BASILI sayfa numarasi. Ipucunda kuralin tek cumlelik ozeti durur.
+        # SPEC column: the clause of the violated rule in OMG UML 2.5.1 and the
+        # PRINTED page number. The tooltip carries a one-sentence summary.
         self.setHeaderLabels(["Severity", "Code", "Description", "UML 2.5.1"])
         self.setRootIsDecorated(False)
         self.setFont(ui_font(9))
@@ -167,12 +167,12 @@ class ProblemsPanel(QTreeWidget):
             item.setForeground(0, QBrush(color))
             item.setForeground(1, QBrush(QColor(C.TEXT_DIM)))
             item.setFont(1, mono_font(8))
-            # ILETININ KENDISI DE RENKLENIR.
+            # THE MESSAGE ITSELF IS COLOURED TOO.
             #
-            # Onceden yalnizca "Severity" sutunu renkliydi; asil okunan
-            # metin (aciklama) duz renkteydi ve listede goze carpmiyordu.
-            # Hata KIRMIZI, uyari KEHRIBAR: iki dert birbirinden ayrilir
-            # ve ikisi de duz metinden ayrilir.
+            # Only the "Severity" column used to be coloured; the text that actually
+            # gets read (the description) was plain and did not stand out in the list.
+            # An error is RED, a warning AMBER: the two problems are separated from
+            # each other, and both from plain text.
             if issue.severity in ("error", "warning"):
                 item.setForeground(2, QBrush(color))
             if issue.severity == "error":
@@ -182,12 +182,12 @@ class ProblemsPanel(QTreeWidget):
             item.setData(0, ID_ROLE, issue.element_id or "")
 
     def _attach_spec(self, item: QTreeWidgetItem, code: str) -> None:
-        """Bulguya spesifikasyon atfini islar.
+        """Marks the finding with its specification reference.
 
-        Sutunda KISA atif (bolum + sayfa) durur; kuralin tam cumlesi
-        ipucundadir. Arac kurallarinin (ad cakismasi, gecersiz tanimlayici)
-        UML karsiligi YOKTUR -- uydurma bir sayfa vermek yerine "tool rule"
-        yazilir, cunku kullanici o sayfayi belgede arayacaktir.
+        The column carries the SHORT reference (clause + page); the full
+        sentence of the rule is in the tooltip. Tool rules (name collision,
+        invalid identifier) have NO UML counterpart -- rather than inventing a
+        page, "tool rule" is written, because the user would look that page up.
         """
         ref = uml_spec.lookup(code)
         if ref is None:

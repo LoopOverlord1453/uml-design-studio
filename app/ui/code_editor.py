@@ -1,4 +1,4 @@
-"""Satir numarali, JetBrains Darcula gorunumlu kod goruntuleyici."""
+"""A code viewer with line numbers, styled like JetBrains Darcula."""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ class _LineNumberArea(QWidget):
 
 
 class CodeEditor(QPlainTextEdit):
-    """Salt-okunur kod paneli (uretilen kod elle degistirilmemeli)."""
+    """A read-only code panel (generated code must not be edited by hand)."""
 
     def __init__(self, parent=None, read_only: bool = True) -> None:
         super().__init__(parent)
-        #: Ctrl+F esleme vurgulari (bkz. set_search_highlights).
+        #: Ctrl+F match highlights (see set_search_highlights).
         self._search_selections = []
         self.setReadOnly(read_only)
         self.setFont(mono_font(10))
@@ -50,7 +50,7 @@ class CodeEditor(QPlainTextEdit):
         self._update_gutter_width(0)
         self._highlight_current_line()
 
-    # ------------------------------------------------------------- oluk (gutter)
+    # -------------------------------------------------------------------- gutter
 
     def line_number_width(self) -> int:
         digits = max(3, len(str(max(1, self.blockCount()))))
@@ -101,17 +101,17 @@ class CodeEditor(QPlainTextEdit):
             bottom = top + round(self.blockBoundingRect(block).height())
             number += 1
 
-    # ----------------------------------------------------------- etkin satir
+    # ---------------------------------------------------------- current line
 
     def _apply_palette(self) -> None:
-        """Kod alanini ETKIN TEMANIN renklerine kurar.
+        """Sets the code area up in the colours of the ACTIVE THEME.
 
-        Panel eskiden Visual Studio klasik semasini kullaniyor ve temadan
-        bagimsiz olarak hep beyaz kaliyordu; koyu temada ekranin yarisi
-        beyaz parliyordu. Artik tema ile birlikte degisir.
+        The panel used to use the classic Visual Studio scheme and stayed white
+        regardless of the theme; in the dark theme half the screen glared white.
+        Now it changes together with the theme.
 
-        Stil sayfasi QPlainTextEdit'e genel bir zemin verdigi icin burada
-        ayrica setStyleSheet ile ezilir; yoksa palet zemini gorunmez.
+        Because the style sheet gives QPlainTextEdit a global background, it
+        is overridden with setStyleSheet here too, or the palette stays hidden.
         """
         pal = self.palette()
         pal.setColor(QPalette.ColorRole.Base, QColor(C.CODE_BG))
@@ -126,10 +126,10 @@ class CodeEditor(QPlainTextEdit):
             % (C.CODE_BG, C.CODE_TEXT, C.SELECTION, C.SELECTION_TEXT))
 
     def retheme(self) -> None:
-        """Tema degisiminde paleti ve sozdizimi renklerini yeniden kurar.
+        """Rebuilds the palette and the syntax colours on a theme change.
 
-        Renklendirici kurallarini KURULUM aninda derler; yalnizca paleti
-        degistirmek kod metnini eski temanin renklerinde birakirdi.
+        The highlighter compiles its rules AT SET-UP time; changing only the
+        palette would leave the code text in the colours of the old theme.
         """
         self._apply_palette()
         self.highlighter = CppHighlighter(self.document())
@@ -137,13 +137,13 @@ class CodeEditor(QPlainTextEdit):
         self._apply_selections()
 
     def set_search_highlights(self, selections) -> None:
-        """Arama cubugunun (Ctrl+F) esleme vurgularini saklar ve uygular.
+        """Stores and applies the match highlights of the search bar (Ctrl+F).
 
-        AYRI TUTULMAK ZORUNDA: `setExtraSelections` listenin TAMAMINI degistirir
-        ve etkin satir vurgusu her imlec hareketinde yeniden yazilir. Arama
-        vurgulari dogrudan `setExtraSelections` ile konursa ilk imlec
-        hareketinde -- yani aramanin kendi "sonrakine git" adiminda -- silinir;
-        sayac "5 esleme" derken ekranda tek vurgu kalirdi.
+        THEY MUST BE KEPT SEPARATE: `setExtraSelections` replaces the WHOLE
+        list, and the current-line highlight is rewritten on every cursor move.
+        Search highlights placed directly with `setExtraSelections` would be
+        wiped on the first cursor move -- that is, by the search's own "go to
+        next" step; the counter said "5 matches" while one highlight remained.
         """
         self._search_selections = list(selections)
         self._apply_selections()
@@ -152,7 +152,7 @@ class CodeEditor(QPlainTextEdit):
         self._apply_selections()
 
     def _apply_selections(self) -> None:
-        """Etkin satir + arama vurgularini TEK listede birlestirip uygular."""
+        """Merges the current-line and search highlights into ONE list."""
         sel = QTextEdit.ExtraSelection()
         sel.format.setBackground(QColor(C.CODE_CURRENT_LINE))
         sel.format.setProperty(QTextFormat.Property.FullWidthSelection, True)
@@ -160,13 +160,13 @@ class CodeEditor(QPlainTextEdit):
         cursor.clearSelection()
         sel.cursor = cursor
 
-        # Arama vurgulari SONRA gelir ki etkin satirin uzerine cizilsinler.
+        # The search highlights come LAST so they paint over the current line.
         self.setExtraSelections([sel] + list(self._search_selections))
 
     # ------------------------------------------------------------------ API
 
     def set_code(self, text: str) -> None:
-        """Kaydirma konumunu koruyarak icerigi degistirir."""
+        """Replaces the content while keeping the scroll position."""
         vbar = self.verticalScrollBar()
         hbar = self.horizontalScrollBar()
         v, h = vbar.value(), hbar.value()

@@ -1,7 +1,7 @@
-"""Acilista calisma alani secme diyalogu.
+"""The workspace selection dialog shown at start-up.
 
-Uygulama, modelin kurulacagi ve kodun uretilecegi klasoru burada sorar.
-Sonuc: ``Workspace`` nesnesi (kabul) veya ``None`` (vazgec).
+This is where the application asks for the folder the model will be built in
+and the code generated into. Result: a ``Workspace`` (accept) or ``None``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ PATH_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class WorkspaceDialog(QDialog):
-    """Calisma alani sec / olustur."""
+    """Select / create a workspace."""
 
     def __init__(self, recent: List[str], parent=None,
                  allow_cancel: bool = True) -> None:
@@ -52,29 +52,29 @@ class WorkspaceDialog(QDialog):
         sub.setWordWrap(True)
         root.addWidget(sub)
 
-        # KLASOR YAPISI KUTUSU KALDIRILDI.
+        # THE FOLDER-STRUCTURE BOX WAS REMOVED.
         #
-        # Ayni bilgiyi (model/ ve generated/ olusacak) hem burada bir
-        # cerceve icinde hem de en alttaki onizlemede anlatiyorduk.
-        # Kullanici "cok yazi var ve karmasik duruyor" dedi; soyut bir
-        # sablon yerine SECILEN yolu gosteren tek satirlik onizleme
-        # kaliyor -- o daha somut.
+        # We were explaining the same thing (that model/ and generated/ will be
+        # created) both in a frame here and in the preview at the bottom. The
+        # user said "there is a lot of text and it looks complicated"; instead of
+        # an abstract template, the one-line preview showing the CHOSEN path is
+        # what stays -- it is more concrete.
 
-        # ------------------------------------------------------------ son kul.
+        # -------------------------------------------------------------- recent
         self.rb_recent = QRadioButton("Recent workspaces")
         self.rb_recent.setFont(ui_font(10))
         root.addWidget(self.rb_recent)
 
         self.recent_list = QListWidget()
         self.recent_list.setFont(ui_font(9))
-        # 10 girdinin tamami kaydirmadan gorunsun (bkz. workspace.MAX_RECENT).
+        # All 10 entries should be visible without scrolling (workspace.MAX_RECENT).
         self.recent_list.setMaximumHeight(232)
         self.recent_list.setAlternatingRowColors(True)
         for sira, path in enumerate(self._recent, start=1):
             ad = os.path.basename(path.rstrip(os.sep)) or path
             item = QListWidgetItem("%2d.  %-24s %s" % (sira, ad, path))
             item.setData(PATH_ROLE, path)
-            # Uzun yollar kirpilir; tam yol ipucunda durur.
+            # Long paths are elided; the full path stays in the tooltip.
             item.setToolTip(path)
             item.setFont(mono_font(9))
             self.recent_list.addItem(item)
@@ -87,7 +87,7 @@ class WorkspaceDialog(QDialog):
             bos.setContentsMargins(22, 0, 0, 4)
             root.addWidget(bos)
 
-        # ------------------------------------------------------------ var olan
+        # ------------------------------------------------------------ existing
         self.rb_open = QRadioButton("Open an existing folder")
         self.rb_open.setFont(ui_font(10))
         root.addWidget(self.rb_open)
@@ -104,7 +104,7 @@ class WorkspaceDialog(QDialog):
         open_row.addWidget(btn_open)
         root.addLayout(open_row)
 
-        # ------------------------------------------------------------ yeni
+        # ------------------------------------------------------------- new
         self.rb_new = QRadioButton("Create a new workspace")
         self.rb_new.setFont(ui_font(10))
         root.addWidget(self.rb_new)
@@ -142,7 +142,7 @@ class WorkspaceDialog(QDialog):
         chk_row.addWidget(self.chk_git)
         root.addLayout(chk_row)
 
-        # ------------------------------------------------------------ onizleme
+        # ------------------------------------------------------------- preview
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: %s;" % C.BORDER_LIGHT)
@@ -155,7 +155,7 @@ class WorkspaceDialog(QDialog):
 
         root.addStretch(1)
 
-        # ------------------------------------------------------------ dugmeler
+        # ------------------------------------------------------------- buttons
         buttons = QDialogButtonBox()
         self.btn_ok = buttons.addButton("Open", QDialogButtonBox.ButtonRole.AcceptRole)
         if allow_cancel:
@@ -164,7 +164,7 @@ class WorkspaceDialog(QDialog):
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
-        # ------------------------------------------------------------ baglantilar
+        # ------------------------------------------------------------ connections
         for rb in (self.rb_recent, self.rb_open, self.rb_new):
             rb.toggled.connect(self._sync)
         self.recent_list.currentRowChanged.connect(lambda _i: self._sync())
@@ -180,12 +180,12 @@ class WorkspaceDialog(QDialog):
             self.rb_new.setChecked(True)
         self._sync()
 
-    # ------------------------------------------------------------------ sonuc
+    # ----------------------------------------------------------------- result
 
     def workspace(self) -> Optional[Workspace]:
         return self._result
 
-    # ------------------------------------------------------------------ ic
+    # ----------------------------------------------------------- internals
 
     def _mode(self) -> str:
         if self.rb_open.isChecked():
@@ -255,7 +255,7 @@ class WorkspaceDialog(QDialog):
         if mode == "new":
             if os.path.exists(target) and os.listdir(target):
                 if Workspace.is_workspace(target):
-                    pass        # var olani acmak sorun degil
+                    pass        # opening an existing one is fine
                 else:
                     reply = QMessageBox.question(
                         self, "Folder is not empty",
@@ -300,7 +300,7 @@ def _default_parent() -> str:
 
 def pick_workspace(recent: List[str], parent=None,
                    allow_cancel: bool = True):
-    """Diyalogu gosterir; ``(Workspace | None, git_baslat)`` verir."""
+    """Shows the dialog; returns ``(Workspace | None, init_git)``."""
     dlg = WorkspaceDialog(recent, parent, allow_cancel=allow_cancel)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None, False

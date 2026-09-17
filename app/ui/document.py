@@ -1,13 +1,13 @@
-"""Dokuman denetleyicisi: model + geri al/yinele + degisiklik bildirimi.
+"""The document controller: model + undo/redo + change notification.
 
-Geri alma stratejisi *anlik goruntu* (snapshot) tabanlidir: her kullanici
-islemi oncesi ve sonrasi model JSON'u saklanir. Bu diyagram olceginde
-(yuzlerce dugum) maliyeti onemsizdir ve "yarim uygulanmis komut" sinifindaki
-hatalari tamamen ortadan kaldirir.
+The undo strategy is *snapshot* based: the model JSON is stored before and
+after every user operation. At this diagram scale (hundreds of vertices) the
+cost is negligible, and it removes the whole class of "half-applied command"
+bugs.
 
-Ayni sinif hem durum makinesi (StateMachine) hem sinif diyagrami (ClassModel)
-dokumanlarini yonetir; model nesnesinin `to_json` / `assign_from` arayuzune
-ve sinifin `from_json` statik metoduna dayanir.
+The same class manages both state machine (StateMachine) and class diagram
+(ClassModel) documents; it relies on the model object's `to_json` /
+`assign_from` interface and on the class's `from_json` static method.
 """
 
 from __future__ import annotations
@@ -18,19 +18,19 @@ from typing import Callable, List, Optional
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QUndoCommand, QUndoStack
 
-#: Dosya icerigine gore belge turu adlari
+#: Document type names, by file content
 KIND_STATE = "state"
 KIND_CLASS = "class"
 
 
 def detect_kind(text: str) -> Optional[str]:
-    """Bir model dosyasinin turunu ICERIGINDEN belirler.
+    """Determines the type of a model file FROM ITS CONTENT.
 
-    Uzantiya guvenmek yeterli degildir: ".json" her iki turu de tasiyabilir ve
-    yanlis kipe yuklenen bir dosya sessizce BOS bir modele donusup ilk
-    kaydetmede ozgun icerigi silerdi.
+    Trusting the extension is not enough: ".json" can carry either type, and a
+    file loaded into the wrong mode would silently turn into an EMPTY model and
+    erase the original content on the first save.
 
-    :return: ``"state"``, ``"class"`` ya da taninmadiysa ``None``
+    :return: ``"state"``, ``"class"``, or ``None`` when unrecognised
     """
     try:
         data = json.loads(text)
@@ -43,7 +43,7 @@ def detect_kind(text: str) -> Optional[str]:
         return KIND_CLASS
     if declared == "state_machine":
         return KIND_STATE
-    # Tur alani olmayan eski dosyalar: ayirt edici anahtarlara bak.
+    # Older files without a type field: look at the distinguishing keys.
     if isinstance(data.get("classes"), list):
         return KIND_CLASS
     if isinstance(data.get("states"), list):
@@ -61,7 +61,7 @@ class _SnapshotCommand(QUndoCommand):
 
     def redo(self) -> None:
         if self._first:
-            self._first = False        # mutasyon zaten uygulandi
+            self._first = False        # the mutation has already been applied
             self._doc.changed.emit()
             return
         self._doc._restore(self._after)
@@ -71,30 +71,30 @@ class _SnapshotCommand(QUndoCommand):
 
 
 class Document(QObject):
-    """Acik olan diyagram (durum makinesi ya da sinif modeli)."""
+    """The open diagram (a state machine or a class model)."""
 
-    changed = pyqtSignal()             # model degisti -> gorunum + kod yenilensin
+    changed = pyqtSignal()             # the model changed -> refresh the view and the code
     path_changed = pyqtSignal()
-    selection_request = pyqtSignal(list)   # id listesi
+    selection_request = pyqtSignal(list)   # a list of ids
 
     def __init__(self, machine, parent=None, default_name: str = "untitled.usm") -> None:
         super().__init__(parent)
         self.machine = machine
         self._model_cls = type(machine)
         self._default_name = default_name
-        # Bu dokumanin tasidigi belge turu (yukleme dogrulamasi icin)
+        # The document type this document carries (for load validation)
         self.kind = KIND_CLASS if hasattr(machine, "classes") else KIND_STATE
         self.undo_stack = QUndoStack(self)
         self.path: Optional[str] = None
         self._clean_snapshot = machine.to_json()
         self._in_restore = False
 
-    # ------------------------------------------------------------- degisiklik
+    # ----------------------------------------------------------------- change
 
     def edit(self, label: str, mutator: Callable) -> bool:
-        """Modeli degistirir ve islemi geri alinabilir yapar.
+        """Changes the model and makes the operation undoable.
 
-        `mutator` hicbir sey degistirmezse komut yigina eklenmez.
+        If `mutator` changes nothing, no command is pushed onto the stack.
         """
         before = self.machine.to_json()
         mutator(self.machine)
@@ -105,9 +105,9 @@ class Document(QObject):
         return True
 
     def edit_from(self, label: str, before: str) -> bool:
-        """Model ZATEN degistirildiginde kullanilir (ornegin surukleme sirasinda).
+        """Used when the model has ALREADY been changed (during a drag, say).
 
-        `before`, degisiklik oncesi alinmis anlik goruntudur.
+        `before` is the snapshot taken before the change.
         """
         after = self.machine.to_json()
         if before == after:
@@ -119,19 +119,19 @@ class Document(QObject):
         self._in_restore = True
         try:
             restored = self._model_cls.from_json(snapshot)
-            # Ayni nesneyi koruyoruz ki disaridaki referanslar bozulmasin.
+            # We keep the same object so outside references are not broken.
             self.machine.assign_from(restored)
         finally:
             self._in_restore = False
         self.changed.emit()
 
-    # ------------------------------------------------------------------ dosya
+    # ------------------------------------------------------------------- file
 
     def load(self, path: str) -> None:
-        """Dosyayi okur ve modeli degistirir.
+        """Reads the file and replaces the model.
 
-        Icerik bu dokumanin turunde degilse hicbir sey degistirilmez;
-        ``ValueError`` yukselir ve cagiran taraf kullaniciya bildirir.
+        If the content is not of this document's type, nothing is changed;
+        ``ValueError`` is raised and the caller reports it to the user.
         """
         with open(path, "r", encoding="utf-8") as fh:
             text = fh.read()
@@ -168,7 +168,7 @@ class Document(QObject):
         self.path_changed.emit()
         self.changed.emit()
 
-    # ------------------------------------------------------------------- durum
+    # ------------------------------------------------------------------- state
 
     def mark_clean(self) -> None:
         self._clean_snapshot = self.machine.to_json()

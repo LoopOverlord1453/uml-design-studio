@@ -1,10 +1,10 @@
-"""Uretilen kod panelinde SALT ARAMA cubugu (Ctrl+F).
+"""A SEARCH-ONLY bar for the generated-code panel (Ctrl+F).
 
-DEGISTIRME YOKTUR ve olmayacaktir. Uretilen dosyalar modelden turetilir;
-panelde elle yapilan bir degisiklik bir sonraki uretimde sessizce kaybolur.
-Bu yuzden arayuz "bul ve degistir" degil, YALNIZCA "bul" sunar -- kullanicinin
-kaybedecegi bir duzenleme hic olusmaz. Editorler zaten ``setReadOnly(True)``
-ile korunur; bu cubuk o sozlesmeyi bozmaz, sadece imleci tasir.
+THERE IS NO REPLACE, and there will not be. The generated files are derived
+from the model; an edit made by hand in the panel is silently lost on the next
+generation. So the interface offers only "find" -- the user never builds up an
+edit they could lose. The editors are already protected with
+``setReadOnly(True)``; this bar does not break that, it only moves the cursor.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from .theme import C, ui_font
 
 
 class FindBar(QFrame):
-    """Ince arama cubugu: alan, esleme sayaci, ileri/geri, secenekler."""
+    """A slim search bar: field, match counter, next/previous, options."""
 
     closed = pyqtSignal()
 
@@ -42,8 +42,8 @@ class FindBar(QFrame):
 
         self.field = QLineEdit()
         self.field.setPlaceholderText("Search in generated code…")
-        # Yer tutucu metin ETIKET DEGILDIR (WCAG 3.3.2); odak
-        # gelince kaybolur. Erisilebilir ad ayrica verilir.
+        # Placeholder text IS NOT A LABEL (WCAG 3.3.2); it disappears when the
+        # field takes focus. The accessible name is given separately.
         self.field.setAccessibleName("Search in generated code")
         self.field.setFont(ui_font(9))
         self.field.setClearButtonEnabled(True)
@@ -91,7 +91,7 @@ class FindBar(QFrame):
         self.hide()
 
     def retheme(self) -> None:
-        """Tema degisiminde satir-ici renkleri yeniden uygular."""
+        """Reapplies the inline colours on a theme change."""
         self.setStyleSheet(
             "#findBar { background: %s; border-top: 1px solid %s; }"
             % (C.PANEL_DARK, C.BORDER))
@@ -102,7 +102,7 @@ class FindBar(QFrame):
     # ------------------------------------------------------------------ API #
 
     def attach(self, editor: Optional[QPlainTextEdit]) -> None:
-        """Aramanin uzerinde calisacagi editoru degistirir (sekme degisimi)."""
+        """Changes the editor the search runs on (tab change)."""
         self._editor = editor
         if self.isVisible():
             self._refresh()
@@ -110,8 +110,8 @@ class FindBar(QFrame):
     def show_bar(self, editor: Optional[QPlainTextEdit] = None) -> None:
         if editor is not None:
             self._editor = editor
-        # Imlecte secili metin varsa arama alanina tasinir -- editorlerde
-        # beklenen davranis budur.
+        # Text selected at the cursor is carried into the search field -- that is
+        # the behaviour expected in editors.
         if self._editor is not None:
             secili = self._editor.textCursor().selectedText()
             if secili and " " not in secili:
@@ -128,7 +128,7 @@ class FindBar(QFrame):
             self._editor.setFocus()
         self.closed.emit()
 
-    # -------------------------------------------------------------- arama -- #
+    # ------------------------------------------------------------- search -- #
 
     def _flags(self, geri: bool = False) -> QTextDocument.FindFlag:
         flags = QTextDocument.FindFlag(0)
@@ -151,7 +151,7 @@ class FindBar(QFrame):
         self._seek(geri=True)
 
     def _seek(self, geri: bool, baslangictan: bool = False) -> None:
-        """Sonraki/onceki eslemeye gider; sona gelince BASA SARAR."""
+        """Goes to the next/previous match; WRAPS AROUND at the end."""
         if self._editor is None:
             return
         desen = self.field.text()
@@ -166,22 +166,22 @@ class FindBar(QFrame):
         if self._editor.find(desen, self._flags(geri)):
             return
 
-        # Sarma: belgenin basina (geri aramada sonuna) don ve bir kez daha dene.
+        # Wrap: go back to the start (the end when searching backwards) and retry.
         imlec = self._editor.textCursor()
         imlec.movePosition(QTextCursor.MoveOperation.End if geri
                            else QTextCursor.MoveOperation.Start)
         self._editor.setTextCursor(imlec)
         self._editor.find(desen, self._flags(geri))
 
-    # ------------------------------------------------------------ vurgular -- #
+    # ---------------------------------------------------------- highlights -- #
 
     @staticmethod
     def _push(editor, selections) -> None:
-        """Vurgulari editorun ARAMA katmanina yazar.
+        """Writes the highlights into the SEARCH layer of the editor.
 
-        Dogrudan setExtraSelections cagirmak, etkin satir vurgusuyla ayni
-        listeyi paylastigi icin ilk imlec hareketinde silinirdi
-        (bkz. CodeEditor.set_search_highlights).
+        Calling setExtraSelections directly would share one list with the
+        current-line highlight and the highlights would be wiped on the first
+        cursor move (see CodeEditor.set_search_highlights).
         """
         if hasattr(editor, "set_search_highlights"):
             editor.set_search_highlights(selections)
@@ -193,7 +193,7 @@ class FindBar(QFrame):
             self._push(self._editor, [])
 
     def _refresh(self) -> None:
-        """Butun eslemeleri vurgular ve sayaci gunceller."""
+        """Highlights every match and updates the counter."""
         if self._editor is None:
             self.count.setText("")
             return
@@ -215,9 +215,9 @@ class FindBar(QFrame):
             imlec = belge.find(desen, imlec, self._flags())
             if imlec.isNull():
                 break
-            # ExtraSelection QTextEdit'in ic sinifidir; QPlainTextEdit'te
-            # YOKTUR. Yanlis ad PyQt6'da yakalanabilir bir istisna degil,
-            # dogrudan surec olumu uretiyordu.
+            # ExtraSelection is an inner class of QTextEdit; it DOES NOT EXIST on
+            # QPlainTextEdit. In PyQt6 the wrong name was not a catchable exception
+            # but killed the process outright.
             sel = QTextEdit.ExtraSelection()
             sel.cursor = imlec
             sel.format.setBackground(renk)
@@ -226,11 +226,11 @@ class FindBar(QFrame):
         self._push(self._editor, secimler)
         n = len(secimler)
         self.count.setText("%d match%s" % (n, "" if n == 1 else "es"))
-        # Bulunamayan desen alani kirmiziya boyar -- yazarken anlik geri bildirim.
+        # An unmatched pattern paints the field red -- instant feedback while typing.
         self.field.setStyleSheet(
             "" if n else "color: %s;" % C.RED)
 
-    # ------------------------------------------------------------ klavye --- #
+    # ---------------------------------------------------------- keyboard --- #
 
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_Escape:

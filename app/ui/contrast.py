@@ -1,14 +1,14 @@
-"""Secili satiri her temada okunur kilan cizim temsilcisi.
+"""A paint delegate that keeps the selected row readable in every theme.
 
-Agac ve liste ogeleri ANLAM tasiyan renklerle boyanir: uyari sarisi, hata
-kirmizisi, gecis grisi, sozde-durum soluklugu... Bu renkler oge uzerinde
-``setForeground`` ile sabitlenir ve Qt onlari SECIM durumunda da kullanir.
-Sonuc: koyu mavi secim zemininin uzerinde koyu gri bir metin, yani gorunmez
-bir satir -- ustelik hangi ogenin secili oldugu hic belli olmaz.
+Tree and list items are painted in colours that carry MEANING: warning
+yellow, error red, transition grey, pseudostate pale... Those colours are
+pinned on the item with ``setForeground`` and Qt keeps using them WHILE
+SELECTED as well. The result: dark grey text on a dark blue selection band --
+an invisible row, and no way to tell which item is selected.
 
-``ContrastDelegate`` secim (ve fare uzerindeyken vurgu) durumunda on plan
-rengini temanin ZITLIK rengiyle degistirir ve yaziyi KALIN yapar. Boylece
-secili oge iki temada da tek bakista ayirt edilir.
+``ContrastDelegate`` replaces the foreground colour with the CONTRAST colour
+of the theme while the row is selected (or hovered) and makes the text BOLD.
+So the selected item stands out at a glance in both themes.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .theme import C
 
 
 class ContrastDelegate(QStyledItemDelegate):
-    """Secili / vurgulu satirin metnini zemine zit renkte ve kalin cizer."""
+    """Paints a selected / hovered row bold and in a colour that contrasts."""
 
     def initStyleOption(self, option, index) -> None:
         super().initStyleOption(option, index)
@@ -43,17 +43,17 @@ class ContrastDelegate(QStyledItemDelegate):
 
 
 def apply_contrast(*views) -> None:
-    """Verilen gorunumlere temsilciyi baglar (ayni ornek paylasilmaz).
+    """Attaches the delegate to the given views (no shared instance).
 
-    Her gorunum KENDI temsilcisini tutar: Qt temsilcinin sahipligini almaz ve
-    paylasilan bir ornek, gorunumlerden biri yok edilince digerlerinde askida
-    gosterici birakabilir.
+    Every view keeps ITS OWN delegate: Qt does not take ownership of a
+    delegate, and a shared instance could leave dangling pointers in the other
+    views once one of them is destroyed.
     """
     for view in views:
         if view is None:
             continue
         delegate = ContrastDelegate(view)
         view.setItemDelegate(delegate)
-        # Referansi widget uzerinde tut: yalnizca yerel degiskende kalirsa
-        # Python tarafinda toplanir ve satirlar varsayilan cizime doner.
+        # Keep the reference on the widget: left in a local variable only, it is
+        # collected on the Python side and the rows fall back to default painting.
         view._contrast_delegate = delegate

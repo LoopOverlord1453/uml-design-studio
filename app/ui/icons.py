@@ -1,7 +1,7 @@
-"""Vektorel simgeler.
+"""Vector icons.
 
-Harici kaynak dosyasi kullanmamak icin tum simgeler QPainter ile cizilir;
-boylece uygulama tek klasorden tasinabilir ve tema rengiyle uyumlu kalir.
+Every icon is drawn with QPainter so that no external resource file is
+needed; the application stays portable in one folder and follows the theme.
 """
 
 from __future__ import annotations
@@ -18,23 +18,23 @@ SIZE = 40
 
 
 def ink() -> str:
-    """Etkin temanin ZEMINE EN ZIT on plan rengi.
+    """The foreground colour of the active theme with MOST CONTRAST to the base.
 
-    Acik temada neredeyse siyah, koyu temada neredeyse beyazdir. Simge
-    govdeleri bunu KULLANIM aninda cagirmalidir; sabit bir renge baglanan
-    simge tema degisince zeminle ayni tona duser ve gorunmez olur.
+    Almost black in the light theme, almost white in the dark one. Icon bodies
+    must call this AT USE time; an icon bound to a fixed colour drops to the
+    same tone as the background on a theme change and becomes invisible.
     """
     return C.TEXT_BRIGHT
 
 
 def _icon(draw: Callable[[QPainter], None],
           color: Optional[str] = None) -> QIcon:
-    """Simgeyi cizer.
+    """Draws the icon.
 
-    ``color`` VARSAYILAN DEGER OLARAK verilemez: varsayilan degerler modul
-    ICE AKTARILIRKEN bir kez hesaplanir ve o anki temanin rengine kalici
-    olarak baglanir. Tema degisince simgeler yeniden uretilse bile eski
-    rengi tasir; acik zeminde beyaz cizilen arac cubugu bombos gorunurdu.
+    ``color`` CANNOT BE GIVEN AS A DEFAULT VALUE: default values are computed
+    once WHEN THE MODULE IS IMPORTED and are bound permanently to the colour of
+    the theme at that moment. The icons would keep the old colour even when
+    regenerated; a toolbar drawn white on a light background looked empty.
     """
     pm = QPixmap(SIZE, SIZE)
     pm.fill(Qt.GlobalColor.transparent)
@@ -49,7 +49,7 @@ def _icon(draw: Callable[[QPainter], None],
     return QIcon(pm)
 
 
-# --------------------------------------------------------------- arac simgeleri
+# ------------------------------------------------------------------- tool icons
 
 def select_icon() -> QIcon:
     def draw(p: QPainter):
@@ -80,10 +80,10 @@ def composite_icon() -> QIcon:
 
 
 def initial_icon() -> QIcon:
-    """Initial sozde-durumu: UML gosteriminde DOLU daire.
+    """Initial pseudostate: a FILLED circle in UML notation.
 
-    Govde ve halka zemine en zit tonda cizilir (acik temada siyah), cunku
-    UML bu iki dugumu renkle degil DOLULUKLA ayirt eder.
+    The body and the ring are drawn in the tone with most contrast to the
+    background, because UML tells these two vertices apart by FILL, not colour.
     """
     def draw(p: QPainter):
         p.setBrush(QBrush(QColor(ink())))
@@ -93,7 +93,7 @@ def initial_icon() -> QIcon:
 
 
 def final_icon() -> QIcon:
-    """Final durum: dis halka + dolu cekirdek (UML gosterimi)."""
+    """Final state: outer ring + filled core (UML notation)."""
     def draw(p: QPainter):
         p.setPen(QPen(QColor(ink()), 2.4))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -172,7 +172,7 @@ def terminate_icon() -> QIcon:
 
 
 def fork_icon() -> QIcon:
-    """Kalin cubuk + dagilan iki ok (UML fork gosterimi)."""
+    """A thick bar with two diverging arrows (UML fork notation)."""
     def draw(p: QPainter):
         p.setBrush(QBrush(QColor(C.TEXT_BRIGHT)))
         p.setPen(Qt.PenStyle.NoPen)
@@ -185,7 +185,7 @@ def fork_icon() -> QIcon:
 
 
 def join_icon() -> QIcon:
-    """Kalin cubuk + birlesen iki ok (UML join gosterimi)."""
+    """A thick bar with two converging arrows (UML join notation)."""
     def draw(p: QPainter):
         p.setBrush(QBrush(QColor(C.TEXT_BRIGHT)))
         p.setPen(Qt.PenStyle.NoPen)
@@ -198,7 +198,7 @@ def join_icon() -> QIcon:
 
 
 def entry_point_icon() -> QIcon:
-    """Bilesik durumun sinirinda ICI BOS kucuk daire (UML entry point)."""
+    """A small HOLLOW circle on the border of a composite state (entry point)."""
     def draw(p: QPainter):
         p.setPen(QPen(QColor(C.STATE_BORDER), 1.6))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -212,7 +212,7 @@ def entry_point_icon() -> QIcon:
 
 
 def exit_point_icon() -> QIcon:
-    """Sinirda CARPI isaretli kucuk daire (UML exit point)."""
+    """A small circle with a CROSS on the border (UML exit point)."""
     def draw(p: QPainter):
         p.setPen(QPen(QColor(C.STATE_BORDER), 1.6))
         p.setBrush(Qt.BrushStyle.NoBrush)
@@ -227,7 +227,7 @@ def exit_point_icon() -> QIcon:
 
 
 def submachine_icon() -> QIcon:
-    """Kutu + UML altmakine isareti (ic ice iki daire ve cizgi)."""
+    """A box plus the UML submachine mark (two nested circles and a line)."""
     def draw(p: QPainter):
         p.setBrush(QBrush(QColor(C.STATE_FILL)))
         p.setPen(QPen(QColor(C.STATE_BORDER), 1.6))
@@ -241,7 +241,7 @@ def submachine_icon() -> QIcon:
     return _icon(draw)
 
 
-# ------------------------------------------------------ sinif diyagrami simgeleri
+# ------------------------------------------------------------ class diagram icons
 
 def class_icon() -> QIcon:
     def draw(p: QPainter):
@@ -353,25 +353,25 @@ def panel_icon() -> QIcon:
 
 
 def eye_icon(open_eye: bool = True) -> QIcon:
-    """Gorunurluk simgesi: acik goz (gorunur) / ustu cizili goz (gizli).
+    """Visibility icon: an open eye (visible) / a crossed eye (hidden).
 
-    "Goster / gizle" eylemleri icin metin yerine goz kullanmak, menu ve
-    arac cubugunda tek bakista okunur: kullanici hangi panelin acik
-    oldugunu yazi okumadan gorur.
+    Using an eye instead of words for "show / hide" reads at a glance in the
+    menu and on the toolbar: the user sees which panel is open without reading
+    any text.
     """
     def draw(p: QPainter):
-        # Badem govde: iki yay ust uste.
+        # Almond body: two arcs on top of each other.
         path = QPainterPath()
         path.moveTo(6, 20)
         path.quadTo(20, 6, 34, 20)
         path.quadTo(20, 34, 6, 20)
         p.drawPath(path)
-        # Goz bebegi
+        # Pupil
         p.setBrush(QBrush(QColor(C.ACCENT)))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(QPointF(20, 20), 5.0, 5.0)
         if not open_eye:
-            # Kapali hâlde uzerine egik cizgi: "gizli".
+            # When closed, a slanted line over it: "hidden".
             pen = QPen(QColor(C.TEXT_BRIGHT))
             pen.setWidthF(3.0)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -389,7 +389,7 @@ def play_icon() -> QIcon:
     return _icon(draw)
 
 
-# --------------------------------------------------------------- eylem simgeleri
+# ------------------------------------------------------------------ action icons
 
 def new_icon() -> QIcon:
     def draw(p: QPainter):
@@ -495,16 +495,16 @@ def generate_icon() -> QIcon:
 
 
 def build_icon() -> QIcon:
-    """Cekic: modeli derleyip kod ureten eylem.
+    """A hammer: the action that builds the model and generates code.
 
-    'Regenerate'in cift ok simgesinden BILEREK ayrilir; uretim artik
-    kendiliginden degil, kullanicinin komutuyla calisir ve dugmenin bunu
-    anlatmasi gerekir.
+    It is DELIBERATELY different from the double-arrow 'Regenerate' icon:
+    generation no longer happens by itself but on the user's command, and the
+    button has to say so.
     """
     def draw(p: QPainter):
-        # sap
+        # handle
         p.drawLine(QPointF(11, 30), QPointF(22, 19))
-        # baslik
+        # head
         p.setPen(QPen(QColor(C.ORANGE), 3.0, Qt.PenStyle.SolidLine,
                       Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
         p.drawLine(QPointF(19, 11), QPointF(30, 22))

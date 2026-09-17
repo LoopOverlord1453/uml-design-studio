@@ -1,4 +1,4 @@
-"""Sinif diyagrami tuvali: arac kipleri, yakinlastirma, kaydirma."""
+"""The class diagram canvas: tool modes, zooming, panning."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ _RELATION_TOOLS = {
 
 
 class ClassCanvas(CanvasNavigation, QGraphicsView):
-    """ClassModel ile grafik sahne arasindaki koprü."""
+    """The bridge between the ClassModel and the graphics scene."""
 
     selection_changed = pyqtSignal(list)
     tool_finished = pyqtSignal()
@@ -59,7 +59,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self.tool = ClassTool.SELECT
         self.snap_enabled = True
         self.show_grid = True
-        # Yerlestirme sonrasi ozellik diyalogu (testler kapatabilir; modal).
+        # Property dialog after placement (tests may switch it off; modal).
         self.auto_edit = True
 
         self._scene = QGraphicsScene(self)
@@ -79,9 +79,9 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self.class_items: Dict[str, ClassItem] = {}
         self.rel_items: Dict[str, RelationItem] = {}
 
-        #: Calisma alanindan gelen FARK isaretleri (bkz. set_diff_marks).
+        #: DIFF marks coming from the workspace (see set_diff_marks).
         self._diff_marks: dict = {}
-        #: Silinen siniflarin eski yerlerine cizilen hayalet cerceveler.
+        #: Ghost frames drawn at the old places of deleted classes.
         self._ghosts: List[GhostItem] = []
 
         self._pending_source: Optional[ClassItem] = None
@@ -94,10 +94,10 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
 
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
-    # ================================================================== kurulum
+    # =================================================================== set-up
 
     def retheme(self) -> None:
-        """Tema degisiminde sahne zeminini yeniden okur."""
+        """Rereads the scene background on a theme change."""
         self._scene.setBackgroundBrush(QColor(C.CANVAS_BG))
 
     def rebuild(self) -> None:
@@ -108,8 +108,8 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self._scene.clear()
         self.class_items.clear()
         self.rel_items.clear()
-        # Hayaletler sahneyle birlikte silindi; listeyi de bosalt ki
-        # asagida OLU isaretcilere dokunulmasin.
+        # The ghosts were deleted together with the scene; empty the list too
+        # so that DEAD pointers are not touched below.
         self._ghosts = []
 
         cm = self.doc.machine
@@ -132,7 +132,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self._suppress_selection = False
         self.set_selected_ids(selected)
         if self._diff_marks:
-            # Yeniden kurulan ogeler isaretlerini kaybeder.
+            # Rebuilt items lose their marks.
             self.set_diff_marks(self._diff_marks)
 
     def _compute_routes(self) -> Dict[str, float]:
@@ -157,7 +157,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         rect = self._scene.itemsBoundingRect()
         if rect.isNull():
             rect = QRectF(0, 0, 800, 600)
-        # GORUNTUYU KAYDIRMADAN: bkz. CanvasNavigation._set_scene_rect.
+        # WITHOUT SCROLLING THE VIEW: see CanvasNavigation._set_scene_rect.
         self._set_scene_rect(rect.adjusted(-400, -300, 400, 300))
 
     def refresh_relations(self) -> None:
@@ -177,16 +177,16 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
                 item.update()
 
     def set_diff_marks(self, marks: Optional[dict]) -> None:
-        """Sinif diyagramini FARK kipinde boyar.
+        """Paints the class diagram in DIFF mode.
 
-        Durum diyagramindaki ile AYNI sozlesme (bkz. DiagramCanvas):
-        eklenen sinif/iliski yesil, degisen sari, silinenler eski
-        konumlarinda kesik kirmizi hayalet.
+        The SAME contract as on the state diagram (see DiagramCanvas): an added
+        class/relationship is green, a changed one yellow, and deleted ones are
+        dashed red ghosts at their old positions.
 
-        YASANAN HATA: bu islev sinif tuvalinde HIC YOKTU. Ana pencere
-        fark gosterirken cagirinca sinyalin icinde AttributeError olusuyor
-        ve PyQt yakalanmamis istisnayi olumcul sayip SURECI OLDURUYORDU
-        (0xC0000409). Yani sinif modeline tiklamak uygulamayi kapatiyordu.
+        THE BUG WE HIT: this function DID NOT EXIST AT ALL on the class canvas.
+        When the main window called it while showing a diff, an AttributeError
+        arose inside the signal and PyQt treated the uncaught exception as fatal
+        and KILLED THE PROCESS (0xC0000409). Clicking a class model closed the app.
         """
         self._diff_marks = marks or {}
         eklenen = self._diff_marks.get("added") or set()
@@ -207,21 +207,21 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self._rebuild_ghosts(self._diff_marks.get("removed") or {})
 
     def _rebuild_ghosts(self, removed: dict) -> None:
-        """Silinen siniflari eski konumlariyla hayalet olarak cizer."""
+        """Draws deleted classes as ghosts at their old positions."""
         for item in self._ghosts:
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
         self._ghosts = []
         for veri in (removed or {}).values():
-            # Iliskiler uc noktalarina baglidir ve uclar da silinmis
-            # olabilir; yalnizca KONUMU olan ogeler cizilebilir.
+            # Relationships hang off their end points, and the ends may have been
+            # deleted too; only items that HAVE a position can be drawn.
             if "x" not in veri or "y" not in veri:
                 continue
             ghost = GhostItem(veri)
             self._scene.addItem(ghost)
             self._ghosts.append(ghost)
 
-    # ================================================================== secim
+    # ============================================================== selection
 
     def selected_ids(self) -> List[str]:
         out: List[str] = []
@@ -253,7 +253,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         if not self._suppress_selection:
             self.selection_changed.emit(self.selected_ids())
 
-    # ================================================================ duzenleme
+    # ================================================================== editing
 
     def edit_element(self, eid: str) -> None:
         """Cift tiklama: ozellik diyalogunu acar ve degisikligi uygular."""
@@ -280,7 +280,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
                     dlg.apply_to(m.relations[eid])
                 self.doc.edit("Edit relationship", mutate)
 
-    # ================================================================== araclar
+    # ==================================================================== tools
 
     def set_tool(self, tool: ClassTool) -> None:
         self.tool = tool
@@ -299,7 +299,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
                 self._scene.removeItem(self._rubber_line)
             self._rubber_line = None
 
-    # ================================================================== fare
+    # ================================================================= mouse
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -345,8 +345,8 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
             path.lineTo(end)
             self._rubber_line.setPath(path)
 
-        # Sinif tuvali de durum tuvaliyle AYNI davranir: sahne surukleme
-        # sirasinda buyur, imlec kenara gelince goruntu kayar.
+        # The class canvas behaves EXACTLY like the state canvas: the scene grows
+        # while dragging, and the view scrolls when the cursor reaches the edge.
         surukluyor = bool(event.buttons() & Qt.MouseButton.LeftButton)
         if surukluyor:
             self._room_for_drag(event.position().toPoint())
@@ -369,7 +369,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
             return
 
         super().mouseReleaseEvent(event)
-        # Surukleme bitti: kilavuzlar kalkar.
+        # Drag finished: the guides go away.
         self.align_clear()
 
         if self._pre_drag is not None and self.tool is ClassTool.SELECT:
@@ -393,7 +393,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
             item.cls.w = round(item.cls.w, 2)
             item.cls.h = round(item.cls.h, 2)
 
-    # ------------------------------------------------------- eleman olusturma
+    # ------------------------------------------------------- element creation
 
     def _place_class(self, scene_pos: QPointF) -> None:
         stereo, base = _NEW_CLASS_DEFAULTS[self.tool]
@@ -477,7 +477,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
                 return item
         return None
 
-    # ================================================================== klavye
+    # ================================================================ keyboard
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -534,7 +534,7 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         self.doc.edit("Delete %d elements" % count, mutate)
         self.status_message.emit("%d elements deleted." % count)
 
-    # ================================================================== gorunum
+    # ===================================================================== view
 
     def wheelEvent(self, event) -> None:
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -565,13 +565,13 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
     def zoom_percent(self) -> int:
         return int(round(self.transform().m11() * 100))
 
-    # ------------------------------------------------------------- arka plan
+    # ------------------------------------------------------------ background
 
     def sibling_boxes(self, item):
-        """Hizalanilacak komsularin kutulari.
+        """The boxes of the neighbours to align against.
 
-        Secili ogeler disarida birakilir: onlar suruklenen ogeyle
-        birlikte hareket eder.
+        Selected items are left out: they move together with the item being
+        dragged.
         """
         kutular = []
         for baska in self.class_items.values():

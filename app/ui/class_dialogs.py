@@ -1,4 +1,4 @@
-"""Sinif diyagrami ozellik diyaloglari (cift tiklama ile acilir)."""
+"""Class diagram property dialogs (opened by double-click)."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def text_to_params(text: str) -> List[Parameter]:
 
 
 class ClassDialog(QDialog):
-    """Sinif ozellikleri: ad, kalip, nitelikler, islemler."""
+    """Class properties: name, stereotype, attributes, operations."""
 
     def __init__(self, cls: UmlClass, parent=None) -> None:
         super().__init__(parent)
@@ -89,7 +89,7 @@ class ClassDialog(QDialog):
         tabs = QTabWidget()
         layout.addWidget(tabs, 1)
 
-        # ------------------------------------------------------- nitelikler
+        # ------------------------------------------------------- attributes
         attr_page = QWidget()
         av = QVBoxLayout(attr_page)
         self.attr_table = QTableWidget(0, 5)
@@ -102,7 +102,7 @@ class ClassDialog(QDialog):
         av.addLayout(self._row_buttons(self.attr_table, self._add_attr_row))
         tabs.addTab(attr_page, "Attributes")
 
-        # --------------------------------------------------------- islemler
+        # ------------------------------------------------------- operations
         op_page = QWidget()
         ov = QVBoxLayout(op_page)
         self.op_table = QTableWidget(0, 6)
@@ -121,8 +121,8 @@ class ClassDialog(QDialog):
         for o in cls.operations:
             self._add_op_row(o)
 
-        # Not cok satirli: sinif aciklamalari tek satira sigmiyor ve
-        # tuval zaten satir sonlarini ciziyor. (Durum penceresiyle ayni.)
+        # The note is multi-line: class descriptions do not fit on one line and
+        # the canvas already draws the breaks. (Same as the state dialog.)
         from .dialogs import _NoteField
         self.note_edit = _NoteField(cls.note, rows=2)
         bottom = QFormLayout()
@@ -176,7 +176,7 @@ class ClassDialog(QDialog):
         self.op_table.setItem(r, 3, QTableWidgetItem(o.return_type))
         self.op_table.setItem(r, 4, _check_item(o.abstract))
         self.op_table.setItem(r, 5, _check_item(o.const))
-        # govde bilgisini koru (tabloda gosterilmez)
+        # keep the body information (not shown in the table)
         self.op_table.item(r, 1).setData(Qt.ItemDataRole.UserRole,
                                          (o.body, o.static))
 
@@ -231,7 +231,7 @@ class ClassDialog(QDialog):
 
 
 class RelationDialog(QDialog):
-    """Iliski ozellikleri: tur, cokluklar, rol/etiket."""
+    """Relationship properties: kind, multiplicities, role/label."""
 
     def __init__(self, rel: Relation, src_name: str, dst_name: str,
                  parent=None) -> None:
