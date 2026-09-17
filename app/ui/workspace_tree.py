@@ -1,13 +1,13 @@
-"""Calisma alani agaci: klasorler, model dosyalari ve her modelin ICERIGI.
+"""The workspace tree: folders, model files and the CONTENT of every model.
 
-NEDEN TEK AGAC
---------------
-Bir calisma alaninda birden fazla model bulunur (bir sistem + alt
-sistemleri). Onceki "MODEL TREE" paneli YALNIZCA acik olan modeli
-gosteriyordu; diger modellerin varligi arayuzde hicbir yerde gorunmuyor,
-kullanici Dosya > Ac ile klasoru elle gezmek zorunda kaliyordu.
+WHY A SINGLE TREE
+-----------------
+A workspace holds more than one model (a system plus its subsystems). The
+previous "MODEL TREE" panel showed ONLY the model that was open; the other
+models were nowhere to be seen in the interface, and the user had to walk the
+folder by hand through File > Open.
 
-Burada tek bir agac var:
+Here there is a single tree:
 
     model/
       pump/                     <- alt sistem (klasor)
@@ -16,11 +16,11 @@ Burada tek bir agac var:
           ▣ Composite · Running
       classes.ucd
 
-Her model dugumu ACILIP KAPANABILIR ve icerigi ANCAK ACILINCA okunur
-(tembel yukleme). Yuzlerce modelli bir calisma alaninda hepsini acilista
-ayristirmak paneli dakikalarca kilitlerdi; ayrica bozuk bir dosya
-uygulamayi acilista coketmemelidir -- okuma hatasi o dugumde bir uyari
-satirina donusur.
+Every model node CAN BE EXPANDED and its content is read ONLY WHEN OPENED
+(lazy loading). In a workspace with hundreds of models, parsing them all at
+start-up would lock the panel for minutes; and a corrupt file must not crash
+the application at start-up -- a read error turns into one warning row under
+that node.
 """
 
 from __future__ import annotations
@@ -41,40 +41,40 @@ from .panels import (CLASS_GLYPH, CLASS_LABEL, ID_ROLE, KIND_GLYPH,
 from .contrast import apply_contrast
 from .theme import C, mono_font, ui_font
 
-#: Dugumun tasidigi mutlak dosya yolu (model dosyalari icin).
+#: The absolute file path the node carries (for model files).
 PATH_ROLE = Qt.ItemDataRole.UserRole + 11
-#: Dugum turu: "dir" | "model" | "element" | "note"
+#: The node kind: "dir" | "model" | "element" | "note"
 NODE_ROLE = Qt.ItemDataRole.UserRole + 12
-#: Model dugumu icerigi yuklendi mi (tembel yukleme bayragi).
+#: Has the content of the model node been loaded (the lazy-loading flag).
 LOADED_ROLE = Qt.ItemDataRole.UserRole + 13
-#: Dugumun gosterdigi YAPININ imzasi (bkz. _structure_signature).
+#: The signature of the STRUCTURE the node shows (see _structure_signature).
 SIGNATURE_ROLE = Qt.ItemDataRole.UserRole + 14
 
 MODEL_SUFFIXES = (".usm", ".ucd", ".json")
 
-#: Bos panelde gosterilen yol tarifi.
+#: The directions shown in an empty panel.
 #:
-#: Menu yolu ve kisayol ELLE yazilir ama testte GERCEK eylemle
-#: karsilastirilir (bkz. test_regressions "bos panel ipucu"). Ilk yazimda
-#: buraya "File > Open Workspace... (Ctrl+Shift+O)" konmustu; eylemin
-#: gercek adi "Workspace..." ve kisayolu Ctrl+Shift+W idi -- yani ipucu
-#: kullaniciyi var olmayan bir menu ogesine yolluyordu.
+#: The menu path and the shortcut are written BY HAND but compared against
+#: the REAL action in a test (see test_regressions, "empty panel hint"). The
+#: first version put "File > Open Workspace... (Ctrl+Shift+O)" here; the real
+#: name of the action was "Workspace..." and its shortcut Ctrl+Shift+W -- so
+#: the hint sent the user to a menu item that did not exist.
 OPEN_WORKSPACE_MENU = "File ▸ Workspace…"
 OPEN_WORKSPACE_KEY = "Ctrl+Shift+W"
 OPEN_WORKSPACE_HINT = "%s (%s)" % (OPEN_WORKSPACE_MENU, OPEN_WORKSPACE_KEY)
 
 
 class WorkspaceTree(QTreeWidget):
-    """Calisma alanindaki butun modelleri ve iceriklerini gosterir."""
+    """Shows every model in the workspace together with its content."""
 
-    #: Kullanici bir model dosyasini actiginda (cift tiklama).
+    #: When the user opens a model file (double click).
     model_activated = pyqtSignal(str)
-    #: ACIK modelde bir eleman secildiginde (tuvalle esitlenir).
+    #: When an element is selected in the OPEN model (synced with the canvas).
     element_activated = pyqtSignal(str)
-    #: Bir model dosyasi calisma alanindan SILINDIGINDE.
+    #: When a model file is DELETED from the workspace.
     model_removed = pyqtSignal(str)
-    #: Bir model DOSYASI secildiginde (tiklama; acmak icin degil).
-    #: Ana pencere bunu FARK kipini kurmak icin kullanir.
+    #: When a model FILE is selected (a click, not to open it).
+    #: The main window uses this to set up DIFF mode.
     model_selected = pyqtSignal(str)
 
     def __init__(self, parent=None) -> None:
@@ -89,10 +89,10 @@ class WorkspaceTree(QTreeWidget):
         self._open_paths: Dict[str, StateMachine] = {}
         self._suppress = False
 
-        # Panel ACILISTA BOS KALMASIN. `rebuild` yalnizca bir calisma alani
-        # uygulandiginda cagriliyordu; henuz hicbiri secilmemisken panelin
-        # basligi ("WORKSPACE") duruyor ama altinda tek satir bile
-        # bulunmuyordu -- kullaniciya ne oldugunu ya da ne yapacagini
+        # THE PANEL MUST NOT BE EMPTY AT START-UP. `rebuild` was called only when a
+        # workspace had been applied; before any was chosen, the panel title
+        # ("WORKSPACE") was there but not a single row below it -- nothing telling
+        # the user what had happened or what to do.
         # anlatan hicbir sey yok.
         self.rebuild()
 
@@ -100,9 +100,9 @@ class WorkspaceTree(QTreeWidget):
         self.itemDoubleClicked.connect(self._on_double_click)
         self.itemSelectionChanged.connect(self._on_selection)
 
-        # SAG TIK MENUSU + Delete tusu: model dosyasini calisma alanindan
-        # kaldirmanin iki yolu. Agac tek gezinme araci oldugu icin dosya
-        # silmek icin isletim sistemi gezginine cikmak gerekmemeli.
+        # CONTEXT MENU + the Delete key: two ways to remove a model file from the
+        # workspace. Since the tree is the only navigation aid, deleting a file
+        # should not require going out to the file manager.
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
 
@@ -111,11 +111,11 @@ class WorkspaceTree(QTreeWidget):
     # ------------------------------------------------------------------ API #
 
     def set_workspace(self, workspace, open_models: Optional[Dict] = None) -> None:
-        """Agaci calisma alanindan yeniden kurar.
+        """Rebuilds the tree from the workspace.
 
-        :param open_models: {mutlak yol: model nesnesi} -- ACIK belgeler.
-            Acik bir model diskteki surumu degil, DUZENLENMEKTE olan
-            surumu gostermelidir; aksi halde agac kaydedilmemis
+        :param open_models: {absolute path: model object} -- the OPEN documents.
+            An open model must show the version BEING EDITED, not the one on
+            disk; otherwise the tree does not see unsaved changes.
             degisiklikleri gormez.
         """
         self._workspace = workspace
@@ -123,12 +123,12 @@ class WorkspaceTree(QTreeWidget):
         self.rebuild()
 
     def set_open_models(self, open_models: Dict) -> None:
-        """ACIK modelleri bildirir; agac yalnizca DISKTEKI dosyalari gosterir."""
+        """Reports the OPEN models; the tree shows only the files ON DISK."""
         onceki = {self._norm(k) for k in self._open_paths}
         self._open_paths = dict(open_models or {})
         if {self._norm(k) for k in self._open_paths} != onceki:
-            # Acik dosya KUMESI degisti: isaretler (dolu/bos elmas, renk)
-            # yeniden cizilmeli.
+            # The SET of open files changed: the marks (filled/hollow diamond,
+            # colour) have to be redrawn.
             self.rebuild()
             return
         self.refresh_open_nodes()
@@ -138,14 +138,14 @@ class WorkspaceTree(QTreeWidget):
         self._suppress = True
         self.clear()
 
-        # AGAC YALNIZCA DISKTEKI DOSYALARI GOSTERIR.
+        # THE TREE SHOWS ONLY THE FILES ON DISK.
         #
-        # Onceden, dosyasi olmayan acik belgeler en uste
-        # "◆ untitled.usm  (not saved)" olarak ekleniyordu. Uygulama
-        # acilista HER IKI kip icin de birer ornek belge kurdugundan bu
-        # satirlar KALICI hale gelmisti: kullanici blinky.usm uzerinde
-        # calisirken bile agacin tepesinde, calisma alaniyla hicbir
-        # ilgisi olmayan iki "untitled" duruyordu. Panelin adi WORKSPACE;
+        # Open documents without a file used to be added at the top as
+        # "◆ untitled.usm  (not saved)". Because the application set up a sample
+        # document for BOTH modes at start-up, those rows became PERMANENT: even
+        # while the user worked on blinky.usm, two "untitled" entries with no
+        # connection to the workspace sat at the top of the tree. The panel is
+        # called WORKSPACE; its content should be the workspace.
         # icerigi de calisma alani olmali.
         if self._workspace is None:
             self._bilgi_satiri(
@@ -158,8 +158,8 @@ class WorkspaceTree(QTreeWidget):
         f = ui_font(9)
         f.setBold(True)
         kok.setFont(0, f)
-        # STATE_TITLE tuvaldeki renkli baslik seridi icindir ve iki temada da
-        # beyazdir; acik temada beyaz agac zemininde kaybolurdu.
+        # STATE_TITLE is for the coloured title strip on the canvas and is white in
+        # both themes; it would vanish on the white tree background in the light theme.
         kok.setForeground(0, QBrush(QColor(C.TEXT_BRIGHT)))
         kok.setData(0, NODE_ROLE, "dir")
         kok.setData(0, PATH_ROLE, self._workspace.model_path)
@@ -171,7 +171,7 @@ class WorkspaceTree(QTreeWidget):
         self._suppress = False
 
     def _bilgi_satiri(self, *satirlar: str) -> None:
-        """Agac yerine gosterilen aciklama satirlari (tiklanamaz)."""
+        """The explanatory rows shown instead of a tree (not clickable)."""
         for metin in satirlar:
             dugum = QTreeWidgetItem(self, [metin])
             dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
@@ -180,17 +180,17 @@ class WorkspaceTree(QTreeWidget):
 
     @staticmethod
     def _structure_signature(model):
-        """Agacta GORUNEN yapinin ucuz bir imzasi.
+        """A cheap signature of the structure VISIBLE in the tree.
 
-        Konum degisiklikleri (surukleme) agaci ETKILEMEZ ama yine de
-        Document.changed yayar. Alt agaci her jestte yikip yeniden kurmak
-        200 sinifli bir modelde ~157 ms suruyordu ve surukleme takiliyordu.
-        Imza yalnizca agaca yazilan alanlardan olusur; degismediyse cizim
-        tamamen atlanir.
+        Position changes (dragging) DO NOT AFFECT the tree, yet they still emit
+        Document.changed. Tearing down and rebuilding the subtree on every
+        gesture took about 157 ms on a model with 200 classes and made dragging
+        stutter. The signature is built only from the fields written into the
+        tree; when it has not changed, the drawing is skipped entirely.
         """
         if isinstance(model, StateMachine):
-            # entry/exit/do DA imzaya girer: agac artik davranislari da
-            # gosteriyor, dolayisiyla bir davranisin degismesi alt agaci
+            # entry/exit/do GO INTO the signature too: the tree now shows the
+            # behaviours as well, so a changed behaviour has to refresh the subtree.
             # tazelemek zorunda.
             return tuple(sorted(
                 (s.id, s.name, s.kind.value, s.parent or "",
@@ -208,7 +208,7 @@ class WorkspaceTree(QTreeWidget):
         return tuple(parts)
 
     def _fill_model_node(self, node: QTreeWidgetItem, model) -> None:
-        """Bir modelin icerigini dugume isler (durum makinesi ya da sinif)."""
+        """Writes the content of a model into the node (state machine or class)."""
         if isinstance(model, StateMachine):
             self._fill_states(node, model, None)
             if node.childCount() == 0:
@@ -219,7 +219,7 @@ class WorkspaceTree(QTreeWidget):
                 self._note(node, "(empty model)", C.TEXT_DIM)
 
     def refresh_open_nodes(self) -> None:
-        """Acik modellerin alt agacini tazeler (kaydedilmemis degisiklikler)."""
+        """Refreshes the subtree of the open models (unsaved changes)."""
         for item in self._all_items():
             if item.data(0, NODE_ROLE) != "model":
                 continue
@@ -228,8 +228,8 @@ class WorkspaceTree(QTreeWidget):
                 continue
             if not item.data(0, LOADED_ROLE):
                 continue
-            # Salt KONUM degisikliginde alt agaci yeniden kurma (bkz.
-            # _structure_signature): buyuk modellerde surukleme takiliyordu.
+            # Do not rebuild the subtree on a POSITION-only change (see
+            # _structure_signature): dragging stuttered on large models.
             model = next((m for k, m in self._open_paths.items()
                           if self._norm(k) == self._norm(yol)), None)
             if model is not None:
@@ -240,7 +240,7 @@ class WorkspaceTree(QTreeWidget):
             self._load_model_node(item, force=True)
 
     def select_element(self, eid: str) -> None:
-        """Acik modeldeki bir elemani secer (tuvalden gelen secim)."""
+        """Selects an element in the open model (a selection from the canvas)."""
         self._suppress = True
         self.clearSelection()
         for item in self._all_items():
@@ -253,14 +253,14 @@ class WorkspaceTree(QTreeWidget):
     def retheme(self) -> None:
         self.rebuild()
 
-    # ------------------------------------------------------------- kurulum -- #
+    # -------------------------------------------------------------- set-up -- #
 
     @staticmethod
     def _norm(path: str) -> str:
         return os.path.normcase(os.path.abspath(path)) if path else ""
 
     def _fill_dir(self, parent: QTreeWidgetItem, path: str) -> None:
-        """Klasoru agaca isler: once alt klasorler, sonra model dosyalari."""
+        """Writes a folder into the tree: subfolders first, then model files."""
         try:
             girdiler = sorted(os.listdir(path), key=str.lower)
         except OSError:
@@ -286,9 +286,9 @@ class WorkspaceTree(QTreeWidget):
             self._add_model_node(parent, os.path.join(path, ad), ad)
 
         if not klasorler and not dosyalar and parent.parent() is None:
-            # Bos calisma alani bir CIKMAZ olmamali: kullaniciya dosyanin
-            # oraya nasil girecegi soylenir. Eski metin ("(no model files
-            # yet)") durumu bildiriyor ama ne yapilacagini sylemiyordu.
+            # An empty workspace must not be a DEAD END: the user is told how a file
+            # gets there. The old text ("(no model files yet)") reported the state
+            # but did not say what to do about it.
             for metin in ("No models here yet.",
                           "Press Ctrl+S to save the open diagram "
                           "into this workspace."):
@@ -313,18 +313,18 @@ class WorkspaceTree(QTreeWidget):
         else:
             dugum.setForeground(0, QBrush(QColor(C.TEXT)))
 
-        # Acilabilir gorunsun diye gecici bir cocuk konur; gercek icerik
-        # dugum ACILINCA okunur (bkz. _on_expanded).
+        # A placeholder child is added so the node looks expandable; the real
+        # content is read when the node IS EXPANDED (see _on_expanded).
         QTreeWidgetItem(dugum, ["…"])
 
-    # -------------------------------------------------------- tembel yukleme #
+    # ---------------------------------------------------------- lazy loading #
 
     def _on_expanded(self, item: QTreeWidgetItem) -> None:
         if item.data(0, NODE_ROLE) == "model" and not item.data(0, LOADED_ROLE):
             self._load_model_node(item)
 
     def _load_model_node(self, item: QTreeWidgetItem, force: bool = False) -> None:
-        """Model dosyasini okur ve icerigini alt agac olarak kurar."""
+        """Reads the model file and builds its content as a subtree."""
         yol = item.data(0, PATH_ROLE) or ""
         item.takeChildren()
         item.setData(0, LOADED_ROLE, True)
@@ -349,8 +349,8 @@ class WorkspaceTree(QTreeWidget):
                     self._note(item, "unrecognised model file", C.WARN)
                     return
             except Exception as exc:
-                # Bozuk yada okunamayan dosya AGACI COKERTMEZ: dugumde bir
-                # uyari satiri gorunur, diger modeller calismaya devam eder.
+                # A corrupt or unreadable file DOES NOT CRASH THE TREE: a warning row
+                # appears under the node and the other models keep working.
                 self._note(item, "cannot be read: %s" % exc, C.RED)
                 return
 
@@ -368,13 +368,13 @@ class WorkspaceTree(QTreeWidget):
             if st.kind.is_pseudo:
                 dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
 
-            # DAVRANISLAR (entry / exit / do) agacta da gorunur.
+            # THE BEHAVIOURS (entry / exit / do) APPEAR IN THE TREE TOO.
             #
-            # Agac, sinif diyagraminda oznitelik ve islemleri zaten
-            # listeliyor; durum makinesinde yalnizca gecisleri gosterip
-            # davranislari atlamak tutarsizdi. Ustelik bilesik bir durumun
-            # exit/do davranisi kutuya sigmayabilir -- agac o zaman tek
-            # guvenilir kaynaktir.
+            # The tree already lists attributes and operations for a class diagram;
+            # showing only the transitions for a state machine and skipping the
+            # behaviours was inconsistent. And the exit/do behaviour of a composite
+            # state may not fit in its box -- the tree is then the only reliable
+            # source.
             for etiket, metin in (("entry /", st.entry),
                                   ("exit  /", st.exit),
                                   ("do    /", st.do)):
@@ -396,12 +396,12 @@ class WorkspaceTree(QTreeWidget):
                 yaprak.setFont(0, mono_font(8))
 
     def _fill_class_model(self, parent: QTreeWidgetItem, cm) -> None:
-        """Acik bir sinif modelini agaca isler.
+        """Writes an open class model into the tree.
 
-        Ayri bir "MODEL TREE" paneli KALDIRILDIGI icin bu agac artik tek
-        gezinme aracidir; bu yuzden yalnizca sinif adlarini degil,
-        oznitelikleri, islemleri ve iliskileri de gostermek zorundadir --
-        aksi halde panelin kaldirilmasi bilgi kaybi olurdu.
+        Because a separate "MODEL TREE" panel WAS REMOVED, this tree is now the
+        only navigation aid; so it has to show not just the class names but the
+        attributes, the operations and the relationships as well -- otherwise
+        removing that panel would have lost information.
         """
         for cls in getattr(cm, "ordered_classes", lambda: [])():
             glyph = CLASS_GLYPH.get(cls.stereotype, "▭")
@@ -442,11 +442,11 @@ class WorkspaceTree(QTreeWidget):
         leaf.setForeground(0, QBrush(QColor(color)))
 
     def _fill_class_summary(self, parent: QTreeWidgetItem, metin: str) -> None:
-        """KAPALI bir sinif diyagramini diskten okuyup agaca isler.
+        """Reads a CLOSED class diagram from disk and writes it into the tree.
 
-        AYNI cizim yolunu kullanir (_fill_class_model): ayri bir JSON
-        ozetleyici yazmak, oznitelik/islem bicimini iki yerde tutmak
-        demekti ve kullanici dosyayi acinca gorunum degisirdi.
+        It uses the SAME drawing path (_fill_class_model): writing a separate
+        JSON summariser would mean keeping the attribute/operation format in
+        two places, and the view would change when the user opened the file.
         """
         try:
             cm = ClassModel.from_json(metin)
@@ -463,12 +463,12 @@ class WorkspaceTree(QTreeWidget):
         note.setForeground(0, QBrush(QColor(color)))
         note.setData(0, NODE_ROLE, "note")
 
-    # ----------------------------------------------------------- etkilesim -- #
+    # --------------------------------------------------------- interaction -- #
 
-    # ------------------------------------------------------- dosya kaldirma #
+    # --------------------------------------------------------- file removal #
 
     def _selected_model_path(self) -> Optional[str]:
-        """Secili dugum bir MODEL DOSYASI ise mutlak yolu, degilse None."""
+        """The absolute path when the selected node is a MODEL FILE, else None."""
         items = self.selectedItems()
         if not items:
             return None
@@ -505,11 +505,11 @@ class WorkspaceTree(QTreeWidget):
         super().keyPressEvent(event)
 
     def remove_selected(self) -> None:
-        """Secili model dosyasini ONAY ALARAK siler.
+        """Deletes the selected model file AFTER ASKING FOR CONFIRMATION.
 
-        Silme GERI ALINAMAZ ve disk uzerinde is yapar; bu yuzden her zaman
-        sorulur. Acik bir modeli silmek kullaniciyi dosyasiz bir belgeyle
-        birakir, o durum ayrica uyarilir.
+        Deletion CANNOT BE UNDONE and touches the disk, so it always asks.
+        Deleting an open model leaves the user with a document that has no
+        file, and that case is warned about separately.
         """
         yol = self._selected_model_path()
         if yol is None:
@@ -560,7 +560,7 @@ class WorkspaceTree(QTreeWidget):
         if eid:
             self.element_activated.emit(eid)
 
-    # ------------------------------------------------------------ yardimci -- #
+    # ------------------------------------------------------------- helpers -- #
 
     def _all_items(self) -> List[QTreeWidgetItem]:
         out: List[QTreeWidgetItem] = []
