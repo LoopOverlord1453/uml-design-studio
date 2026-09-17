@@ -611,8 +611,8 @@ class Inspector(QScrollArea):
     def _set_deferred(self, sid: str, metin: str):
         """Turns a comma-separated list into DEFERRED events."""
         names = []
-        for parca in (metin or "").replace(";", ",").split(","):
-            ad = parca.strip()
+        for part in (metin or "").replace(";", ",").split(","):
+            ad = part.strip()
             if ad and ad not in names:
                 names.append(ad)
 

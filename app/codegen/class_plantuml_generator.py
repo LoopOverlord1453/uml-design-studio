@@ -164,23 +164,23 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         sol = "%s " % alias[src.id]
         if r.source_mult:
             sol += '"%s" ' % _esc(r.source_mult)
-        sag = " "
+        right = " "
         if r.target_mult:
-            sag += '"%s" ' % _esc(r.target_mult)
-        sag += alias[tgt.id]
-        row = sol + _yon(src, tgt, r.kind) + sag
+            right += '"%s" ' % _esc(r.target_mult)
+        right += alias[tgt.id]
+        row = sol + _yon(src, tgt, r.kind) + right
 
         # End names (roles) and the label are collected into ONE ":" section;
         # PlantUML does not accept a second ":".
-        parcalar = []
+        parts = []
         if r.label:
-            parcalar.append(_esc(r.label))
+            parts.append(_esc(r.label))
         if r.source_role:
-            parcalar.append("%s (source)" % _esc(r.source_role))
+            parts.append("%s (source)" % _esc(r.source_role))
         if r.target_role:
-            parcalar.append("%s (target)" % _esc(r.target_role))
-        if parcalar:
-            row += " : " + " / ".join(parcalar)
+            parts.append("%s (target)" % _esc(r.target_role))
+        if parts:
+            row += " : " + " / ".join(parts)
         L.append(row)
 
     if cm.description:

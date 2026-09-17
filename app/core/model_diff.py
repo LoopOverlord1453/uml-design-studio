@@ -59,23 +59,23 @@ def _transition_label(d: dict, states: Dict[str, dict]) -> str:
     target = states.get(d.get("target", ""), {}).get("name", "?")
     event = d.get("event") or "(completion)"
     guard = d.get("guard") or ""
-    eylem = d.get("action") or ""
+    action = d.get("action") or ""
     label = "%s --%s--> %s" % (source, event, target)
     if guard:
         label += "  [%s]" % guard
-    if eylem:
-        label += "  / %s" % eylem
+    if action:
+        label += "  / %s" % action
     return label
 
 
 def _farklar(old: dict, new: dict) -> List[str]:
     """The list of changed fields as 'field: old -> new'."""
     out = []
-    for anahtar in sorted(set(old) | set(new)):
-        a, b = old.get(anahtar), new.get(anahtar)
+    for key in sorted(set(old) | set(new)):
+        a, b = old.get(key), new.get(key)
         if a == b:
             continue
-        out.append("%s: %r -> %r" % (anahtar, a, b))
+        out.append("%s: %r -> %r" % (key, a, b))
     return out
 
 

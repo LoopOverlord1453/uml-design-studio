@@ -95,7 +95,7 @@ def qualified_name(disari: str, iceri: str) -> str:
 
 
 def flatten(sm: StateMachine, resolve: Resolver,
-            _derinlik: int = 0,
+            _depth: int = 0,
             _yigin: Optional[Set[str]] = None) -> StateMachine:
     """SUBSTITUTES the submachine references; returns a new machine.
 
@@ -104,73 +104,73 @@ def flatten(sm: StateMachine, resolve: Resolver,
     """
     if not has_submachine(sm):
         return sm
-    if _derinlik >= MAX_SUBMACHINE_DEPTH:
+    if _depth >= MAX_SUBMACHINE_DEPTH:
         raise SubmachineError(
             "Submachine references are nested more than %d levels deep."
             % MAX_SUBMACHINE_DEPTH)
 
-    yigin = set(_yigin or set())
+    stack = set(_yigin or set())
     result = copy.deepcopy(sm)
 
-    for dis in submachine_states(sm):
-        ref = (dis.submachine_ref or "").strip()
+    for outer in submachine_states(sm):
+        ref = (outer.submachine_ref or "").strip()
         if not ref:
             raise SubmachineError(
                 "The submachine state '%s' does not reference a machine."
-                % dis.name)
-        anahtar = normalise_ref(ref)
-        if anahtar in yigin:
+                % outer.name)
+        key = normalise_ref(ref)
+        if key in stack:
             raise SubmachineError(
                 "The submachine reference of '%s' is circular: '%s' is "
-                "already being expanded." % (dis.name, ref))
+                "already being expanded." % (outer.name, ref))
 
-        ic = resolve(ref)
-        if ic is None:
+        inner = resolve(ref)
+        if inner is None:
             raise SubmachineError(
                 "The machine referenced by '%s' could not be found: %s"
-                % (dis.name, ref))
-        ic = flatten(ic, resolve, _derinlik + 1, yigin | {anahtar})
+                % (outer.name, ref))
+        inner = flatten(inner, resolve, _depth + 1, stack | {key})
 
-        _substitute(result, dis.id, ic)
+        _substitute(result, outer.id, inner)
 
     return result
 
 
-def _substitute(hedef: StateMachine, dis_id: str, ic: StateMachine) -> None:
+def _substitute(hedef: StateMachine, outer_id: str, inner: StateMachine) -> None:
     """Turns a submachine state into a COMPOSITE state filled with the
     content of the inner machine."""
-    dis = hedef.states[dis_id]
-    outer_name = dis.name
+    outer = hedef.states[outer_id]
+    outer_name = outer.name
 
     # The outer vertex is now an ordinary composite state. entry/exit/do are
     # KEPT: in UML a submachine state may carry them.
-    dis.kind = StateKind.COMPOSITE
-    dis.regions = max(1, ic.region_count(None))
+    outer.kind = StateKind.COMPOSITE
+    outer.regions = max(1, inner.region_count(None))
 
     name_map: Dict[str, str] = {}
-    for s in ic.ordered_states():
+    for s in inner.ordered_states():
         new = copy.deepcopy(s)
-        new.id = "%s__%s" % (dis_id, s.id)
+        new.id = "%s__%s" % (outer_id, s.id)
         new.name = qualified_name(outer_name, s.name)
         # The ROOT vertices of the inner machine become children of the outer state.
-        new.parent = ("%s__%s" % (dis_id, s.parent)) if s.parent else dis_id
+        new.parent = ("%s__%s" % (outer_id, s.parent)) if s.parent else outer_id
         # The position is moved inside the outer state, so it looks sane on the canvas.
         new.x = float(s.x) + 14.0
         new.y = float(s.y) + 34.0
         name_map[s.id] = new.id
         hedef.add_state(new)
 
-    for t in ic.ordered_transitions():
+    for t in inner.ordered_transitions():
         new = copy.deepcopy(t)
-        new.id = "%s__%s" % (dis_id, t.id)
+        new.id = "%s__%s" % (outer_id, t.id)
         new.source = name_map.get(t.source, t.source)
         new.target = name_map.get(t.target, t.target)
         hedef.add_transition(new)
 
-    _includes_birlestir(hedef, ic)
+    _merge_includes(hedef, inner)
 
 
-def _includes_birlestir(hedef: StateMachine, ic: StateMachine) -> None:
+def _merge_includes(hedef: StateMachine, inner: StateMachine) -> None:
     """APPENDS the include lines of the inner machine to the outer one.
 
     The entry / exit / do texts and guard expressions of the inner machine are
@@ -188,10 +188,10 @@ def _includes_birlestir(hedef: StateMachine, ic: StateMachine) -> None:
     rows = (hedef.user_includes or "").splitlines()
     gorulen = {ln.strip() for ln in rows if ln.strip()}
     added = []
-    for ln in (ic.user_includes or "").splitlines():
-        anahtar = ln.strip()
-        if anahtar and anahtar not in gorulen:
-            gorulen.add(anahtar)
+    for ln in (inner.user_includes or "").splitlines():
+        key = ln.strip()
+        if key and key not in gorulen:
+            gorulen.add(key)
             added.append(ln)
     if added:
         hedef.user_includes = "\n".join(rows + added).strip("\n")
@@ -210,11 +210,11 @@ def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
     acik_map = {normalise_ref(k): v for k, v in (acik or {}).items()}
 
     def cozumle(ref: str) -> Optional[StateMachine]:
-        anahtar = normalise_ref(ref)
-        if anahtar in acik_map:
-            return acik_map[anahtar]
-        if anahtar in onbellek:
-            return onbellek[anahtar]
+        key = normalise_ref(ref)
+        if key in acik_map:
+            return acik_map[key]
+        if key in onbellek:
+            return onbellek[key]
         if ws is None:
             return None
         try:
@@ -228,7 +228,7 @@ def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
                 makine = StateMachine.from_json(fh.read())
         except Exception:                       # noqa: BLE001
             return None
-        onbellek[anahtar] = makine
+        onbellek[key] = makine
         return makine
 
     return cozumle

@@ -93,8 +93,8 @@ def align_enum(rows, gap: int = 1) -> List[str]:
     value_w = max((len(d) for _a, d, _y in rows), default=0)
     out = []
     for ad, value, yorum in rows:
-        sol = "%-*s %-*s" % (name_w, ad, value_w, value)
-        out.append((sol + " " * gap + yorum).rstrip() if yorum else sol.rstrip())
+        left = "%-*s %-*s" % (name_w, ad, value_w, value)
+        out.append((left + " " * gap + yorum).rstrip() if yorum else left.rstrip())
     return out
 
 
@@ -440,7 +440,7 @@ class CGenerator:
         L += ["/* ----------------------------------------------------------- dimensions -- */"]
         # VALUES IN THE SAME COLUMN. Written with fixed padding, long names
         # (BLINKY_MAX_RUN_TO_COMPLETION_STEPS) pushed the line out of line.
-        olculer = [
+        measures = [
             ("%s_STATE_COUNT" % self.P, "(%uU)" % ir.state_count,
              "Number of vertices in the state table."),
             ("%s_EVENT_COUNT" % self.P, "(%uU)" % ir.event_count,
@@ -461,11 +461,11 @@ class CGenerator:
              "Invalid region index. A separate number space from the state index."),
         ]
         if ir.has_deferred():
-            olculer.append(
+            measures.append(
                 ("%s_DEFER_POOL_SIZE" % self.P, "(16U)",
                  "Retained deferred event occurrences; a full pool is reported."))
-        width = max(len(ad) for ad, _d, _a in olculer)
-        for ad, value, aciklama in olculer:
+        width = max(len(ad) for ad, _d, _a in measures)
+        for ad, value, aciklama in measures:
             L += ["/** @brief %s */" % aciklama]
             L += ["#define %-*s %s" % (width, ad, value)]
         L += [""]

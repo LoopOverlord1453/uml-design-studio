@@ -117,9 +117,9 @@ def _sorumlu_altmakine(sm, genis_id: str):
     """
     if "__" not in genis_id:
         return None
-    dis = genis_id.split("__", 1)[0]
-    if dis in sm.states:
-        return dis
+    outer = genis_id.split("__", 1)[0]
+    if outer in sm.states:
+        return outer
     return None
 
 
@@ -202,7 +202,7 @@ def _expanded_name_problems(sm, duz):
     return sorunlar
 
 
-def _bolge_ayrimi(sm, dugum, idler, ne: str):
+def _region_split(sm, dugum, idler, ne: str):
     """Are the given vertices in DIFFERENT regions of the SAME orthogonal state?
 
     UML 2.5.1, 14.5.6.7 (printed p.350-351): transitions leaving a fork
@@ -213,26 +213,26 @@ def _bolge_ayrimi(sm, dugum, idler, ne: str):
     idler = [x for x in idler if x in sm.states]
     if len(idler) < 2:
         return None
-    ortak = idler[0]
+    common = idler[0]
     for other in idler[1:]:
-        ortak = sm.lca(ortak, other)
-        if ortak is None:
+        common = sm.lca(common, other)
+        if common is None:
             break
-    if ortak is None or not sm.is_orthogonal(ortak):
+    if common is None or not sm.is_orthogonal(common):
         return "The segments of '%s' must %s." % (dugum.name, ne)
-    bolgeler = []
+    regions = []
     for x in idler:
-        b = _bolge_dizini(sm, x, ortak)
+        b = _region_index(sm, x, common)
         if b is None:
             return "The segments of '%s' must %s." % (dugum.name, ne)
-        bolgeler.append(b)
-    if len(set(bolgeler)) != len(bolgeler):
+        regions.append(b)
+    if len(set(regions)) != len(regions):
         return ("Two segments of '%s' use the SAME region of '%s'; they must "
-                "%s." % (dugum.name, sm.states[ortak].name, ne))
+                "%s." % (dugum.name, sm.states[common].name, ne))
     return None
 
 
-def _bolge_dizini(sm, sid: str, sahip: str):
+def _region_index(sm, sid: str, sahip: str):
     """Which region under `owner` `sid` falls into (None if none)."""
     cur = sid
     n = 0
@@ -340,9 +340,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     # enumerator". The same gap also disabled V012/V014/V017 and the time
     # event rules (V190/V191) for events coming from a submachine.
     # devre disi birakiyordu.
-    _genis_model, _ = _genisletilmis()
-    if _genis_model is not None:
-        event_source = _genis_model
+    _wide_model, _ = _genisletilmis()
+    if _wide_model is not None:
+        event_source = _wide_model
     else:
         event_source = sm
 
@@ -496,16 +496,16 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         # and V140-V149 already check the distinction.
         _MUAF = (StateKind.FORK, StateKind.JOIN,
                  StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
-        ortak = sm.lca(t.source, t.target)
-        if (ortak is not None and sm.is_orthogonal(ortak)
+        common = sm.lca(t.source, t.target)
+        if (common is not None and sm.is_orthogonal(common)
                 and src.kind not in _MUAF and tgt.kind not in _MUAF
-                and t.source != ortak and t.target != ortak):
-            s_bolge = _bolge_dizini(sm, t.source, ortak)
-            t_bolge = _bolge_dizini(sm, t.target, ortak)
-            if s_bolge is not None and t_bolge is not None and s_bolge != t_bolge:
+                and t.source != common and t.target != common):
+            s_region = _region_index(sm, t.source, common)
+            t_region = _region_index(sm, t.target, common)
+            if s_region is not None and t_region is not None and s_region != t_region:
                 err("V102", "This transition crosses from region %d to region %d "
                             "of orthogonal state '%s'; use a fork or a join."
-                    % (s_bolge + 1, t_bolge + 1, sm.states[ortak].name), t.id)
+                    % (s_region + 1, t_region + 1, sm.states[common].name), t.id)
 
         for label, expr in (("guard", t.guard), ("action", t.action)):
             if expr.strip() and not _balanced(expr):
@@ -540,22 +540,22 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         # version may carry it. Every silent divergence between the drawing and
         # the generated code has to be reported.
         if sahip is not None:
-            for cocuk in sm.children(sahip):
-                bolge_no = int(getattr(cocuk, "region", 0) or 0)
-                if bolge_no < 0 or bolge_no >= bolge_sayisi:
+            for child in sm.children(sahip):
+                region_no = int(getattr(child, "region", 0) or 0)
+                if region_no < 0 or region_no >= bolge_sayisi:
                     err("V103",
                         "'%s' says it is in region %d of '%s', but that state "
                         "has only %d region(s). Drag it into one of the bands "
                         "shown in the diagram."
-                        % (cocuk.name, bolge_no + 1,
+                        % (child.name, region_no + 1,
                            sm.states[sahip].name, bolge_sayisi),
-                        cocuk.id)
-        for bolge in range(bolge_sayisi):
-            content = sm.children_in(sahip, bolge)
+                        child.id)
+        for region in range(bolge_sayisi):
+            content = sm.children_in(sahip, region)
             if sahip is None:
                 rname = "root region"
             elif bolge_sayisi > 1:
-                rname = "region %d of '%s'" % (bolge + 1, sm.states[sahip].name)
+                rname = "region %d of '%s'" % (region + 1, sm.states[sahip].name)
             else:
                 rname = "'%s'" % sm.states[sahip].name
             if sahip is not None and bolge_sayisi > 1 and not content:
@@ -584,7 +584,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                     "history/terminate pseudostate ('%s'); target "
                                     "a state directly." % (rname, tgt.name),
                             outs[0].id)
-                    elif tgt is not None and sm.region_of(tgt.id) != bolge:
+                    elif tgt is not None and sm.region_of(tgt.id) != region:
                         err("V101", "The initial transition in %s targets '%s', "
                                     "which is in another region; a region's "
                                     "default entry must stay inside it."
@@ -651,7 +651,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             # The code sits HERE, at the call site, as PLAIN TEXT: the test that
             # checks the reference table for completeness looks for the literal
             # "V123" in the source and cannot see a code passed in a variable.
-            sorun = _bolge_ayrimi(sm, s, [t.target for t in giden],
+            sorun = _region_split(sm, s, [t.target for t in giden],
                                   "target states in different regions of an "
                                   "orthogonal state")
             if sorun:
@@ -672,7 +672,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 if t.guard.strip() or t.event.strip():
                     err("V126", "A transition entering join '%s' cannot carry "
                                 "a guard or a trigger." % s.name, t.id)
-            sorun = _bolge_ayrimi(sm, s, [t.source for t in gelen],
+            sorun = _region_split(sm, s, [t.source for t in gelen],
                                   "originate in different regions of an "
                                   "orthogonal state")
             if sorun:
@@ -765,15 +765,15 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                     # Otherwise the same collision would be reported again for every
                     # submachine state.
                     _genisletme_bildirildi.append(True)
-                    genis, hata = _genisletilmis()
-                    if hata is not None:
+                    genis, error = _genisletilmis()
+                    if error is not None:
                         # The message ALREADY names the culprit; bind the error to that
                         # element. If it cannot be found, bind it to NO element -- painting
                         # an arbitrary submachine state red sends the user to the wrong
                         # place.
                         err("V163", "A submachine reference cannot be "
-                                    "expanded: %s" % hata,
-                            _error_owner(sm, str(hata)))
+                                    "expanded: %s" % error,
+                            _error_owner(sm, str(error)))
                     elif genis is not None:
                         # The codes are given as plain text, not through a VARIABLE: the
                         # reference test looks for the `err("Vxxx"` pattern in the source and
@@ -816,7 +816,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                     # Vertex within that Region."
                     kullanilan = {}
                     for t in giden:
-                        b = _bolge_dizini(sm, t.target, sahip.id)
+                        b = _region_index(sm, t.target, sahip.id)
                         if b is None:
                             continue
                         if b in kullanilan:

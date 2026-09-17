@@ -340,14 +340,14 @@ class Ir:
 
         def tara(metin: str, nerede: str, guard: bool) -> None:
             for ad, argc in _cagrilar(metin):
-                kayit = found.get(ad)
-                if kayit is None:
-                    kayit = RequiredSymbol(name=ad, argc=argc)
-                    found[ad] = kayit
-                kayit.argc = max(kayit.argc, argc)
-                kayit.in_guard = kayit.in_guard or guard
-                if nerede not in kayit.sites:
-                    kayit.sites.append(nerede)
+                record = found.get(ad)
+                if record is None:
+                    record = RequiredSymbol(name=ad, argc=argc)
+                    found[ad] = record
+                record.argc = max(record.argc, argc)
+                record.in_guard = record.in_guard or guard
+                if nerede not in record.sites:
+                    record.sites.append(nerede)
 
         for st in self.states:
             for body, etiket in ((st.entry, "entry"), (st.exit, "exit"),
@@ -626,14 +626,14 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             sahip = ir.states[reg.owner]
             sahip_id = sahip.model_id
             yerel = reg.index - sahip.first_region
-        cocuk, eylem = compile_initial(sahip_id, yerel)
-        if cocuk == NONE:
+        child, eylem = compile_initial(sahip_id, yerel)
+        if child == NONE:
             if sahip_id is None:
                 raise CodegenError("The root region has no initial pseudostate.")
             raise CodegenError(
                 "Region %d of composite state '%s' has no initial pseudostate."
                 % (yerel + 1, ir.states[reg.owner].name))
-        reg.initial_state = cocuk
+        reg.initial_state = child
         reg.initial_action = eylem
 
     # The old fields point at the FIRST region; for single-region models
@@ -723,16 +723,16 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
     fork_ids = {s.id for s in sm.states.values() if s.kind is StateKind.FORK}
     join_ids = {s.id for s in sm.states.values() if s.kind is StateKind.JOIN}
 
-    def _ortak_sahip(idler: List[str]) -> Optional[str]:
+    def _common_owner(idler: List[str]) -> Optional[str]:
         """The COMMON orthogonal owner of the given vertices (None if any)."""
         if not idler:
             return None
-        ortak = idler[0]
+        common = idler[0]
         for other in idler[1:]:
-            ortak = sm.lca(ortak, other)
-            if ortak is None:
+            common = sm.lca(common, other)
+            if common is None:
                 return None
-        return ortak
+        return common
 
     entry_ids = {s.id for s in sm.states.values()
                  if s.kind is StateKind.ENTRY_POINT}
@@ -785,42 +785,42 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         """Resolves the fork segments into (owner, target list)."""
         segmentler = sm.outgoing(fork_id)
         hedefler = [t.target for t in segmentler]
-        sahip = _ortak_sahip(hedefler)
+        sahip = _common_owner(hedefler)
         if sahip is None or sahip not in index_of:
             raise CodegenError(
                 "The fork '%s' does not target vertices inside one "
                 "orthogonal state." % sm.states[fork_id].name)
-        gecersiz = [h for h in hedefler if h not in index_of]
-        if gecersiz:
+        invalid = [h for h in hedefler if h not in index_of]
+        if invalid:
             raise CodegenError(
                 "A fork segment of '%s' could not be resolved."
                 % sm.states[fork_id].name)
 
-        def _bolge_sirasi(hedef: str) -> int:
+        def _region_order(hedef: str) -> int:
             """The region the target falls into, under `owner`."""
             cur = hedef
-            adim = 0
-            while cur is not None and adim <= len(sm.states) + 1:
+            step = 0
+            while cur is not None and step <= len(sm.states) + 1:
                 st_ = sm.states.get(cur)
                 if st_ is None:
                     return 0
                 if st_.parent == sahip:
                     return sm.region_of(cur)
                 cur = st_.parent
-                adim += 1
+                step += 1
             return 0
 
         # Targets are entered in REGION order. Left to the arrow order in the
         # model file, the same diagram could produce two different entry orders
         # and code generation would not be DETERMINISTIC.
-        sirali = sorted(hedefler, key=_bolge_sirasi)
+        sirali = sorted(hedefler, key=_region_order)
         return sahip, [index_of[h] for h in sirali], segmentler
 
     def _join_cozumle(join_id: str):
         """Resolves join segments into (owner, source list, exit transition)."""
         segmentler = [t for t in sm.transitions.values() if t.target == join_id]
         kaynaklar = [t.source for t in segmentler]
-        sahip = _ortak_sahip(kaynaklar)
+        sahip = _common_owner(kaynaklar)
         if sahip is None or sahip not in index_of:
             raise CodegenError(
                 "The join '%s' does not collect vertices from inside one "
@@ -830,8 +830,8 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             raise CodegenError(
                 "The join '%s' has no outgoing transition."
                 % sm.states[join_id].name)
-        gecersiz = [k for k in kaynaklar if k not in index_of]
-        if gecersiz:
+        invalid = [k for k in kaynaklar if k not in index_of]
+        if invalid:
             raise CodegenError(
                 "A join segment of '%s' could not be resolved."
                 % sm.states[join_id].name)

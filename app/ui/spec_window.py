@@ -145,11 +145,11 @@ class _Downloader(QThread):
         #: Filled in when run() finishes; THE MAIN THREAD reads these.
         self.result_path = ""
         self.result_error = ""
-        self.iptal_edildi = False
-        self._iptal = False
+        self.cancelled = False
+        self._cancel = False
 
     def cancel(self) -> None:
-        self._iptal = True
+        self._cancel = True
 
     def run(self) -> None:                   # pragma: no cover - thread
         temp = self.target + ".part"
@@ -157,45 +157,45 @@ class _Downloader(QThread):
             os.makedirs(os.path.dirname(self.target), exist_ok=True)
             istek = urllib.request.Request(
                 SPEC_URL, headers={"User-Agent": "UML-Design-Studio"})
-            with urllib.request.urlopen(istek, timeout=30) as cevap:
-                toplam = int(cevap.headers.get("Content-Length") or 0)
+            with urllib.request.urlopen(istek, timeout=30) as answer:
+                total = int(answer.headers.get("Content-Length") or 0)
                 inen = 0
                 # Progress is reported SPARSELY. Emitting a signal on every 64 KB chunk
                 # meant more than 280 GUI updates for 18 MB; and because a modal
                 # QProgressDialog.setValue() processes events itself, that produced deep
                 # and pointless re-entrancy.
                 # uretiyordu.
-                adim = max(64 * 1024, (toplam // 100) if toplam else 0)
+                step = max(64 * 1024, (total // 100) if total else 0)
                 last_report = 0
                 with open(temp, "wb") as fh:
                     while True:
-                        if self._iptal:
+                        if self._cancel:
                             raise InterruptedError("cancelled")
-                        parca = cevap.read(64 * 1024)
-                        if not parca:
+                        part = answer.read(64 * 1024)
+                        if not part:
                             break
-                        fh.write(parca)
-                        inen += len(parca)
-                        if inen - last_report >= adim:
+                        fh.write(part)
+                        inen += len(part)
+                        if inen - last_report >= step:
                             last_report = inen
-                            self.progress.emit(inen, toplam)
-                self.progress.emit(inen, toplam)
-                if toplam and inen != toplam:
+                            self.progress.emit(inen, total)
+                self.progress.emit(inen, total)
+                if total and inen != total:
                     raise IOError(
-                        "incomplete download: %d of %d bytes" % (inen, toplam))
+                        "incomplete download: %d of %d bytes" % (inen, total))
             # A half-written file is NEVER put at the destination: the next start-up
             # must not take it for valid and show a corrupt PDF.
             os.replace(temp, self.target)
             self.result_path = self.target
         except InterruptedError:
-            self.iptal_edildi = True
-            self._temizle(temp)
+            self.cancelled = True
+            self._clear(temp)
         except Exception as exc:             # noqa: BLE001
             self.result_error = str(exc)
-            self._temizle(temp)
+            self._clear(temp)
 
     @staticmethod
-    def _temizle(yol: str) -> None:
+    def _clear(yol: str) -> None:
         try:
             if os.path.exists(yol):
                 os.remove(yol)
@@ -226,7 +226,7 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
         "    %s\n\n"
         "The document is copyrighted by OMG and is therefore not shipped "
         "with this application." % (SPEC_URL, target))
-    indir = box.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
+    download = box.addButton("Download", QMessageBox.ButtonRole.AcceptRole)
     tarayici = box.addButton("Open in browser",
                               QMessageBox.ButtonRole.ActionRole)
     box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
@@ -235,7 +235,7 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
     if box.clickedButton() is tarayici:
         QDesktopServices.openUrl(QUrl(SPEC_PAGE))
         return None
-    if box.clickedButton() is not indir:
+    if box.clickedButton() is not download:
         return None
 
     ilerleme = QProgressDialog("Downloading the UML 2.5.1 specification…",
@@ -245,45 +245,45 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
     ilerleme.setMinimumDuration(0)
     ilerleme.setValue(0)
 
-    isci = _Downloader(target, parent)
+    worker = _Downloader(target, parent)
 
-    def adim(inen: int, toplam: int) -> None:
-        if toplam > 0:
-            ilerleme.setMaximum(toplam)
+    def step(inen: int, total: int) -> None:
+        if total > 0:
+            ilerleme.setMaximum(total)
             ilerleme.setValue(inen)
         ilerleme.setLabelText(
             "Downloading the UML 2.5.1 specification…  %.1f MB"
             % (inen / (1024.0 * 1024.0)))
 
-    isci.progress.connect(adim)
-    ilerleme.canceled.connect(isci.cancel)
+    worker.progress.connect(step)
+    ilerleme.canceled.connect(worker.cancel)
 
     # WAITING: a local event loop INSTEAD OF a manual `processEvents()` loop.
     # Spinning by hand made the whole application re-entrant for the duration
     # of the download (timers, redraws, the git thread), and the exit
     # condition of the loop RACED with the signal delivery.
     dongu = QEventLoop()
-    isci.finished.connect(dongu.quit)
-    isci.start()
-    if isci.isRunning():
+    worker.finished.connect(dongu.quit)
+    worker.start()
+    if worker.isRunning():
         dongu.exec()
     # Make sure the thread has REALLY finished; only then are the fields safe
     # to read.
-    isci.wait()
+    worker.wait()
     ilerleme.close()
 
-    if isci.iptal_edildi:
+    if worker.cancelled:
         return None
-    if isci.result_error:
+    if worker.result_error:
         QMessageBox.critical(
             parent, "Download failed",
             "The specification could not be downloaded:\n\n%s\n\n"
             "You can fetch it manually from %s and place it next to the "
             "application as docs/%s."
-            % (isci.result_error, SPEC_PAGE, SPEC_FILE))
+            % (worker.result_error, SPEC_PAGE, SPEC_FILE))
         return None
-    if isci.result_path and os.path.isfile(isci.result_path):
-        return isci.result_path
+    if worker.result_path and os.path.isfile(worker.result_path):
+        return worker.result_path
     # Falling through here is not expected; still, say so rather than stay silent.
     QMessageBox.critical(
         parent, "Download failed",
@@ -312,20 +312,20 @@ class _PageRenderer(QThread):
     """
 
     #: (page, pixel width, image, width_pt, height_pt)
-    hazir = pyqtSignal(int, int, QImage, float, float)
+    ready = pyqtSignal(int, int, QImage, float, float)
 
     #: At most this many requests are held in the queue.
-    KUYRUK_SINIRI = 24
+    QUEUE_LIMIT = 24
 
     def __init__(self, belge, parent=None) -> None:
         super().__init__(parent)
         self._belge = belge
         self._kilit = QMutex()
         self._uyandir = QWaitCondition()
-        self._kuyruk: List[Tuple[int, int, int]] = []
+        self._queue: List[Tuple[int, int, int]] = []
         self._dur = False
 
-    def iste(self, sayfa: int, genislik: int, yukseklik: int) -> List[int]:
+    def request_page(self, page: int, genislik: int, yukseklik: int) -> List[int]:
         """Queues a page.
 
         Returns the page numbers of the requests that were DROPPED. The caller
@@ -335,13 +335,13 @@ class _PageRenderer(QThread):
         """
         self._kilit.lock()
         try:
-            self._kuyruk = [x for x in self._kuyruk if x[0] != sayfa]
-            self._kuyruk.append((sayfa, genislik, yukseklik))
+            self._queue = [x for x in self._queue if x[0] != page]
+            self._queue.append((page, genislik, yukseklik))
             dusen: List[int] = []
-            if len(self._kuyruk) > self.KUYRUK_SINIRI:
-                fazla = self._kuyruk[:-self.KUYRUK_SINIRI]
+            if len(self._queue) > self.QUEUE_LIMIT:
+                fazla = self._queue[:-self.QUEUE_LIMIT]
                 dusen = [x[0] for x in fazla]
-                del self._kuyruk[:-self.KUYRUK_SINIRI]
+                del self._queue[:-self.QUEUE_LIMIT]
             self._uyandir.wakeOne()
             return dusen
         finally:
@@ -352,7 +352,7 @@ class _PageRenderer(QThread):
         self._kilit.lock()
         try:
             self._dur = True
-            self._kuyruk = []
+            self._queue = []
             self._uyandir.wakeAll()
         finally:
             self._kilit.unlock()
@@ -361,7 +361,7 @@ class _PageRenderer(QThread):
     def run(self) -> None:                     # pragma: no cover - thread
         while True:
             self._kilit.lock()
-            while not self._kuyruk and not self._dur:
+            while not self._queue and not self._dur:
                 self._uyandir.wait(self._kilit)
             if self._dur:
                 self._kilit.unlock()
@@ -369,16 +369,16 @@ class _PageRenderer(QThread):
             # LIFO: the page requested LAST is rendered first. When the user scrolls
             # quickly, the page being looked at now takes priority over the older ones
             # waiting in the queue.
-            sayfa, genislik, yukseklik = self._kuyruk.pop()
+            page, genislik, yukseklik = self._queue.pop()
             self._kilit.unlock()
             try:
-                olcu = self._belge.pagePointSize(sayfa)
-                if olcu.width() <= 0.0 or olcu.height() <= 0.0:
+                measure = self._belge.pagePointSize(page)
+                if measure.width() <= 0.0 or measure.height() <= 0.0:
                     continue
-                goruntu = self._belge.render(
-                    sayfa, QSize(max(1, genislik), max(1, yukseklik)))
-                self.hazir.emit(sayfa, genislik, goruntu,
-                                olcu.width(), olcu.height())
+                image = self._belge.render(
+                    page, QSize(max(1, genislik), max(1, yukseklik)))
+                self.ready.emit(page, genislik, image,
+                                measure.width(), measure.height())
             except Exception:                  # noqa: BLE001
                 continue
 
@@ -411,12 +411,12 @@ class ContinuousPdfView(QAbstractScrollArea):
     """
 
     #: When the current page changes (0-based).
-    sayfa_degisti = pyqtSignal(int)
+    page_changed = pyqtSignal(int)
     #: When the zoom ratio changes (1.0 = 100%).
-    olcek_degisti = pyqtSignal(float)
+    scale_changed = pyqtSignal(float)
 
-    BOSLUK = 14                                # the gap between pages
-    KENAR = 12                                 # the margin of the strip
+    GAP = 14                                # the gap between pages
+    MARGIN = 12                                 # the margin of the strip
     ZOOM_MIN = 0.20
     ZOOM_MAX = 4.00
     ZOOM_ADIM = 1.25
@@ -430,7 +430,7 @@ class ContinuousPdfView(QAbstractScrollArea):
     #: width takes about 4.7 MB.
     ONBELLEK_BAYT = 48 * 1024 * 1024
     #: How long to wait after scrolling stops before requesting a render (ms).
-    ISTEK_GECIKMESI = 90
+    REQUEST_DELAY = 90
     #: One mouse wheel notch (Qt units).
     CENT = 120
 
@@ -453,33 +453,33 @@ class ContinuousPdfView(QAbstractScrollArea):
 
         self._temel = max(1.0, float(self.logicalDpiX())) / 72.0
         self._zoom = 1.0
-        self._olcek = self._temel
+        self._scale = self._temel
         self._mode = "genislik"
 
         self._w: List[float] = []
         self._h: List[float] = []
         self._y: List[float] = []
-        self._alt: List[float] = []
-        self._toplam = 0.0
-        self._gecerli = 0
+        self._bottom: List[float] = []
+        self._total = 0.0
+        self._current = 0
         self._tekerlek = 0
 
         self._onbellek: "OrderedDict[int, Tuple[int, int, QImage]]" = \
             OrderedDict()
-        self._bekleyen: Dict[int, Tuple[int, int]] = {}
+        self._pending: Dict[int, Tuple[int, int]] = {}
 
         # While scrolling fast NO render is requested; see _delayed_request.
         self._hizli = False
-        self._istek_zamanlayici = QTimer(self)
-        self._istek_zamanlayici.setSingleShot(True)
-        self._istek_zamanlayici.setInterval(self.ISTEK_GECIKMESI)
-        self._istek_zamanlayici.timeout.connect(self._gecikmeli_istek)
+        self._request_timer = QTimer(self)
+        self._request_timer.setSingleShot(True)
+        self._request_timer.setInterval(self.REQUEST_DELAY)
+        self._request_timer.timeout.connect(self._delayed_request)
 
-        self._isci = _PageRenderer(belge, self)
-        self._isci.hazir.connect(self._cizildi)
-        self._isci.start()
+        self._worker = _PageRenderer(belge, self)
+        self._worker.ready.connect(self._cizildi)
+        self._worker.start()
 
-        self._yerlesim()
+        self._layout()
         self._update_bars()
 
     # life cycle
@@ -491,19 +491,19 @@ class ContinuousPdfView(QAbstractScrollArea):
         be inside pdfium. The render cache is emptied here too; images holding
         tens of megabytes must not linger behind a closed window.
         """
-        self._istek_zamanlayici.stop()
-        if self._isci is not None:
-            self._isci.durdur()
-            self._isci = None
+        self._request_timer.stop()
+        if self._worker is not None:
+            self._worker.durdur()
+            self._worker = None
         self._onbellek.clear()
-        self._bekleyen.clear()
+        self._pending.clear()
 
     # layout
 
-    def _olcu(self, sayfa: int) -> Tuple[float, float]:
-        return self._pt.get(sayfa, self._default)
+    def _measure(self, page: int) -> Tuple[float, float]:
+        return self._pt.get(page, self._default)
 
-    def _yerlesim(self) -> None:
+    def _layout(self) -> None:
         """Recomputes the page rectangles (796 items: microseconds).
 
         The sizes are rounded TO WHOLE PIXELS. A fractional target rectangle
@@ -515,74 +515,74 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._w = []
         self._h = []
         self._y = []
-        self._alt = []
-        y = float(self.KENAR)
+        self._bottom = []
+        y = float(self.MARGIN)
         for i in range(self._count):
-            wpt, hpt = self._olcu(i)
-            w = float(max(1, int(round(wpt * self._olcek))))
-            h = float(max(1, int(round(hpt * self._olcek))))
+            wpt, hpt = self._measure(i)
+            w = float(max(1, int(round(wpt * self._scale))))
+            h = float(max(1, int(round(hpt * self._scale))))
             self._w.append(w)
             self._h.append(h)
             self._y.append(y)
-            self._alt.append(y + h)
-            y += h + self.BOSLUK
-        self._toplam = (y - self.BOSLUK + self.KENAR) if self._count else 0.0
+            self._bottom.append(y + h)
+            y += h + self.GAP
+        self._total = (y - self.GAP + self.MARGIN) if self._count else 0.0
 
     def _update_bars(self) -> None:
-        olcu = self.viewport().size()
-        dikey = max(0, int(round(self._toplam - olcu.height())))
+        measure = self.viewport().size()
+        dikey = max(0, int(round(self._total - measure.height())))
         cubuk = self.verticalScrollBar()
         cubuk.setRange(0, dikey)
-        cubuk.setPageStep(max(1, olcu.height() - 24))
-        cubuk.setSingleStep(max(1, olcu.height() // 12))
+        cubuk.setPageStep(max(1, measure.height() - 24))
+        cubuk.setSingleStep(max(1, measure.height() // 12))
 
-        content = (max(self._w) if self._w else 0.0) + 2 * self.KENAR
-        yatay = max(0, int(round(content - olcu.width())))
+        content = (max(self._w) if self._w else 0.0) + 2 * self.MARGIN
+        yatay = max(0, int(round(content - measure.width())))
         ycubuk = self.horizontalScrollBar()
         ycubuk.setRange(0, yatay)
-        ycubuk.setPageStep(max(1, olcu.width()))
-        ycubuk.setSingleStep(max(1, olcu.width() // 12))
+        ycubuk.setPageStep(max(1, measure.width()))
+        ycubuk.setSingleStep(max(1, measure.width() // 12))
 
-    def _sayfa_x(self, genislik: float) -> float:
+    def _page_x(self, genislik: float) -> float:
         visible = self.viewport().width()
-        if genislik + 2 * self.KENAR <= visible:
+        if genislik + 2 * self.MARGIN <= visible:
             return float(int((visible - genislik) / 2.0))
-        return float(self.KENAR - self.horizontalScrollBar().value())
+        return float(self.MARGIN - self.horizontalScrollBar().value())
 
     # anchor
 
     def _capa_al(self) -> Tuple[int, float]:
         """Records the point being looked at, relative to the page, before a scale change."""
         deger = float(self.verticalScrollBar().value())
-        sayfa = self._sayfa_at(deger)
-        yukseklik = self._h[sayfa] if self._h else 1.0
+        page = self._page_at(deger)
+        yukseklik = self._h[page] if self._h else 1.0
         if yukseklik <= 0.0:
-            return (sayfa, 0.0)
-        return (sayfa, (deger - self._y[sayfa]) / yukseklik)
+            return (page, 0.0)
+        return (page, (deger - self._y[page]) / yukseklik)
 
     def _capa_uygula(self, capa: Tuple[int, float]) -> None:
-        sayfa, oran = capa
+        page, oran = capa
         if not self._y:
             return
-        sayfa = max(0, min(sayfa, self._count - 1))
-        target = self._y[sayfa] + oran * self._h[sayfa]
+        page = max(0, min(page, self._count - 1))
+        target = self._y[page] + oran * self._h[page]
         self.verticalScrollBar().setValue(int(round(target)))
 
-    def _sayfa_at(self, y: float) -> int:
-        if not self._alt:
+    def _page_at(self, y: float) -> int:
+        if not self._bottom:
             return 0
-        i = bisect.bisect_right(self._alt, y)
+        i = bisect.bisect_right(self._bottom, y)
         return max(0, min(i, self._count - 1))
 
     # navigation
 
     def current_page(self) -> int:
-        return self._gecerli
+        return self._current
 
     def page_count(self) -> int:
         return self._count
 
-    def goto(self, sayfa: int) -> None:
+    def goto(self, page: int) -> None:
         """Goes to the requested page and makes it the CURRENT page.
 
         The "page covering the most area", derived from the scroll position, IS
@@ -594,13 +594,13 @@ class ContinuousPdfView(QAbstractScrollArea):
         """
         if not self._y:
             return
-        sayfa = max(0, min(sayfa, self._count - 1))
+        page = max(0, min(page, self._count - 1))
         self.verticalScrollBar().setValue(
-            int(round(self._y[sayfa] - self.KENAR)))
+            int(round(self._y[page] - self.MARGIN)))
         first, sonu = self._visible_range()
-        if first <= sayfa <= sonu and self._gecerli != sayfa:
-            self._gecerli = sayfa
-            self.sayfa_degisti.emit(sayfa)
+        if first <= page <= sonu and self._current != page:
+            self._current = page
+            self.page_changed.emit(page)
 
     def _update_current(self) -> None:
         """The current page: the page COVERING THE MOST AREA in the view.
@@ -620,11 +620,11 @@ class ContinuousPdfView(QAbstractScrollArea):
         goes to the BOTTOMMOST fully visible page.
 
         """
-        if not self._alt:
+        if not self._bottom:
             return
         cubuk = self.verticalScrollBar()
-        ust = float(cubuk.value())
-        alt = ust + self.viewport().height()
+        top = float(cubuk.value())
+        bottom = top + self.viewport().height()
         sonda = cubuk.value() >= cubuk.maximum() and cubuk.maximum() > 0
         first, sonu = self._visible_range()
         # The scan is bounded: at the smallest scale many pages can fit in the
@@ -633,17 +633,17 @@ class ContinuousPdfView(QAbstractScrollArea):
         en_iyi = first
         en_cok = -1.0
         for i in range(first, sonu + 1):
-            pay = min(self._alt[i], alt) - max(self._y[i], ust)
+            share = min(self._bottom[i], bottom) - max(self._y[i], top)
             if sonda:
-                if pay >= en_cok - 0.5:
-                    en_cok = max(en_cok, pay)
+                if share >= en_cok - 0.5:
+                    en_cok = max(en_cok, share)
                     en_iyi = i
-            elif pay > en_cok + 0.5:
-                en_cok = pay
+            elif share > en_cok + 0.5:
+                en_cok = share
                 en_iyi = i
-        if en_iyi != self._gecerli:
-            self._gecerli = en_iyi
-            self.sayfa_degisti.emit(en_iyi)
+        if en_iyi != self._current:
+            self._current = en_iyi
+            self.page_changed.emit(en_iyi)
 
     # zoom
 
@@ -666,35 +666,35 @@ class ContinuousPdfView(QAbstractScrollArea):
         capa = self._capa_al()
         self._mode = mode
         self._zoom = zoom
-        self._olcek = self._temel * zoom
-        self._yerlesim()
+        self._scale = self._temel * zoom
+        self._layout()
         self._update_bars()
         self._capa_uygula(capa)
         # Applying the anchor produces a scroll; but that is not a scroll the user
         # dragged. The pages at the new scale must be requested IMMEDIATELY.
         self._hizli = False
         self._update_current()
-        self.olcek_degisti.emit(self._zoom)
+        self.scale_changed.emit(self._zoom)
         self.viewport().update()
 
     def fit_width(self) -> None:
-        self._sigdir("genislik")
+        self._fit("genislik")
 
     def fit_page(self) -> None:
-        self._sigdir("sayfa")
+        self._fit("sayfa")
 
-    def _sigdir(self, mode: str) -> None:
-        wpt, hpt = self._olcu(self._gecerli)
+    def _fit(self, mode: str) -> None:
+        wpt, hpt = self._measure(self._current)
         if wpt <= 0.0 or hpt <= 0.0:
             return
         # A 1 pixel margin: rounding must not bring up a horizontal bar and change
         # the view width, or fitting would oscillate.
-        field_w = max(1.0, self.viewport().width() - 2.0 * self.KENAR - 1.0)
-        olcek = field_w / wpt
+        field_w = max(1.0, self.viewport().width() - 2.0 * self.MARGIN - 1.0)
+        scale = field_w / wpt
         if mode == "sayfa":
-            field_y = max(1.0, self.viewport().height() - 2.0 * self.KENAR)
-            olcek = min(olcek, field_y / hpt)
-        self.set_zoom(olcek / self._temel, mode)
+            field_y = max(1.0, self.viewport().height() - 2.0 * self.MARGIN)
+            scale = min(scale, field_y / hpt)
+        self.set_zoom(scale / self._temel, mode)
 
     # painting
 
@@ -705,14 +705,14 @@ class ContinuousPdfView(QAbstractScrollArea):
             return
         boyaci.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
-        ust = float(self.verticalScrollBar().value())
+        top = float(self.verticalScrollBar().value())
         first, sonu = self._visible_range()
 
         kagit = QColor("#FFFFFF")
         cerceve = QColor(C.BORDER_LIGHT)
         soluk = QColor(C.TEXT_DIM)
         for i in range(first, sonu + 1):
-            target = QRectF(self._sayfa_x(self._w[i]), self._y[i] - ust,
+            target = QRectF(self._page_x(self._w[i]), self._y[i] - top,
                            self._w[i], self._h[i])
             boyaci.fillRect(target, kagit)
             girdi = self._onbellek.get(i)
@@ -737,25 +737,25 @@ class ContinuousPdfView(QAbstractScrollArea):
         # The requests are issued AFTER the scrolling STOPS; until then the pages
         # show as placeholders.
         if self._hizli:
-            self._istek_zamanlayici.start()
+            self._request_timer.start()
         else:
-            ilk2, sonu2 = self._istek_araligi()
-            self._istekleri_yenile(ilk2, sonu2)
+            ilk2, sonu2 = self._request_range()
+            self._refresh_requests(ilk2, sonu2)
 
     def _visible_range(self) -> Tuple[int, int]:
         """The first and last page (even partly) present in the view."""
-        if not self._alt:
+        if not self._bottom:
             return (0, 0)
-        ust = float(self.verticalScrollBar().value())
-        alt = ust + self.viewport().height()
-        first = max(0, bisect.bisect_right(self._alt, ust))
+        top = float(self.verticalScrollBar().value())
+        bottom = top + self.viewport().height()
+        first = max(0, bisect.bisect_right(self._bottom, top))
         first = min(first, self._count - 1)
-        sonu = min(self._count - 1, bisect.bisect_left(self._y, alt) - 1)
+        sonu = min(self._count - 1, bisect.bisect_left(self._y, bottom) - 1)
         if sonu < first:
             sonu = first
         return (first, sonu)
 
-    def _istek_araligi(self) -> Tuple[int, int]:
+    def _request_range(self) -> Tuple[int, int]:
         """The range of pages to request for rendering.
 
         One before and one after the visible ones are requested too, so a page
@@ -765,17 +765,17 @@ class ContinuousPdfView(QAbstractScrollArea):
         would blow the cache and start an evict-and-redraw loop.
         """
         first, sonu = self._visible_range()
-        tahmin = self._tahmini_bayt(self._gecerli)
+        tahmin = self._tahmini_bayt(self._current)
         if tahmin * (sonu - first + 3) <= self.ONBELLEK_BAYT:
             first = max(0, first - 1)
             sonu = min(self._count - 1, sonu + 1)
         return (first, sonu)
 
-    def _piksel_olcu(self, sayfa: int) -> Tuple[int, int]:
+    def _pixel_size(self, page: int) -> Tuple[int, int]:
         """The REAL pixel size the page will be requested at."""
         oran = self.devicePixelRatioF() or 1.0
-        g = max(1, int(round(self._w[sayfa] * oran)))
-        y = max(1, int(round(self._h[sayfa] * oran)))
+        g = max(1, int(round(self._w[page] * oran)))
+        y = max(1, int(round(self._h[page] * oran)))
         if g > self.PIKSEL_SINIRI:
             y = max(1, int(round(y * self.PIKSEL_SINIRI / float(g))))
             g = self.PIKSEL_SINIRI
@@ -785,58 +785,58 @@ class ContinuousPdfView(QAbstractScrollArea):
             y = max(1, int(y * kucult))
         return (g, y)
 
-    def _tahmini_bayt(self, sayfa: int) -> int:
+    def _tahmini_bayt(self, page: int) -> int:
         if not self._w:
             return 0
-        sayfa = max(0, min(sayfa, self._count - 1))
-        g, y = self._piksel_olcu(sayfa)
+        page = max(0, min(page, self._count - 1))
+        g, y = self._pixel_size(page)
         return max(1, g * y * 4)
 
-    def _istekleri_yenile(self, first: int, sonu: int) -> None:
+    def _refresh_requests(self, first: int, sonu: int) -> None:
         # Pending requests that have left the view are cleared.
-        for sayfa in list(self._bekleyen):
-            if sayfa < first or sayfa > sonu:
-                del self._bekleyen[sayfa]
-        for sayfa in range(first, sonu + 1):
-            gerek = self._piksel_olcu(sayfa)
-            girdi = self._onbellek.get(sayfa)
+        for page in list(self._pending):
+            if page < first or page > sonu:
+                del self._pending[page]
+        for page in range(first, sonu + 1):
+            gerek = self._pixel_size(page)
+            girdi = self._onbellek.get(page)
             if girdi is not None and (girdi[0], girdi[1]) == gerek:
                 continue
-            if self._bekleyen.get(sayfa) == gerek:
+            if self._pending.get(page) == gerek:
                 continue
-            self._bekleyen[sayfa] = gerek
-            if self._isci is not None:
-                for dusen in self._isci.iste(sayfa, gerek[0], gerek[1]):
+            self._pending[page] = gerek
+            if self._worker is not None:
+                for dusen in self._worker.request_page(page, gerek[0], gerek[1]):
                     # A request DROPPED from the queue never comes back; without removing
                     # the pending mark, that page would stay a placeholder forever.
                     # tutucu olarak kalirdi.
-                    self._bekleyen.pop(dusen, None)
+                    self._pending.pop(dusen, None)
 
-    def _cizildi(self, sayfa: int, genislik: int, goruntu: QImage,
+    def _cizildi(self, page: int, genislik: int, image: QImage,
                  wpt: float, hpt: float) -> None:
-        bekleyen = self._bekleyen.get(sayfa)
-        if bekleyen is not None and bekleyen[0] == genislik:
-            del self._bekleyen[sayfa]
-        if goruntu.isNull():
+        pending = self._pending.get(page)
+        if pending is not None and pending[0] == genislik:
+            del self._pending[page]
+        if image.isNull():
             return
-        self._onbellege_koy(sayfa, genislik, goruntu.height(), goruntu)
+        self._onbellege_koy(page, genislik, image.height(), image)
 
         # When the real size differs from the estimate the layout is corrected.
         # Because every page in this document is the same size it normally never
         # runs; on a document with mixed sizes the view pulls itself together.
         # toparlar.
-        previous = self._pt.get(sayfa)
-        self._pt[sayfa] = (wpt, hpt)
+        previous = self._pt.get(page)
+        self._pt[page] = (wpt, hpt)
         if previous is None and (abs(wpt - self._default[0]) > 0.5
                                or abs(hpt - self._default[1]) > 0.5):
             capa = self._capa_al()
-            self._yerlesim()
+            self._layout()
             self._update_bars()
             self._capa_uygula(capa)
         self.viewport().update()
 
-    def _onbellege_koy(self, sayfa: int, genislik: int, yukseklik: int,
-                       goruntu: QImage) -> None:
+    def _onbellege_koy(self, page: int, genislik: int, yukseklik: int,
+                       image: QImage) -> None:
         """Stores a render; pages IN THE REQUESTED RANGE are NEVER evicted.
 
         THE BUG WE HIT: the eviction loop said "keep at least two entries", while
@@ -851,24 +851,24 @@ class ContinuousPdfView(QAbstractScrollArea):
         The fix: the requested range is protected. The budget may be exceeded,
         but the excess is that range and is bounded; an endless loop was not.
         """
-        self._onbellek.pop(sayfa, None)
-        self._onbellek[sayfa] = (genislik, yukseklik, goruntu)
-        first, sonu = self._istek_araligi()
-        toplam = sum(g.sizeInBytes() for _, _, g in self._onbellek.values())
+        self._onbellek.pop(page, None)
+        self._onbellek[page] = (genislik, yukseklik, image)
+        first, sonu = self._request_range()
+        total = sum(g.sizeInBytes() for _, _, g in self._onbellek.values())
         for anahtar in list(self._onbellek):
-            if toplam <= self.ONBELLEK_BAYT:
+            if total <= self.ONBELLEK_BAYT:
                 break
             if first <= anahtar <= sonu:
                 continue
-            toplam -= self._onbellek.pop(anahtar)[2].sizeInBytes()
+            total -= self._onbellek.pop(anahtar)[2].sizeInBytes()
 
-    def _gecikmeli_istek(self) -> None:
+    def _delayed_request(self) -> None:
         """Scrolling stopped: now the pages really being looked at are requested."""
         self._hizli = False
         if not self._count:
             return
-        first, sonu = self._istek_araligi()
-        self._istekleri_yenile(first, sonu)
+        first, sonu = self._request_range()
+        self._refresh_requests(first, sonu)
         self.viewport().update()
 
     # events
@@ -878,7 +878,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         # Scrolling is assumed to continue; the timer restarts on every step, so a
         # render is requested only once the scrolling STOPS.
         self._hizli = True
-        self._istek_zamanlayici.start()
+        self._request_timer.start()
         self._update_current()
         self.viewport().update()
 
@@ -886,7 +886,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         super().resizeEvent(event)
         capa = self._capa_al()
         if self._mode in ("genislik", "sayfa"):
-            self._sigdir(self._mode)
+            self._fit(self._mode)
         # The scroll range depends ON THE VIEW HEIGHT and has to be refreshed even
         # when the scale does not change at all.
         #
@@ -1006,12 +1006,12 @@ class SpecWindow(QMainWindow):
         self.lbl_page.setFont(ui_font(9))
         self.lbl_page.setAccessibleName("Current page")
         self.statusBar().addPermanentWidget(self.lbl_page)
-        kalici = QLabel(" %s " % self.SURUM)
-        kalici.setFont(ui_font(9))
-        self.statusBar().addPermanentWidget(kalici)
+        permanent = QLabel(" %s " % self.SURUM)
+        permanent.setFont(ui_font(9))
+        self.statusBar().addPermanentWidget(permanent)
 
-        self.view.sayfa_degisti.connect(self._sayfa_degisti)
-        self.view.olcek_degisti.connect(self._olcek_degisti)
+        self.view.page_changed.connect(self._page_changed)
+        self.view.scale_changed.connect(self._scale_changed)
 
         self._pencereyi_olc()
         self.view.fit_width()
@@ -1054,16 +1054,16 @@ class SpecWindow(QMainWindow):
 
     # toolbar
 
-    def _eylem(self, bar: QToolBar, text: str, kisayol: str, geri) -> QAction:
-        eylem = QAction(text, self)
-        eylem.setShortcut(kisayol)
+    def _action(self, bar: QToolBar, text: str, kisayol: str, geri) -> QAction:
+        action = QAction(text, self)
+        action.setShortcut(kisayol)
         # It is VISIBLE in the shortcut tooltip: the toolbar carries text rather
         # than icons, and the key assignment cannot be discovered otherwise.
-        eylem.setToolTip("%s  (%s)" % (text, kisayol))
-        eylem.setStatusTip(eylem.toolTip())
-        eylem.triggered.connect(geri)
-        bar.addAction(eylem)
-        return eylem
+        action.setToolTip("%s  (%s)" % (text, kisayol))
+        action.setStatusTip(action.toolTip())
+        action.triggered.connect(geri)
+        bar.addAction(action)
+        return action
 
     def _build_toolbar(self) -> None:
         bar = QToolBar("Navigation", self)
@@ -1075,15 +1075,15 @@ class SpecWindow(QMainWindow):
         # Bare PageUp/PageDown were DELIBERATELY not used: those keys have to
         # scroll the document. Bound to actions they would never reach the view and
         # scrolling would break completely.
-        self.a_first = self._eylem(bar, "First page", "Ctrl+Home",
+        self.a_first = self._action(bar, "First page", "Ctrl+Home",
                                    lambda: self.view.goto(0))
-        self.a_prev = self._eylem(
+        self.a_prev = self._action(
             bar, "Previous page", "Ctrl+PgUp",
             lambda: self.view.goto(self.view.current_page() - 1))
-        self.a_next = self._eylem(
+        self.a_next = self._action(
             bar, "Next page", "Ctrl+PgDown",
             lambda: self.view.goto(self.view.current_page() + 1))
-        self.a_last = self._eylem(bar, "Last page", "Ctrl+End",
+        self.a_last = self._action(bar, "Last page", "Ctrl+End",
                                   lambda: self.view.goto(last))
         bar.addSeparator()
 
@@ -1106,7 +1106,7 @@ class SpecWindow(QMainWindow):
         bar.addWidget(sarmal)
         bar.addSeparator()
 
-        self.a_zoom_out = self._eylem(bar, "Zoom out", "Ctrl+-",
+        self.a_zoom_out = self._action(bar, "Zoom out", "Ctrl+-",
                                       self.view.zoom_out)
         self.lbl_zoom = QLabel()
         self.lbl_zoom.setFont(ui_font(9))
@@ -1115,11 +1115,11 @@ class SpecWindow(QMainWindow):
         self.lbl_zoom.setMinimumWidth(52)
         self.lbl_zoom.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bar.addWidget(self.lbl_zoom)
-        self.a_zoom_in = self._eylem(bar, "Zoom in", "Ctrl++",
+        self.a_zoom_in = self._action(bar, "Zoom in", "Ctrl++",
                                      self.view.zoom_in)
-        self.a_fit_width = self._eylem(bar, "Fit width", "Ctrl+0",
+        self.a_fit_width = self._action(bar, "Fit width", "Ctrl+0",
                                        self.view.fit_width)
-        self.a_fit_page = self._eylem(bar, "Fit page", "Ctrl+9",
+        self.a_fit_page = self._action(bar, "Fit page", "Ctrl+9",
                                       self.view.fit_page)
         bar.addSeparator()
 
@@ -1127,7 +1127,7 @@ class SpecWindow(QMainWindow):
         # only action without a shortcut; once the toolbar was narrow and it fell
         # into the overflow menu, it became UNREACHABLE from the keyboard (toolbar
         # buttons do not take focus and the window has no menu bar).
-        self.a_web = self._eylem(
+        self.a_web = self._action(
             bar, "Open the spec page", "Ctrl+Shift+O",
             lambda: QDesktopServices.openUrl(QUrl(SPEC_PAGE)))
         self.a_web.setToolTip("Open %s in the browser  (Ctrl+Shift+O)"
@@ -1149,24 +1149,24 @@ class SpecWindow(QMainWindow):
         if deger - 1 != self.view.current_page():
             self.view.goto(deger - 1)
 
-    def _sayfa_degisti(self, sayfa: int) -> None:
-        if self.spin.value() != sayfa + 1:
+    def _page_changed(self, page: int) -> None:
+        if self.spin.value() != page + 1:
             self.spin.blockSignals(True)
-            self.spin.setValue(sayfa + 1)
+            self.spin.setValue(page + 1)
             self.spin.blockSignals(False)
         self._write_state()
 
-    def _olcek_degisti(self, _zoom: float) -> None:
+    def _scale_changed(self, _zoom: float) -> None:
         self._write_scale()
 
     def _write_state(self) -> None:
-        sayfa = self.view.current_page()
+        page = self.view.current_page()
         last = self.doc.pageCount() - 1
-        self.lbl_page.setText(" Page %d of %d " % (sayfa + 1, last + 1))
-        self.a_first.setEnabled(sayfa > 0)
-        self.a_prev.setEnabled(sayfa > 0)
-        self.a_next.setEnabled(sayfa < last)
-        self.a_last.setEnabled(sayfa < last)
+        self.lbl_page.setText(" Page %d of %d " % (page + 1, last + 1))
+        self.a_first.setEnabled(page > 0)
+        self.a_prev.setEnabled(page > 0)
+        self.a_next.setEnabled(page < last)
+        self.a_last.setEnabled(page < last)
 
     def _write_scale(self) -> None:
         zoom = self.view.zoom_factor()

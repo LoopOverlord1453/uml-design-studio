@@ -158,8 +158,8 @@ class CodePanel(QWidget):
         A fixed number cannot be written: when the font grows (interface
         scaling, a different DPI) the strip grows and the panel clips again.
         """
-        kenar = 10 + 10 + 8 * 4          # margins + spacing between items
-        needed = kenar + self.language.minimumWidth()
+        margin = 10 + 10 + 8 * 4          # margins + spacing between items
+        needed = margin + self.language.minimumWidth()
         for button in self._header_buttons:
             needed += button.sizeHint().width()
         if needed != self.minimumWidth():

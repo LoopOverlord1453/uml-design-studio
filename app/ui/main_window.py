@@ -113,10 +113,10 @@ def _mnemonic(action, text: str) -> None:
     Toolbar tooltips must not contain `&`; because Qt's `QAction.text()` value
     is used both in the menu and in the tooltip, the tooltip is kept separately.
     """
-    ipucu = action.toolTip()
+    tooltip = action.toolTip()
     action.setText(text)
-    if ipucu and "&" not in ipucu:
-        action.setToolTip(ipucu)
+    if tooltip and "&" not in tooltip:
+        action.setToolTip(tooltip)
 
 
 STATE_TOOLS = [
@@ -617,10 +617,10 @@ class MainWindow(QMainWindow):
         self.flash("Design window opened — the main window is free now.")
 
     def _attach_page(self, mode: str) -> None:
-        kayit = self._detached.pop(mode, None)
-        if kayit is None:
+        record = self._detached.pop(mode, None)
+        if record is None:
             return
-        win, page = kayit
+        win, page = record
         stack = self._state_stack if mode == "state" else self._class_stack
         win.on_close = None                 # break the callback LOOP
         page.setParent(None)
@@ -1175,7 +1175,7 @@ class MainWindow(QMainWindow):
 
         def tool_actions_of(spec, actions):
             out = []
-            for tool, _t, _k, _i, _tip in spec:
+            for tool, _t, _k, _i, _type_name in spec:
                 out.append(actions[tool])
             return out
 
@@ -2170,17 +2170,17 @@ class MainWindow(QMainWindow):
         self._menus_examples = gal
         for baslik, liste, kip in (("&State Machine", STATE_EXAMPLES, "state"),
                                    ("&Class Diagram", CLASS_EXAMPLES, "class")):
-            alt = gal.addMenu(baslik)
+            submenu = gal.addMenu(baslik)
             for example in liste:
                 eylem = QAction(example.title, self)
-                ipucu = "%s\n%s\nUML 2.5.1 §%s" % (
+                tooltip = "%s\n%s\nUML 2.5.1 §%s" % (
                     example.teaches, example.summary, example.reference)
-                eylem.setToolTip(ipucu)
+                eylem.setToolTip(tooltip)
                 eylem.setStatusTip("%s — %s" % (example.teaches, example.summary))
                 eylem.triggered.connect(
                     lambda _c=False, o=example, k=kip: self.load_example(o, k))
-                alt.addAction(eylem)
-            alt.setToolTipsVisible(True)
+                submenu.addAction(eylem)
+            submenu.setToolTipsVisible(True)
         gal.setToolTipsVisible(True)
 
     def load_example(self, example, kip: str) -> None:
@@ -2865,9 +2865,9 @@ class MainWindow(QMainWindow):
         for eylem, anahtar in ((self.a_snap, "snap_to_grid"),
                                (self.a_align, "align_guides"),
                                (self.a_grid, "show_grid")):
-            kayit = self.settings.value(anahtar)
-            if kayit is not None:
-                acik = kayit in (True, "true", "True", 1, "1")
+            record = self.settings.value(anahtar)
+            if record is not None:
+                acik = record in (True, "true", "True", 1, "1")
                 eylem.setChecked(acik)
                 eylem.triggered.emit(acik)
 

@@ -205,12 +205,12 @@ class ProblemsPanel(QTreeWidget):
             item.setForeground(3, QBrush(QColor(C.ACCENT)))
         item.setFont(3, mono_font(8))
 
-        ipucu = "%s\n\n%s" % (ref.rule, ref.citation())
+        tooltip = "%s\n\n%s" % (ref.rule, ref.citation())
         if not ref.is_tool_rule:
-            ipucu += "\n%s  (%s)" % (uml_spec.SPEC_TITLE,
+            tooltip += "\n%s  (%s)" % (uml_spec.SPEC_TITLE,
                                      uml_spec.SPEC_DOCUMENT)
         for col in range(4):
-            item.setToolTip(col, ipucu)
+            item.setToolTip(col, tooltip)
 
     def _activate(self, item: QTreeWidgetItem, _col: int) -> None:
         eid = item.data(0, ID_ROLE)

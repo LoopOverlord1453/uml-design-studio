@@ -521,11 +521,11 @@ class WorkspaceTree(QTreeWidget):
             metin += ("\n\nIt is open in the editor and will be closed; "
                       "the canvas will be emptied.")
 
-        cevap = QMessageBox.warning(
+        answer = QMessageBox.warning(
             self, "Remove model", metin,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
-        if cevap != QMessageBox.StandardButton.Yes:
+        if answer != QMessageBox.StandardButton.Yes:
             return
 
         try:

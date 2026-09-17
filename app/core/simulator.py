@@ -120,14 +120,14 @@ class Simulator:
         eylem = "" if tran.action < 0 else " ".join(
             self.ir.actions[tran.action].split())
 
-        orta = olay if olay else "completion"
+        middle = olay if olay else "completion"
         if koruma:
-            orta += " [%s]" % koruma
+            middle += " [%s]" % koruma
         if eylem:
-            orta += " / %s" % eylem
+            middle += " / %s" % eylem
         if tran.kind == TKIND_INTERNAL:
-            return "%s --%s-- (internal, stays in %s)" % (kaynak, orta, kaynak)
-        return "%s --%s--> %s" % (kaynak, orta, hedef)
+            return "%s --%s-- (internal, stays in %s)" % (kaynak, middle, kaynak)
+        return "%s --%s--> %s" % (kaynak, middle, hedef)
 
     def _name(self, index: int) -> str:
         return self.ir.states[index].name if index != NONE else "<none>"
@@ -233,23 +233,23 @@ class Simulator:
         order (14.2.3.8.3); the tool fixes it and writes it in the header.
         """
         # Stack items: [state, the index of the next region to process]
-        yigin: List[List[int]] = [[index, 0]]
-        adim = 0
-        while yigin and adim < MAX_WALK_STEPS:
-            adim += 1
-            cur, k = yigin[-1]
+        stack: List[List[int]] = [[index, 0]]
+        step = 0
+        while stack and step < MAX_WALK_STEPS:
+            step += 1
+            cur, k = stack[-1]
             st = self.ir.states[cur]
             if k >= st.region_count:
-                yigin.pop()
+                stack.pop()
                 continue
-            yigin[-1][1] = k + 1
+            stack[-1][1] = k + 1
             reg = self.ir.regions[st.first_region + k]
             hedef = reg.initial_state
             if hedef == NONE:
                 continue
             self._exec_action(reg.initial_action)
             self._enter_one(hedef)
-            yigin.append([hedef, 0])
+            stack.append([hedef, 0])
 
     def _deepest_active_below(self, index: int) -> int:
         """The DEEPEST active state under `index` (NONE if there is none).
@@ -258,9 +258,9 @@ class Simulator:
         """
         found = NONE
         dugum = index
-        adim = 0
-        while adim < MAX_WALK_STEPS:
-            adim += 1
+        step = 0
+        while step < MAX_WALK_STEPS:
+            step += 1
             st = self.ir.states[dugum]
             next_ = NONE
             for k in range(st.region_count - 1, -1, -1):
@@ -276,9 +276,9 @@ class Simulator:
 
     def _exit_below(self, index: int) -> None:
         """Closes everything under `index`; `index` itself stays."""
-        adim = 0
-        while adim < MAX_WALK_STEPS:
-            adim += 1
+        step = 0
+        while step < MAX_WALK_STEPS:
+            step += 1
             hedef = self._deepest_active_below(index)
             if hedef == NONE:
                 return
@@ -294,11 +294,11 @@ class Simulator:
         """
         zincir: List[int] = []
         s = target
-        adim = 0
-        while s != top and s != NONE and adim <= MAX_WALK_STEPS:
+        step = 0
+        while s != top and s != NONE and step <= MAX_WALK_STEPS:
             zincir.append(s)
             s = self._parent(s)
-            adim += 1
+            step += 1
         zincir.reverse()
         for i, cur in enumerate(zincir):
             self._enter_one(cur)
@@ -324,9 +324,9 @@ class Simulator:
     def _leaf_of(self, index: int) -> int:
         """The REPRESENTATIVE leaf for display: always descend the FIRST region."""
         cur = index
-        adim = 0
-        while cur != NONE and adim <= MAX_WALK_STEPS:
-            adim += 1
+        step = 0
+        while cur != NONE and step <= MAX_WALK_STEPS:
+            step += 1
             st = self.ir.states[cur]
             if st.region_count <= 0:
                 return cur
@@ -376,23 +376,23 @@ class Simulator:
         The walk is BREADTH FIRST: entry goes outside in, regions in ascending
         order, and two runs give the same order.
         """
-        kuyruk: List[int] = [index]
-        adim = 0
-        while kuyruk and adim < MAX_WALK_STEPS:
-            adim += 1
-            cur = kuyruk.pop(0)
+        queue: List[int] = [index]
+        step = 0
+        while queue and step < MAX_WALK_STEPS:
+            step += 1
+            cur = queue.pop(0)
             for r in self.ir.regions_of(cur):
-                kayit = self.history[r]
+                record = self.history[r]
                 reg = self.ir.regions[r]
-                if kayit == NONE:
+                if record == NONE:
                     if reg.initial_state == NONE:
                         continue
                     self._exec_action(reg.initial_action)
                     self._enter_one(reg.initial_state)
                     self._activate_below(reg.initial_state)
                     continue
-                self._enter_one(kayit)
-                kuyruk.append(kayit)
+                self._enter_one(record)
+                queue.append(record)
 
     def _land(self, target: int) -> int:
         """Determines the real leaf state once the transition target is reached."""
@@ -447,17 +447,17 @@ class Simulator:
         # turns; yet Work's current substate (W1) MUST BE CLOSED. Which region is
         # affected is told by the TARGET's path: the region of the vertex right
         # below `top`.
-        alt = tran.target
-        adim = 0
-        while (self._parent(alt) != top and self._parent(alt) != NONE
-               and adim <= MAX_WALK_STEPS):
-            alt = self._parent(alt)
-            adim += 1
-        bolge = self._region_of(alt)
+        child_node = tran.target
+        step = 0
+        while (self._parent(child_node) != top and self._parent(child_node) != NONE
+               and step <= MAX_WALK_STEPS):
+            child_node = self._parent(child_node)
+            step += 1
+        bolge = self._region_of(child_node)
         s = self.active[bolge] if bolge != REGION_NONE else NONE
-        adim = 0
-        while s != top and s != NONE and adim <= MAX_WALK_STEPS:
-            adim += 1
+        step = 0
+        while s != top and s != NONE and step <= MAX_WALK_STEPS:
+            step += 1
             self._exit_below(s)
             self._exit_one(s)
             s = self._parent(s)
@@ -508,13 +508,13 @@ class Simulator:
         """
         kapsanan = set()
         for hedef in hedefler:
-            alt = hedef
-            adim = 0
-            while (self._parent(alt) != sahip and self._parent(alt) != NONE
-                   and adim <= MAX_WALK_STEPS):
-                alt = self._parent(alt)
-                adim += 1
-            kapsanan.add(self._region_of(alt))
+            child_node = hedef
+            step = 0
+            while (self._parent(child_node) != sahip and self._parent(child_node) != NONE
+                   and step <= MAX_WALK_STEPS):
+                child_node = self._parent(child_node)
+                step += 1
+            kapsanan.add(self._region_of(child_node))
             self._enter_path(hedef, sahip)
             self._activate_below(hedef)
         for r in self.ir.regions_of(sahip):
@@ -530,9 +530,9 @@ class Simulator:
     def _select(self, region: int, event_index: int):
         """Walks up from the leaf of a region and finds the FIRST enabled transition."""
         s = self.active[region]
-        adim = 0
-        while s != NONE and adim <= MAX_WALK_STEPS:
-            adim += 1
+        step = 0
+        while s != NONE and step <= MAX_WALK_STEPS:
+            step += 1
             first, count = self.ir.tran_slice.get(s, (0, 0))
             for i in range(count):
                 tran = self.ir.transitions[first + i]
@@ -679,9 +679,9 @@ class Simulator:
             reg = self.ir.regions[r]
             self._exec_action(reg.initial_action)
             self._enter_path(reg.initial_state, NONE)
-            yaprak = self._land(reg.initial_state)
+            leaf = self._land(reg.initial_state)
             if self.state == NONE:
-                self.state = yaprak
+                self.state = leaf
         if self.terminated:
             self.completion_pending = [False] * self.ir.region_count
         self._run_to_completion()
@@ -716,11 +716,11 @@ class Simulator:
 
     def _drain_deferred(self) -> None:
         """Takes the events that are no longer deferred out of the pool."""
-        adim = 0
-        while adim < MAX_DEFERRED * 2:
+        step = 0
+        while step < MAX_DEFERRED * 2:
             if self.terminated:
                 return                         # a terminated machine processes no event
-            adim += 1
+            step += 1
             siradaki = None
             for index in self.deferred_pool:
                 if not self._is_deferred(index):

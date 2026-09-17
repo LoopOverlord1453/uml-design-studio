@@ -88,11 +88,11 @@ class CanvasNavigation:
         kayma = sonrasi - before
         if kayma.isNull():
             return
-        olcek = self.transform().m11() or 1.0
+        scale = self.transform().m11() or 1.0
         dikey = self.transform().m22() or 1.0
         yatay_cubuk = self.horizontalScrollBar()
         dikey_cubuk = self.verticalScrollBar()
-        yatay_cubuk.setValue(yatay_cubuk.value() + int(round(kayma.x() * olcek)))
+        yatay_cubuk.setValue(yatay_cubuk.value() + int(round(kayma.x() * scale)))
         dikey_cubuk.setValue(dikey_cubuk.value() + int(round(kayma.y() * dikey)))
 
     def _grow_scene(self, rect: QRectF) -> None:
@@ -111,8 +111,8 @@ class CanvasNavigation:
         nowhere to scroll to once the cursor reaches the edge.
         """
         nokta = self.mapToScene(view_pos)
-        pay = self.SCENE_PAD
-        field = QRectF(nokta.x() - pay, nokta.y() - pay, pay * 2.0, pay * 2.0)
+        share = self.SCENE_PAD
+        field = QRectF(nokta.x() - share, nokta.y() - share, share * 2.0, share * 2.0)
         for oge in self._scene.selectedItems():
             field = field.united(oge.sceneBoundingRect())
         self._grow_scene(field)
@@ -120,19 +120,19 @@ class CanvasNavigation:
     def _autoscroll_vector(self, pos: QPoint) -> QPointF:
         """A scroll vector: the closer the cursor to an edge, the faster."""
         field = self.viewport().rect()
-        kenar = self.AUTOSCROLL_MARGIN
-        adim = self.AUTOSCROLL_STEP
+        margin = self.AUTOSCROLL_MARGIN
+        step = self.AUTOSCROLL_STEP
 
-        def eksen(deger: float, alt: float, ust: float) -> float:
-            if deger < alt + kenar:
-                return -adim * min(1.0, (alt + kenar - deger) / kenar)
-            if deger > ust - kenar:
-                return adim * min(1.0, (deger - (ust - kenar)) / kenar)
+        def axis(deger: float, low: float, high: float) -> float:
+            if deger < low + margin:
+                return -step * min(1.0, (low + margin - deger) / margin)
+            if deger > high - margin:
+                return step * min(1.0, (deger - (high - margin)) / margin)
             return 0.0
 
-        return QPointF(eksen(float(pos.x()), float(field.left()),
+        return QPointF(axis(float(pos.x()), float(field.left()),
                              float(field.right())),
-                       eksen(float(pos.y()), float(field.top()),
+                       axis(float(pos.y()), float(field.top()),
                              float(field.bottom())))
 
     def _update_autoscroll(self, pos: QPoint) -> None:
@@ -266,20 +266,20 @@ class CanvasNavigation:
                 self.viewport().update()
             return pt
 
-        olcek = abs(self.transform().m11()) or 1.0
-        esik = self.ALIGN_PX / olcek
+        scale = abs(self.transform().m11()) or 1.0
+        esik = self.ALIGN_PX / scale
         gen, yuk = float(size[0]), float(size[1])
 
-        dx, x_hiza = self._align_eksen(pt.x(), gen, komsular, 0, esik)
-        dy, y_hiza = self._align_eksen(pt.y(), yuk, komsular, 1, esik)
+        dx, x_align = self._align_eksen(pt.x(), gen, komsular, 0, esik)
+        dy, y_align = self._align_eksen(pt.y(), yuk, komsular, 1, esik)
 
         new = QPointF(pt.x() + dx, pt.y() + dy)
         box = (new.x(), new.y(), gen, yuk)
         cizgiler = []
-        if x_hiza is not None:
-            cizgiler.append(self._align_cizgi(item, x_hiza, box, komsular, 0))
-        if y_hiza is not None:
-            cizgiler.append(self._align_cizgi(item, y_hiza, box, komsular, 1))
+        if x_align is not None:
+            cizgiler.append(self._align_cizgi(item, x_align, box, komsular, 0))
+        if y_align is not None:
+            cizgiler.append(self._align_cizgi(item, y_align, box, komsular, 1))
 
         if cizgiler != previous:
             self._align_guides = cizgiler
@@ -296,7 +296,7 @@ class CanvasNavigation:
         """
         return (bas + uzunluk / 2.0, bas, bas + uzunluk)
 
-    def _align_eksen(self, bas: float, uzunluk: float, komsular, eksen: int,
+    def _align_eksen(self, bas: float, uzunluk: float, komsular, axis: int,
                      esik: float):
         """Finds the nearest alignment on a single axis.
 
@@ -305,21 +305,21 @@ class CanvasNavigation:
         benim = self._align_olcutler(bas, uzunluk)
         en_iyi = None
         for komsu in komsular:
-            k_bas = komsu[eksen]
-            k_uzunluk = komsu[eksen + 2]
+            k_bas = komsu[axis]
+            k_uzunluk = komsu[axis + 2]
             onun = self._align_olcutler(k_bas, k_uzunluk)
-            for sira in range(3):
-                fark = onun[sira] - benim[sira]
+            for order in range(3):
+                fark = onun[order] - benim[order]
                 if abs(fark) > esik:
                     continue
-                aday = (abs(fark), sira, fark, onun[sira])
+                aday = (abs(fark), order, fark, onun[order])
                 if en_iyi is None or aday[:2] < en_iyi[:2]:
                     en_iyi = aday
         if en_iyi is None:
             return (0.0, None)
         return (en_iyi[2], en_iyi[3])
 
-    def _align_cizgi(self, item, deger: float, box, komsular, eksen: int):
+    def _align_cizgi(self, item, deger: float, box, komsular, axis: int):
         """Produces the guide line in SCENE coordinates.
 
         The line is stretched to cover every box that SHARES the alignment, so
@@ -328,14 +328,14 @@ class CanvasNavigation:
         # The boxes that share the alignment (the dragged one included).
         related = [box]
         for komsu in komsular:
-            olcutler = self._align_olcutler(komsu[eksen], komsu[eksen + 2])
+            olcutler = self._align_olcutler(komsu[axis], komsu[axis + 2])
             if any(abs(o - deger) < 0.5 for o in olcutler):
                 related.append(komsu)
 
-        other = 1 - eksen
+        other = 1 - axis
         bas = min(k[other] for k in related) - self.ALIGN_PAD
         last = max(k[other] + k[other + 2] for k in related) + self.ALIGN_PAD
-        if eksen == 0:
+        if axis == 0:
             p1, p2 = QPointF(deger, bas), QPointF(deger, last)
         else:
             p1, p2 = QPointF(bas, deger), QPointF(last, deger)

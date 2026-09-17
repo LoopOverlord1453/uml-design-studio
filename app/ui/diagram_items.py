@@ -216,14 +216,14 @@ class StateItem(QGraphicsObject):
         if self.kind is StateKind.COMPOSITE:
             sag = alt = 0.0
             try:
-                cocuklar = list(self.childItems())
+                children = list(self.childItems())
             except RuntimeError:
                 # The item may have been deleted in a rebuild while the caller still
                 # holds the old reference. Rather than crashing, make do with the size
                 # in the model. (rect() used to read only Python fields, so this case
                 # worked silently.)
-                cocuklar = []
-            for cocuk in cocuklar:
+                children = []
+            for cocuk in children:
                 if not isinstance(cocuk, StateItem):
                     continue
                 r = cocuk.rect()
@@ -675,11 +675,11 @@ class StateItem(QGraphicsObject):
         p.setBrush(QBrush(QColor(C.CANVAS_BG)))
         p.drawEllipse(r)
         if self.kind is StateKind.EXIT_POINT:
-            ic = r.adjusted(4.0, 4.0, -4.0, -4.0)
+            inner = r.adjusted(4.0, 4.0, -4.0, -4.0)
             p.setPen(QPen(renk, 1.8, Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
-            p.drawLine(ic.topLeft(), ic.bottomRight())
-            p.drawLine(ic.topRight(), ic.bottomLeft())
+            p.drawLine(inner.topLeft(), inner.bottomRight())
+            p.drawLine(inner.topRight(), inner.bottomLeft())
         self._paint_pseudo_name(p)
 
     # -- real states
@@ -797,11 +797,11 @@ class StateItem(QGraphicsObject):
             y = r.top() + header_h + 6.0
             # In a composite state the behaviour strip ENDS at the region of the
             # substates; in a simple state it can run to the end of the box.
-            alt_sinir = (r.top() + 34.0 + self.behavior_strip_height()
+            lower_bound = (r.top() + 34.0 + self.behavior_strip_height()
                          if composite else r.bottom() - 4.0)
             kalan = 0
             for i, line in enumerate(lines):
-                if y + fmb.height() > alt_sinir:
+                if y + fmb.height() > lower_bound:
                     kalan = len(lines) - i
                     break
                 text = fmb.elidedText(line, Qt.TextElideMode.ElideRight,

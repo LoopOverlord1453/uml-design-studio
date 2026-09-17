@@ -622,7 +622,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         if self._bend_item is not None and event.button() in (
                 Qt.MouseButton.RightButton, Qt.MouseButton.LeftButton):
             item, before = self._bend_item, self._bend_before
-            tasima = (self.mapToScene(event.position().toPoint())
+            moving = (self.mapToScene(event.position().toPoint())
                       - self._bend_origin)
             self._bend_item = None
             self._bend_before = None
@@ -639,7 +639,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # every click made to select the transition. (On the left button we never
             # get here without passing the threshold anyway.)
             durgun = (event.button() == Qt.MouseButton.RightButton
-                      and abs(tasima.x()) < 3.0 and abs(tasima.y()) < 3.0)
+                      and abs(moving.x()) < 3.0 and abs(moving.y()) < 3.0)
             if durgun and grab and grab[0] == "move" \
                     and grab[1] < len(item.transition.waypoints):
                 # A right click ON A POINT: remove only that point. Straightening the whole
@@ -755,7 +755,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         sm = self.doc.machine
 
-        def sahne_kaymasi(sid):
+        def scene_shift(sid):
             """The total shift of an item ON THE SCENE (itself + every parent)."""
             dx = dy = 0.0
             cur = sid
@@ -776,7 +776,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 continue
             for uc in (tr.source, tr.target):
                 if uc not in onbellek:
-                    onbellek[uc] = sahne_kaymasi(uc)
+                    onbellek[uc] = scene_shift(uc)
             kayma = onbellek[tr.source]
             if kayma != onbellek[tr.target] or kayma == (0.0, 0.0):
                 continue
@@ -785,7 +785,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
     @staticmethod
     def _region_for(ust: Optional[QGraphicsItem],
-                    yerel_ust_kenar: float, yukseklik: float) -> int:
+                    local_top_edge: float, yukseklik: float) -> int:
         """Computes WHICH BAND of `parent` was landed in, from LOCAL coordinates.
 
         The position is read from the local coordinate passed in, NOT from
@@ -796,7 +796,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         if not isinstance(ust, StateItem) or ust.region_count() <= 1:
             return 0
-        return ust.region_at(yerel_ust_kenar + yukseklik / 2.0)
+        return ust.region_at(local_top_edge + yukseklik / 2.0)
 
     def _fit_pasted_into(self, host: StateItem, ids: List[str],
                          scene_pos: QPointF) -> None:
@@ -815,14 +815,14 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         area of the parent; its own internal layout is preserved.
         """
         sm = self.doc.machine
-        kokler = [sm.states[i] for i in ids
+        roots = [sm.states[i] for i in ids
                   if i in sm.states and sm.states[i].parent == host.state.id]
-        if not kokler:
+        if not roots:
             return
-        sol = min(st.x for st in kokler)
-        ust = min(st.y for st in kokler)
-        genislik = max(st.x + st.w for st in kokler) - sol
-        yukseklik = max(st.y + st.h for st in kokler) - ust
+        sol = min(st.x for st in roots)
+        ust = min(st.y for st in roots)
+        genislik = max(st.x + st.w for st in roots) - sol
+        yukseklik = max(st.y + st.h for st in roots) - ust
 
         field = host.content_rect()
         yerel = host.mapFromScene(scene_pos)
@@ -835,7 +835,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         dx = target_x - sol
         dy = target_y - ust
-        for st in kokler:
+        for st in roots:
             st.x = round(st.x + dx, 2)
             st.y = round(st.y + dy, 2)
 

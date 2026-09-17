@@ -77,17 +77,17 @@ class SpecRef:
     @property
     def page(self) -> Optional[int]:
         """The PRINTED page number in the document (None without the index)."""
-        kayit = _index().get(self.section)
-        if kayit is None:
+        record = _index().get(self.section)
+        if record is None:
             return None
-        return kayit.get("page")
+        return record.get("page")
 
     @property
     def section_title(self) -> str:
-        kayit = _index().get(self.section)
-        if kayit is None:
+        record = _index().get(self.section)
+        if record is None:
             return ""
-        return kayit.get("title", "")
+        return record.get("title", "")
 
     def citation(self) -> str:
         """Panelde gosterilen kisa atif: 'UML 2.5.1 §14.5.11.8, p. 361'."""

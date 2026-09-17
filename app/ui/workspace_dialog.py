@@ -70,9 +70,9 @@ class WorkspaceDialog(QDialog):
         # All 10 entries should be visible without scrolling (workspace.MAX_RECENT).
         self.recent_list.setMaximumHeight(232)
         self.recent_list.setAlternatingRowColors(True)
-        for sira, path in enumerate(self._recent, start=1):
+        for order, path in enumerate(self._recent, start=1):
             ad = os.path.basename(path.rstrip(os.sep)) or path
-            item = QListWidgetItem("%2d.  %-24s %s" % (sira, ad, path))
+            item = QListWidgetItem("%2d.  %-24s %s" % (order, ad, path))
             item.setData(PATH_ROLE, path)
             # Long paths are elided; the full path stays in the tooltip.
             item.setToolTip(path)

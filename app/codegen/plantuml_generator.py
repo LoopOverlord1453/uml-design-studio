@@ -90,13 +90,13 @@ def _abs_center(sm: StateMachine, s: State) -> Tuple[float, float]:
     calculation needs absolute positions, or nesting gets the directions wrong.
     """
     x, y = s.x, s.y
-    ust = sm.parent_of(s.id)
+    top = sm.parent_of(s.id)
     gorulen = set()
-    while ust is not None and ust.id not in gorulen:
-        gorulen.add(ust.id)
-        x += ust.x
-        y += ust.y
-        ust = sm.parent_of(ust.id)
+    while top is not None and top.id not in gorulen:
+        gorulen.add(top.id)
+        x += top.x
+        y += top.y
+        top = sm.parent_of(top.id)
     return x + s.w / 2.0, y + s.h / 2.0
 
 
@@ -112,7 +112,7 @@ def _dikey_aralik(sm: StateMachine, s: State):
 #: everything on screen; the Check diamond counted as "the same band"
 #: because it touched the BOTTOM EDGE of Running. The middle band is a
 #: better answer to "does this look like the same row".
-_ORTA_BAND = 0.6
+_MIDDLE_BAND = 0.6
 
 
 def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
@@ -126,10 +126,10 @@ def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
     same rank, Running and Check on the same rank, but Check one rank above
     Off. GraphViz drops one of them and the layout falls apart.
     """
-    def band(ust: float, alt: float):
-        orta = (ust + alt) / 2.0
-        yari = (alt - ust) * _ORTA_BAND / 2.0
-        return orta - yari, orta + yari
+    def band(top: float, bottom: float):
+        middle = (top + bottom) / 2.0
+        half = (bottom - top) * _MIDDLE_BAND / 2.0
+        return middle - half, middle + half
 
     a0, a1 = band(ust0, alt0)
     b0, b1 = band(ust1, alt1)
@@ -240,14 +240,14 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
 
     # Transitions that stay INSIDE a region are written into that block; they
     # are marked beforehand so they are not emitted a second time outside.
-    ic_bolge = set()
+    inner_region = set()
     for t in sm.transitions.values():
         src = sm.states.get(t.source)
         tgt = sm.states.get(t.target)
         if src is None or tgt is None or t.kind is TransitionKind.INTERNAL:
             continue
         if src.parent is not None and src.parent == tgt.parent:
-            ic_bolge.add(t.id)
+            inner_region.add(t.id)
 
     def inner_transition_rows(s: State) -> List[str]:
         """The INTERNAL transitions of a state: not an arrow, a body line.
@@ -284,23 +284,23 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         return metin
 
     def draw_order(parent: Optional[str],
-                     bolge: Optional[int] = None) -> List[State]:
+                     region: Optional[int] = None) -> List[State]:
         """The children in the reading order of the CANVAS.
 
         With ``region`` given, ONLY the ones in that region are returned; the
         regions of an orthogonal state are written separately with "--".
         """
-        if bolge is None:
-            cocuklar = list(sm.sorted_children(parent))
+        if region is None:
+            children = list(sm.sorted_children(parent))
         else:
-            cocuklar = list(sm.children_in(parent, bolge))
+            children = list(sm.children_in(parent, region))
         if yatay:
-            return sorted(cocuklar, key=lambda s: (s.x, s.y))
-        return sorted(cocuklar, key=lambda s: (s.y, s.x))
+            return sorted(children, key=lambda s: (s.x, s.y))
+        return sorted(children, key=lambda s: (s.y, s.x))
 
     def emit_region(parent: Optional[str], pad: str,
-                    bolge: Optional[int] = None) -> None:
-        for s in draw_order(parent, bolge):
+                    region: Optional[int] = None) -> None:
+        for s in draw_order(parent, region):
             if s.kind in _UC_OLARAK:
                 # These have no separate declaration in PlantUML; they only appear as
                 # arrow ends ([*], [H], [H*]).
@@ -320,7 +320,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                     the LAST region and the picture would misrepresent the model.
                     """
                     for t in sm.ordered_transitions():
-                        if t.id not in ic_bolge:
+                        if t.id not in inner_region:
                             continue
                         src = sm.states[t.source]
                         tgt = sm.states[t.target]
@@ -353,7 +353,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
     L.append("")
 
     for t in sm.ordered_transitions():
-        if t.id in ic_bolge or t.kind is TransitionKind.INTERNAL:
+        if t.id in inner_region or t.kind is TransitionKind.INTERNAL:
             continue
         src = sm.states.get(t.source)
         tgt = sm.states.get(t.target)

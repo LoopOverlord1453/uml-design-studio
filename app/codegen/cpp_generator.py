@@ -47,10 +47,10 @@ def section(title: str, indent: str = "") -> str:
     in C and C++ too". The C side had 79-character bands such as
     `/* ---...--- states -- */`; C++ had none and ran on without sections.
     """
-    kuyruk = " %s --" % title
+    queue = " %s --" % title
     width = 79 - len(indent)
-    dolgu = "-" * max(3, width - len("// ") - len(kuyruk))
-    return "%s// %s%s" % (indent, dolgu, kuyruk)
+    dolgu = "-" * max(3, width - len("// ") - len(queue))
+    return "%s// %s%s" % (indent, dolgu, queue)
 
 
 def doc(lines: List[str], indent: str = "") -> List[str]:

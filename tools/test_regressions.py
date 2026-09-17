@@ -4978,16 +4978,16 @@ def test_spec_download_result() -> None:
     # -- Sonuc SINYALLE degil ALANLARDA tasinmali --------------------------- #
     check(not hasattr(sw._Downloader, "finished_ok"),
           "sonuc sinyali kaldirildi (yaris kaynagi)")
-    for alan in ("result_path", "result_error", "iptal_edildi"):
+    for alan in ("result_path", "result_error", "cancelled"):
         check(alan in sw._Downloader.__init__.__code__.co_names
               or hasattr(sw._Downloader(tempfile.mktemp()), alan),
               "indirici '%s' alanini tasiyor" % alan)
 
     kaynak = open(sw.__file__, encoding="utf-8").read()
-    check("while isci.isRunning()" not in kaynak,
+    check("while worker.isRunning()" not in kaynak,
           "elle processEvents() donguSU KALMADI")
     check("QEventLoop" in kaynak, "bekleme yerel olay dongusuyle yapiliyor")
-    check("isci.wait()" in kaynak,
+    check("worker.wait()" in kaynak,
           "alanlar okunmadan once is parcaciginin bittiginden emin olunuyor")
 
     # -- UCTAN UCA: sahte bir 'indirme' ile sonuc gercekten doner ----------- #
@@ -5201,7 +5201,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             #
             # Asil gerileme testi: cubugun kapsadigi yukseklik tek bir
             # sayfa degil, butun belge kadar olmali.
-            tek = gorunum._h[0] + gorunum.BOSLUK
+            tek = gorunum._h[0] + gorunum.GAP
             kapsam = (cubuk.maximum() + gorunum.viewport().height()) / tek
             check(kapsam > SAYFA - 1.0,
                   "kaydirma cubugu BUTUN belgeyi kapsiyor",
@@ -5246,7 +5246,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             bekle(0.4)
             sigan = gorunum._w[0]
             check(gorunum.fit_mode() == "genislik", "genislige sigdirma kipi")
-            check(abs(sigan + 2 * gorunum.KENAR
+            check(abs(sigan + 2 * gorunum.MARGIN
                       - gorunum.viewport().width()) <= 4.0,
                   "genislige sigdirma gorunume oturuyor",
                   "%.0f + kenar / %d" % (sigan, gorunum.viewport().width()))
@@ -5340,7 +5340,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             bekle(0.5)
             pencere.resize(700, 420)           # YALNIZCA yukseklik
             bekle(0.6)
-            gereken = round(gorunum._toplam - gorunum.viewport().height())
+            gereken = round(gorunum._total - gorunum.viewport().height())
             check(gorunum.verticalScrollBar().maximum() == gereken,
                   "yalnizca yukseklik degisince kaydirma araligi yenileniyor",
                   "%d / %d" % (gorunum.verticalScrollBar().maximum(),
@@ -5403,7 +5403,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             # kaydirma adimi 225 ms'ye kadar cikiyordu. Istekler artik
             # kaydirma DURDUKTAN sonra veriliyor.
             gorunum._onbellek.clear()
-            gorunum._bekleyen.clear()
+            gorunum._pending.clear()
             cubuk = gorunum.verticalScrollBar()
             basla = time.perf_counter()
             for k in range(20):
@@ -5415,16 +5415,16 @@ def test_spec_viewer_does_not_freeze() -> None:
             # durumda zamanlayici hakli olarak atesler ve "kaydirma hala
             # suruyor" varsayimi gecersizdir. Testi yanlis yere
             # basarisiz saymak yerine ATLANIR.
-            if gecen < gorunum.ISTEK_GECIKMESI:
-                check(not gorunum._bekleyen,
+            if gecen < gorunum.REQUEST_DELAY:
+                check(not gorunum._pending,
                       "hizli kaydirma sirasinda cizim ISTENMIYOR",
-                      "%d istek ucusta" % len(gorunum._bekleyen))
-                check(gorunum._istek_zamanlayici.isActive(),
+                      "%d istek ucusta" % len(gorunum._pending))
+                check(gorunum._request_timer.isActive(),
                       "istek zamanlayicisi kaydirmayla yeniden basliyor")
             else:
                 skip("makine yavas: kaydirma dongusu %.0f ms surdu "
                      "(gecikme %d ms) -- erteleme sinanamadi"
-                     % (gecen, gorunum.ISTEK_GECIKMESI))
+                     % (gecen, gorunum.REQUEST_DELAY))
             bekle(0.8)
             check(len(gorunum._onbellek) > 0,
                   "kaydirma DURUNCA sayfalar ciziliyor",
@@ -5499,11 +5499,11 @@ def test_spec_viewer_does_not_freeze() -> None:
             # yazi surekli yumusak gorunuyordu.
             check(all(float(x).is_integer()
                       for x in (gorunum._w[0], gorunum._h[0], gorunum._y[0],
-                                gorunum._sayfa_x(gorunum._w[0]))),
+                                gorunum._page_x(gorunum._w[0]))),
                   "sayfa dikdortgenleri tam piksel",
                   "w=%.2f h=%.2f y=%.2f x=%.2f"
                   % (gorunum._w[0], gorunum._h[0], gorunum._y[0],
-                     gorunum._sayfa_x(gorunum._w[0])))
+                     gorunum._page_x(gorunum._w[0])))
             girdi = gorunum._onbellek.get(gorunum.current_page())
             if girdi is not None:
                 check(girdi[2].width() == int(gorunum._w[0])
@@ -5544,10 +5544,10 @@ def test_spec_viewer_does_not_freeze() -> None:
             # Isci BASLATILMADAN denenir: calisan bir isci kuyrugu
             # bosalttigi icin tasma hic olusmaz ve sozlesme sinanamaz.
             sessiz = sw._PageRenderer(pencere.doc)
-            sinir = sessiz.KUYRUK_SINIRI
+            sinir = sessiz.QUEUE_LIMIT
             dusenler = []
             for sira in range(sinir + 16):
-                dusenler.extend(sessiz.iste(sira, 100, 130))
+                dusenler.extend(sessiz.request_page(sira, 100, 130))
             check(len(dusenler) == 16,
                   "kuyruk tasinca DUSEN istekler bildiriliyor",
                   "%d dusen (beklenen 16)" % len(dusenler))
@@ -5559,7 +5559,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             check(len(bekleyen_deneme) == sinir,
                   "bildirilen dusenler bekleyen listesinden silinebiliyor",
                   "%d kaldi" % len(bekleyen_deneme))
-            gorunum._bekleyen.clear()
+            gorunum._pending.clear()
 
             # -- Gosterge KALICI parcacikta ------------------------------- #
             #
@@ -5620,7 +5620,7 @@ def test_spec_viewer_does_not_freeze() -> None:
         # -- Kapanista isci parcacigi DURMALI ---------------------------- #
         #
         # Durmazsa belge yok edilirken hala pdfium icinde olabilir.
-        check(pencere.view._isci is None,
+        check(pencere.view._worker is None,
               "kapanista cizim is parcacigi durduruluyor")
 
         # -- Kapanista BELLEK birakilmali -------------------------------- #

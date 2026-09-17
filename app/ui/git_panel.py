@@ -217,9 +217,9 @@ class CommitGraphView(QAbstractScrollArea):
             genislik = 0.0
             for ref in commit.refs[:4]:
                 metin = ref
-                for on in ("HEAD -> ", "tag: "):
-                    if metin.startswith(on):
-                        metin = metin[len(on):]
+                for prefix in ("HEAD -> ", "tag: "):
+                    if metin.startswith(prefix):
+                        metin = metin[len(prefix):]
                 genislik += metrics.horizontalAdvance(metin) + 12.0 + 5.0
             en_genis = max(en_genis, genislik)
         return min(en_genis, 240.0)
@@ -620,9 +620,9 @@ class GitPanel(QWidget):
         refresh path is called -- it already rewrites the labels and styles.
         """
         self._apply_static_styles()
-        for alt in self.findChildren(QWidget):
-            fn = getattr(alt, "retheme", None)
-            if callable(fn) and alt is not self:
+        for child_widget in self.findChildren(QWidget):
+            fn = getattr(child_widget, "retheme", None)
+            if callable(fn) and child_widget is not self:
                 fn()
         yenile = getattr(self, "refresh", None)
         if callable(yenile):
@@ -821,17 +821,17 @@ class GitPanel(QWidget):
         structure directly; selecting a folder selects every file INSIDE it (to
         stage them in one go).
         """
-        agac = QTreeWidget()
-        agac.setFont(mono_font(9))
-        agac.setColumnCount(1)
-        agac.setHeaderHidden(True)
-        agac.setSelectionMode(
+        tree = QTreeWidget()
+        tree.setFont(mono_font(9))
+        tree.setColumnCount(1)
+        tree.setHeaderHidden(True)
+        tree.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection)
-        agac.setUniformRowHeights(True)
-        agac.setExpandsOnDoubleClick(False)   # a double click STAGES
-        self._lists.append(agac)
-        apply_contrast(agac)
-        return agac
+        tree.setUniformRowHeights(True)
+        tree.setExpandsOnDoubleClick(False)   # a double click STAGES
+        self._lists.append(tree)
+        apply_contrast(tree)
+        return tree
 
     # root
 
@@ -925,12 +925,12 @@ class GitPanel(QWidget):
         self.graph.set_commits([])
         self.diff.show_diff("", "")
 
-    def _set_enabled(self, on: bool) -> None:
+    def _set_enabled(self, prefix: bool) -> None:
         for b in (self.btn_refresh, self.btn_stage_all, self.btn_commit,
                   self.btn_branch, self.btn_fetch, self.btn_pull,
                   self.btn_push):
-            b.setEnabled(on)
-        self.btn_init.setEnabled(not on)
+            b.setEnabled(prefix)
+        self.btn_init.setEnabled(not prefix)
 
     # lists
 
@@ -1314,77 +1314,77 @@ def _dosyalari(item: QTreeWidgetItem) -> List[str]:
     return out
 
 
-def _build_tree(agac: QTreeWidget, kayitlar) -> None:
+def _build_tree(tree: QTreeWidget, kayitlar) -> None:
     """Lays the file records out as a FOLDER TREE.
 
     Intermediate folders holding a single file are MERGED ("app/ui/", say):
     opening a separate row per level would turn a three-file change into a
     ten-row tree.
     """
-    kokler: dict = {}
+    roots: dict = {}
 
     def folder(parcalar) -> QTreeWidgetItem:
         anahtar = "/".join(parcalar)
-        if anahtar in kokler:
-            return kokler[anahtar]
+        if anahtar in roots:
+            return roots[anahtar]
         if len(parcalar) == 1:
-            dugum = QTreeWidgetItem(agac, [parcalar[0] + "/"])
+            node = QTreeWidgetItem(tree, [parcalar[0] + "/"])
         else:
-            dugum = QTreeWidgetItem(folder(parcalar[:-1]), [parcalar[-1] + "/"])
-        dugum.setData(0, FOLDER_ROLE, anahtar)
-        dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
-        dugum.setExpanded(True)
-        kokler[anahtar] = dugum
-        return dugum
+            node = QTreeWidgetItem(folder(parcalar[:-1]), [parcalar[-1] + "/"])
+        node.setData(0, FOLDER_ROLE, anahtar)
+        node.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
+        node.setExpanded(True)
+        roots[anahtar] = node
+        return node
 
     for gf, colour in kayitlar:
         parcalar = gf.path.split("/")
         ad = parcalar[-1]
-        ust = folder(parcalar[:-1]) if len(parcalar) > 1 else agac
+        parent_node = folder(parcalar[:-1]) if len(parcalar) > 1 else tree
         metin = "%s  %s" % (gf.label(), ad)
         if gf.orig_path:
             metin += "   ← %s" % gf.orig_path
-        oge = QTreeWidgetItem(ust, [metin])
+        oge = QTreeWidgetItem(parent_node, [metin])
         oge.setData(0, PATH_ROLE, gf.path)
         oge.setData(0, UNTRACKED_ROLE, gf.untracked)
         oge.setForeground(0, QBrush(QColor(colour)))
         oge.setToolTip(0, gf.path)
 
     # Write how many files are in a folder row: it should inform when collapsed too.
-    for dugum in kokler.values():
-        count = len(_dosyalari(dugum))
-        dugum.setText(0, "%s   (%d)" % (dugum.text(0), count))
+    for node in roots.values():
+        count = len(_dosyalari(node))
+        node.setText(0, "%s   (%d)" % (node.text(0), count))
 
 
-def _expanded_folders(agac: QTreeWidget) -> set:
+def _expanded_folders(tree: QTreeWidget) -> set:
     """The folder keys that are currently EXPANDED."""
     acik = set()
 
-    def gez(dugum):
-        for i in range(dugum.childCount()):
-            cocuk = dugum.child(i)
+    def gez(node):
+        for i in range(node.childCount()):
+            cocuk = node.child(i)
             anahtar = cocuk.data(0, FOLDER_ROLE)
             if anahtar and cocuk.isExpanded():
                 acik.add(anahtar)
             gez(cocuk)
 
-    gez(agac.invisibleRootItem())
+    gez(tree.invisibleRootItem())
     return acik
 
 
-def _restore_expanded(agac: QTreeWidget, acik: set) -> None:
+def _restore_expanded(tree: QTreeWidget, acik: set) -> None:
     if not acik:
         return
 
-    def gez(dugum):
-        for i in range(dugum.childCount()):
-            cocuk = dugum.child(i)
+    def gez(node):
+        for i in range(node.childCount()):
+            cocuk = node.child(i)
             anahtar = cocuk.data(0, FOLDER_ROLE)
             if anahtar:
                 cocuk.setExpanded(anahtar in acik)
             gez(cocuk)
 
-    gez(agac.invisibleRootItem())
+    gez(tree.invisibleRootItem())
 
 
 def _current_path(lst: QTreeWidget) -> str:
@@ -1397,9 +1397,9 @@ def _restore_path(lst: QTreeWidget, path: str) -> None:
     if not path:
         return
 
-    def gez(dugum):
-        for i in range(dugum.childCount()):
-            cocuk = dugum.child(i)
+    def gez(node):
+        for i in range(node.childCount()):
+            cocuk = node.child(i)
             if cocuk.data(0, PATH_ROLE) == path:
                 lst.setCurrentItem(cocuk)
                 return True
