@@ -1,27 +1,27 @@
-"""Referans HSM yorumlayicisi (Python).
+"""The reference HSM interpreter (Python).
 
-Uretilen C/C++ kodu ile *ayni* ara temsili (IR) ve *ayni* algoritmayi kullanir,
-ama bagimsiz bir dilde yazilmistir. Bu sayede:
+It uses the *same* intermediate representation (IR) and the *same* algorithm
+as the generated C/C++ code, but is written in an independent language. That
 
-  * arayuzde diyagrami kod uretmeden calistirip izleyebiliriz,
-  * `tools/test_semantics.py` iki gerceklestirmeyi karsilastirarak
-    ureteclerdeki anlamsal kaymalari yakalayabilir.
+  * lets us run and watch the diagram in the interface without generating code,
+  * lets `tools/test_semantics.py` compare the two implementations and catch
+    semantic drift in the generators.
 
-Algoritma C ureteciyle satir satir eslesir; birini degistirirken digerini de
-degistirin.
+The algorithm matches the C generator line by line; when you change one,
+change the other.
 
-ETKIN KONFIGURASYON BIR VEKTORDUR
----------------------------------
-Tek bir "etkin durum" yeterli degildir: ortogonal bir durumun bolgeleri ES
-ZAMANLI etkindir (UML 2.5.1, 14.2.3.2, basili s.307). Bu yuzden konfigurasyon
-BOLGE BASINA bir yaprak tutan `active[]` dizisidir. Tarih kaydi da bolgeye
-gore anahtarlanir; ust duruma gore anahtarlansaydi bir ortogonal durumun iki
-bolgesi ayni kaydi paylasir ve derin tarihle geri donuste biri otekinin
-durumunu geri yuklerdi.
+THE ACTIVE CONFIGURATION IS A VECTOR
+------------------------------------
+A single "active state" is not enough: the regions of an orthogonal state are
+active AT THE SAME TIME (UML 2.5.1, 14.2.3.2, printed p.307). So the
+configuration is an `active[]` array holding one leaf PER REGION. The history
+record is keyed by region as well; keyed by parent state, the two regions of
+an orthogonal state would share one record and returning through deep history
+would make one restore the other's state.
 
-OZYINELEME YOKTUR. Giris ve cikis, uretilen C'de de birebir kurulabilsin diye
-acik yiginlarla yuruur: gomulu hedefte olay isleme derinligi MODELE bagli
-olamaz, yoksa yigin tuketimi statik olarak siniranamaz.
+THERE IS NO RECURSION. Entry and exit walk with explicit stacks so the same
+construction is possible in the generated C: on an embedded target the event
+handling depth cannot depend on THE MODEL, or stack use cannot be bounded.
 """
 
 from __future__ import annotations
@@ -37,61 +37,61 @@ from .model import StateMachine
 MAX_RTC_STEPS = 16
 COMPLETION = 0
 
-#: Giris/cikis yuruyuslerinde en fazla adim. Model hiyerarsisi ve bolge
-#: sayisiyla sinirlidir; buradaki deger yalnizca bozuk bir IR'de sonsuz
-#: donguyu keser.
+#: The maximum number of steps in an entry/exit walk. It is bounded by the
+#: model hierarchy and the region count; the value here only cuts an
+#: endless loop on a corrupt IR.
 MAX_WALK_STEPS = 4096
 
-#: Ertelenmis olaylarin tutuldugu havuzun boyu. UML havuzu sinirsiz sayar;
-#: gomulu hedefte sinirsiz kuyruk yoktur, bu yuzden sinir ACIKCA konur ve
-#: tasma SESSIZ KALMAZ.
+#: The size of the pool holding deferred events. UML treats the pool as
+#: unbounded; on an embedded target there is no unbounded queue, so the
+#: limit is set EXPLICITLY and an overflow DOES NOT STAY SILENT.
 MAX_DEFERRED = 16
 
 
 class Simulator:
-    """Bir durum makinesini bellek icinde calistirir."""
+    """Runs a state machine in memory."""
 
     def __init__(self, sm: StateMachine,
                  guard_eval: Optional[Callable[[str], bool]] = None,
                  on_event: Optional[Callable[[str, str], None]] = None,
                  resolve=None) -> None:
-        # `resolve`: altmakine referanslarini cozer; modelde altmakine
-        # yoksa hic kullanilmaz (bkz. codegen/ir.build_ir).
+        # `resolve`: resolves submachine references; never used when the model
+        # has no submachine (see codegen/ir.build_ir).
         self.ir: Ir = build_ir(sm, resolve)
-        #: Bolge basina etkin yaprak; NONE = bolge etkin degil.
+        #: The active leaf per region; NONE = the region is not active.
         self.active: List[int] = [NONE] * self.ir.region_count
-        #: Gosterim ve geriye donuk uyumluluk icin TEMSILI yaprak.
+        #: The REPRESENTATIVE leaf, for display and backward compatibility.
         self.state: int = NONE
         self.started = False
         self.terminated = False
-        #: Tarih kaydi BOLGEYE gore (ust duruma gore DEGIL).
+        #: The history record, keyed BY REGION (NOT by the parent state).
         self.history: List[int] = [NONE] * self.ir.region_count
-        #: Tamamlanma olayi BOLGE BASINA beklenir.
+        #: A completion event is awaited PER REGION.
         #:
-        #: UML 2.5.1, 14.2.3.8.3 (basili s.314): "If no such Behaviors are
+        #: UML 2.5.1, 14.2.3.8.3 (printed p.314): "If no such Behaviors are
         #: defined, the completion event is generated upon entry into the
-        #: State." Olay DURUMA aittir; ortogonal bir makinede her bolgenin
-        #: kendi yapragi vardir, dolayisiyla kendi bekleyen olayi da.
+        #: State." The event belongs to THE STATE; in an orthogonal machine every
+        #: region has its own leaf, and therefore its own pending event.
         #:
-        #: YASANAN HATA: tek bir makine capinda bayrak vardi. Yuksek
-        #: numarali bir bolgedeki IC GECIS, dusuk numarali bir bolgenin
-        #: girisinden dogan bayragi siliyordu; o bolgenin diyagramda
-        #: cizili tamamlanma gecisi HIC alinmiyor ve hicbir uyari
-        #: verilmiyordu. Sonuc, kullanicinin bolgeyi hangi sirada
+        #: THE BUG WE HIT: there was a single machine-wide flag. An INTERNAL
+        #: TRANSITION in a higher-numbered region cleared the flag raised by the
+        #: entry of a lower-numbered one; the completion transition drawn in that
+        #: region was NEVER taken and no warning was given. The result depended
+        #: on the order in which the user had drawn the regions.
         #: cizdigine bagliydi.
         self.completion_pending = [False] * self.ir.region_count
-        #: Tamamlanma dongusu sinira dayandiysa True (model kararsiz).
+        #: True when the completion loop hit the limit (the model is unstable).
         self.rtc_overflow = False
-        #: ERTELENMIS olay havuzu (olay indeksleri, gelis sirasinda).
+        #: The DEFERRED event pool (event indices, in arrival order).
         self.deferred_pool: List[int] = []
-        #: Havuz tastiysa True.
+        #: True when the pool has overflowed.
         self.defer_overflow = False
         self.trace: List[str] = []
         self._guard_eval = guard_eval or (lambda expr: True)
         self._on_event = on_event
         self._event_index = {name: i for i, name in enumerate(self.ir.events)}
 
-    # -------------------------------------------------------------- yardimci #
+    # --------------------------------------------------------------- helpers #
 
     def _emit(self, kind: str, detail: str) -> None:
         self.trace.append("%s:%s" % (kind, detail))
@@ -99,20 +99,20 @@ class Simulator:
             self._on_event(kind, detail)
 
     def _note(self, kind: str, detail: str) -> None:
-        """Yalnizca ARAYUZE anlatim gonderir; `trace` listesine yazmaz.
+        """Sends narration to the INTERFACE only; it does not write to `trace`.
 
-        `trace`, uretilen C/C++ kodunun izine birebir esit olmak
-        zorundadir (tools/test_semantics.py bunu karsilastirir; regresyon
-        paketi de "sonlanmis makinede iz bos kalmali" ve "ilk kayit X:S
-        olmali" gibi iddialar tutar). Koruma degerlendirmeleri ve secilen
-        gecisler uretilen kodun izinde YOKTUR, bu yuzden buraya degil,
-        yalnizca panele akarlar.
+        `trace` has to match the trace of the generated C/C++ code exactly
+        (tools/test_semantics.py compares them; the regression suite also
+        asserts things like "the trace must be empty on a terminated machine"
+        and "the first record must be X:S"). Guard evaluations and the chosen
+        transitions are NOT in the trace of the generated code, so they flow
+        only to the panel, not here.
         """
         if self._on_event is not None:
             self._on_event(kind, detail)
 
     def transition_label(self, tran) -> str:
-        """Bir gecisi okunakli tek satira cevirir: Src --EV [g] / eylem--> Dst."""
+        """Turns a transition into one readable line: Src --EV [g] / effect--> Dst."""
         kaynak = self._name(tran.source)
         hedef = self._name(tran.target)
         olay = "" if tran.event == COMPLETION else self.ir.events[tran.event]
@@ -162,7 +162,7 @@ class Simulator:
         return a
 
     def _is_ancestor(self, maybe: int, node: int) -> bool:
-        """`maybe`, `node`un OZ atasi mi (kendisi sayilmaz)?"""
+        """Is `maybe` a PROPER ancestor of `node` (not the node itself)?"""
         cur = self._parent(node)
         n = 0
         while cur != NONE and n <= self.ir.max_depth:
@@ -172,7 +172,7 @@ class Simulator:
             n += 1
         return False
 
-    # --------------------------------------------------------------- davranis #
+    # -------------------------------------------------------------- behaviour #
 
     def _exec_entry(self, index: int) -> None:
         st = self.ir.states[index]
@@ -185,9 +185,9 @@ class Simulator:
         self._emit("X", st.name)
         if st.exit:
             self._emit("code", st.exit)
-        # Sig tarih kaydi (UML 14.2.3.4.5): yalnizca gercek durumlar saklanir;
-        # bolge final ile tamamlandiysa tarih SILINIR (varsayilan gecis
-        # kullanilir); sozde-durum cikislari kaydi degistirmez.
+        # Shallow history record (UML 14.2.3.4.5): only real states are stored; if
+        # the region completed through a final state the history is CLEARED (the
+        # default transition is used); pseudostate exits do not change the record.
         if st.region != REGION_NONE and st.parent != NONE:
             if st.kind in (KIND_SIMPLE, KIND_COMPOSITE):
                 self.history[st.region] = index
@@ -207,19 +207,19 @@ class Simulator:
         self._note("G", "%s\t%s" % (expr, "true" if sonuc else "false"))
         return sonuc
 
-    # ------------------------------------------------------- giris / cikis #
+    # -------------------------------------------------------- entry / exit #
 
     def _enter_one(self, index: int) -> None:
-        """Tek bir durumu etkinlestirir (alt bolgelerine DOKUNMAZ)."""
+        """Activates a single state (it DOES NOT TOUCH its sub-regions)."""
         self._exec_entry(index)
         bolge = self._region_of(index)
         if bolge != REGION_NONE:
             self.active[bolge] = index
-            # Duruma GIRILDI: bu bolgenin tamamlanma olayi dogdu.
+            # THE STATE WAS ENTERED: the completion event of this region is born.
             self.completion_pending[bolge] = True
 
     def _exit_one(self, index: int) -> None:
-        """Tek bir durumu kapatir (alt bolgeleri ONCEDEN bosaltilmis olmali)."""
+        """Closes a single state (its sub-regions must already be emptied)."""
         self._exec_exit(index)
         bolge = self._region_of(index)
         if bolge != REGION_NONE and self.active[bolge] == index:
@@ -227,12 +227,12 @@ class Simulator:
             self.completion_pending[bolge] = False
 
     def _activate_below(self, index: int) -> None:
-        """Girilmis bir durumun ALTINI varsayilanlarla etkinlestirir.
+        """Activates the INSIDE of an entered state with the defaults.
 
-        Bolgeler ARTAN sirada islenir. UML bu sirayi tanimlamaz
-        (14.2.3.8.3); arac sabitler ve uretilen baslikta yazar.
+        Regions are processed in ASCENDING order. UML does not define that
+        order (14.2.3.8.3); the tool fixes it and writes it in the header.
         """
-        # Yigin ogeleri: [durum, islenecek bir sonraki bolge sirasi]
+        # Stack items: [state, the index of the next region to process]
         yigin: List[List[int]] = [[index, 0]]
         adim = 0
         while yigin and adim < MAX_WALK_STEPS:
@@ -252,9 +252,9 @@ class Simulator:
             yigin.append([hedef, 0])
 
     def _deepest_active_below(self, index: int) -> int:
-        """`index` altindaki EN DERIN etkin durum (yoksa NONE).
+        """The DEEPEST active state under `index` (NONE if there is none).
 
-        Bolgeler AZALAN sirada taranir: cikis, girisin tersi sirada olur.
+        Regions are scanned in DESCENDING order: exit is the reverse of entry.
         """
         bulunan = NONE
         dugum = index
@@ -275,7 +275,7 @@ class Simulator:
         return bulunan
 
     def _exit_below(self, index: int) -> None:
-        """`index` altindaki her seyi kapatir; `index`in kendisi kalir."""
+        """Closes everything under `index`; `index` itself stays."""
         adim = 0
         while adim < MAX_WALK_STEPS:
             adim += 1
@@ -285,12 +285,12 @@ class Simulator:
             self._exit_one(hedef)
 
     def _enter_path(self, target: int, top: int) -> None:
-        """`top` ile `target` arasindaki durumlara distan ice girer.
+        """Enters the states between `top` and `target`, outside in.
 
-        Yol uzerindeki bir durum ORTOGONAL ise, yolun GECMEDIGI bolgeleri
-        varsayilanlariyla etkinlestirilir: bir ortogonal duruma girmek
-        butun bolgelerini baslatir (14.2.3.2, basili s.307). `target`in
-        kendi bolgeleri burada acilmaz; onu `_descend` yapar.
+        When a state on the path is ORTHOGONAL, the regions the path DOES NOT
+        GO THROUGH are activated with their defaults: entering an orthogonal
+        state starts all of its regions (14.2.3.2, printed p.307). The regions
+        of `target` itself are not opened here; `_descend` does that.
         """
         zincir: List[int] = []
         s = target
@@ -306,9 +306,9 @@ class Simulator:
             if st.region_count <= 0:
                 continue
             if i + 1 >= len(zincir):
-                # SON oge `target`tir; onun bolgelerini `_descend` acar.
-                # Burada da acilsaydi hedefin alt durumlarina IKI KEZ
-                # girilirdi (izde ayni entry iki kez gorunur).
+                # The LAST item is `target`; `_descend` opens its regions. Opening them
+                # here too would enter the substates of the target TWICE (the same entry
+                # shows up twice in the trace).
                 continue
             gecilen = self._region_of(zincir[i + 1])
             for r in self.ir.regions_of(cur):
@@ -322,7 +322,7 @@ class Simulator:
                 self._activate_below(reg.initial_state)
 
     def _leaf_of(self, index: int) -> int:
-        """Gosterim icin TEMSILI yaprak: her zaman ILK bolgeden inilir."""
+        """The REPRESENTATIVE leaf for display: always descend the FIRST region."""
         cur = index
         adim = 0
         while cur != NONE and adim <= MAX_WALK_STEPS:
@@ -341,7 +341,7 @@ class Simulator:
         return self._leaf_of(s)
 
     def _resolve_history(self, h: int) -> int:
-        """Tarih sozde-durumunu gercek hedefe cevirir ve entry zincirini calistirir."""
+        """Turns a history pseudostate into a real target and runs the entry chain."""
         st = self.ir.states[h]
         bolge = st.region
         sahip = st.parent
@@ -351,7 +351,7 @@ class Simulator:
         if stored == NONE and bolge != REGION_NONE:
             stored = self.ir.regions[bolge].initial_state
         if stored == NONE:
-            return sahip                       # emniyet: bolgenin sahibi
+            return sahip                       # safety: the owner of the region
         self._enter_path(stored, sahip)
         if st.kind == KIND_HIST_DEEP:
             self._restore_deep(stored)
@@ -359,22 +359,22 @@ class Simulator:
         return self._descend(stored)
 
     def _restore_deep(self, index: int) -> None:
-        """Derin tarih: `index` ALTINDAKI HER BOLGEYI kayittan geri yukler.
+        """Deep history: restores EVERY REGION UNDER `index` from the record.
 
-        ATIF: 14.2.3.6 FinalState bolumudur, tarih DEGIL. Dogru yer
-        14.2.3.4.5 (basili s.310), "Deep history entry" maddesidir:
-        kural sig tarihle aynidir, su farkla -- "the rule is applied
-        recursively to all levels in the active state configuration
-        below this". Yani kayit HER DERINLIKTE ve her bolgede izlenir.
+        REFERENCE: 14.2.3.6 is the FinalState clause, NOT history. The right
+        place is 14.2.3.4.5 (printed p.310), the "Deep history entry" item:
+        the rule is the same as for shallow history, except that "the rule is
+        applied recursively to all levels in the active state configuration
+        below this". So the record is followed AT EVERY DEPTH and in every region.
 
-        YASANAN HATA: yalnizca ILK bolgenin kaydi izleniyor, otekiler
-        icin `_activate_below` cagriliyordu; o da kayit yerine
-        VARSAYILANI acar. Sonuc: ikinci ve sonraki bolgelerin hatirlanan
-        alt agaci kayboluyor ve o bolgenin initial eylemi -- gomulu
-        kodda gercek bir yan etki -- bir daha calisiyordu.
+        THE BUG WE HIT: only the record of the FIRST region was followed, and
+        `_activate_below` was called for the others -- and that opens the
+        DEFAULT rather than the record. The result: the remembered subtree of
+        the second and later regions was lost, and the initial effect of that
+        region -- a real side effect in embedded code -- ran again.
 
-        Yuruyus GENISLIK ONCELIKLIDIR: giris disdan ice, bolgeler artan
-        sirada olur ve iki kosum ayni sirayi verir.
+        The walk is BREADTH FIRST: entry goes outside in, regions in ascending
+        order, and two runs give the same order.
         """
         kuyruk: List[int] = [index]
         adim = 0
@@ -395,31 +395,31 @@ class Simulator:
                 kuyruk.append(kayit)
 
     def _land(self, target: int) -> int:
-        """Gecis hedefine varildiginda gercek yaprak durumu belirler."""
+        """Determines the real leaf state once the transition target is reached."""
         kind = self.ir.states[target].kind
         if kind in (KIND_HIST_SHALLOW, KIND_HIST_DEEP):
             return self._resolve_history(target)
         if kind == KIND_TERMINATE:
-            self.terminated = True             # UML terminate: makine sonlanir
+            self.terminated = True             # UML terminate: the machine ends
             return target
         return self._descend(target)
 
-    # ------------------------------------------------------------- gecisler #
+    # ---------------------------------------------------------- transitions #
 
     def _take(self, tran) -> None:
         self._note("T", self.transition_label(tran))
         if tran.kind == TKIND_INTERNAL:
-            # IC GECIS DURUM DEGISTIRMEZ, dolayisiyla YENI BIR TAMAMLANMA
-            # OLAYI DOGURMAZ.
+            # AN INTERNAL TRANSITION DOES NOT CHANGE THE STATE, so it DOES NOT GIVE
+            # BIRTH TO A NEW COMPLETION EVENT.
             #
-            # YASANAN HATA: tamamlanma dongusu her olay gonderiminden
-            # sonra kosulsuz calisiyordu. Bir durumun tamamlanma gecisi
-            # guard'i yuzunden atlandiktan SONRA, ilgisiz bir ic gecis
-            # gelince ESKI tamamlanma olayi yeniden ateslenip makineyi
-            # baska bir duruma tasiyordu.
+            # THE BUG WE HIT: the completion loop ran unconditionally after every
+            # dispatch. AFTER the completion transition of a state had been skipped
+            # because of its guard, an unrelated internal transition arrived and
+            # re-fired the OLD completion event, moving the machine into another
+            # state.
             #
-            # YALNIZCA KENDI BOLGESININ bayragini soner. Makine capinda
-            # bir bayrak silmek, baska bir bolgenin bekleyen tamamlanma
+            # It clears the flag OF ITS OWN REGION ONLY. Clearing a machine-wide
+            # flag would also destroy the pending completion event of another region.
             # olayini da yok ederdi.
             bolge = self._region_of(tran.source)
             if bolge != REGION_NONE:
@@ -427,8 +427,8 @@ class Simulator:
             self._exec_action(tran.action)
             return
 
-        # UML 2.5.1, 14.2.3.7: terminate sozde-durumuna girildiginde makine
-        # hicbir durumdan CIKMAZ; exit davranislari calistirilmaz.
+        # UML 2.5.1, 14.2.3.7: when a terminate pseudostate is entered, the machine
+        # EXITS no state; the exit behaviours are not run.
         if self.ir.states[tran.target].kind == KIND_TERMINATE:
             self._exec_action(tran.action)
             self.terminated = True
@@ -440,13 +440,13 @@ class Simulator:
         if tran.kind == TKIND_EXTERNAL and (top == tran.source or top == tran.target):
             top = NONE if top == NONE else self._parent(top)
 
-        # CIKIS, `top`un ALTINDAKI ETKILENEN BOLGEDEN baslar.
+        # THE EXIT STARTS FROM THE AFFECTED REGION UNDER `top`.
         #
-        # Kaynagin kendi bolgesinden baslamak yanlistir: YEREL bir gecis
-        # (ornegin Work --JUMP--> W2) icin kaynak `top`un ta kendisidir ve
-        # dongu hic donmez; oysa Work'un o anki alt durumu (W1) KAPANMALIDIR.
-        # Hangi bolgenin etkilendigini HEDEFIN yolu soyler: `top`un hemen
-        # altindaki dugumun bolgesi.
+        # Starting from the source's own region is wrong: for a LOCAL transition
+        # (Work --JUMP--> W2, say) the source is `top` itself and the loop never
+        # turns; yet Work's current substate (W1) MUST BE CLOSED. Which region is
+        # affected is told by the TARGET's path: the region of the vertex right
+        # below `top`.
         alt = tran.target
         adim = 0
         while (self._parent(alt) != top and self._parent(alt) != NONE
@@ -469,17 +469,17 @@ class Simulator:
             self.state = self._leaf_of(tran.target)
         else:
             self.state = self._land(tran.target)
-        # Bayraklar `_enter_one` icinde, GIRILEN BOLGE BASINA konur.
+        # The flags are set inside `_enter_one`, PER REGION ENTERED.
         if self.terminated:
             self.completion_pending = [False] * self.ir.region_count
 
     def _completed(self, index: int) -> bool:
-        """Bilesik durumun TAMAMLANMA olayi dogmus mu?
+        """Has the COMPLETION event of a composite state been born?
 
-        UML 2.5.1, 14.2.3.8.3 (basili s.315): "if the State is a composite
-        State, all its orthogonal Regions have reached a FinalState".
-        Ortogonal durumda kosul VE'dir: tek bir bolgenin final'e varmasi
-        yetmez.
+        UML 2.5.1, 14.2.3.8.3 (printed p.315): "if the State is a composite
+        State, all its orthogonal Regions have reached a FinalState". In an
+        orthogonal state the condition is an AND: one region reaching a final
+        state is not enough.
         """
         st = self.ir.states[index]
         if st.region_count <= 0:
@@ -491,7 +491,7 @@ class Simulator:
         return True
 
     def _join_ready(self, tran) -> bool:
-        """Join'in butun kaynaklari su anda etkin mi?"""
+        """Are all the sources of the join active right now?"""
         for kaynak in tran.join_sources:
             bolge = self._region_of(kaynak)
             if bolge == REGION_NONE or self.active[bolge] != kaynak:
@@ -499,12 +499,12 @@ class Simulator:
         return True
 
     def _enter_forked(self, sahip: int, hedefler: List[int]) -> None:
-        """FORK: adi gecen bolgelere ACIKCA girer, otekiler varsayilanla.
+        """FORK: enters the named regions EXPLICITLY, the rest by default.
 
-        UML 2.5.1, 14.2.3.7 (basili s.313): fork "an incoming Transition
-        into two or more Transitions terminating on Vertices in orthogonal
-        Regions of a composite State" boler. Adi gecmeyen bolgeler yine de
-        baslar; ortogonal bir duruma girmek BUTUN bolgelerini baslatir.
+        UML 2.5.1, 14.2.3.7 (printed p.313): a fork splits "an incoming
+        Transition into two or more Transitions terminating on Vertices in
+        orthogonal Regions of a composite State". Unnamed regions still start;
+        entering an orthogonal state starts ALL of its regions.
         """
         kapsanan = set()
         for hedef in hedefler:
@@ -528,7 +528,7 @@ class Simulator:
             self._activate_below(reg.initial_state)
 
     def _select(self, region: int, event_index: int):
-        """Bir bolgenin yapragindan yukari yuruyup ILK etkin gecisi bulur."""
+        """Walks up from the leaf of a region and finds the FIRST enabled transition."""
         s = self.active[region]
         adim = 0
         while s != NONE and adim <= MAX_WALK_STEPS:
@@ -543,8 +543,8 @@ class Simulator:
                         and not self._completed(s)
                         and not tran.join_sources):
                     continue
-                # JOIN: butun gelen segmentler AYNI ANDA etkin olmali.
-                # UML 2.5.1, 14.2.3.7 (basili s.313): "all incoming
+                # JOIN: all incoming segments must be active AT THE SAME TIME.
+                # UML 2.5.1, 14.2.3.7 (printed p.313): "all incoming
                 # Transitions have to complete before execution can
                 # continue through an outgoing Transition."
                 if tran.join_sources and not self._join_ready(tran):
@@ -556,18 +556,18 @@ class Simulator:
         return NONE, None
 
     def _try_event(self, event_index: int) -> bool:
-        """Olayi ETKIN HER BOLGEYE sunar ve cakisan gecisleri ayiklar.
+        """Offers the event to EVERY ACTIVE REGION and drops conflicting transitions.
 
-        UML 2.5.1, 14.2.3.9.4: daha derin bir durumdan cikan gecis, onu
-        kapsayan bir durumdan cikanla CAKISIR ve oncelik DERIN olandadir.
-        Ortogonal bolgelerde iki bolge ayni dis gecisi secebilir ya da biri
-        dis, oteki derin bir gecis secebilir; ikisini birden islemek durumu
-        iki kez kapatirdi.
+        UML 2.5.1, 14.2.3.9.4: a transition leaving a deeper state CONFLICTS
+        with one leaving a state that contains it, and priority goes to the
+        DEEPER one. In orthogonal regions two regions may pick the same outer
+        transition, or one may pick an outer and the other a deeper one;
+        processing both would close the state twice.
 
-        Cakismayanlar ARTAN bolge sirasinda islenir. UML bu sirayi
-        tanimlamaz; arac sabitler ve uretilen baslikta yazar.
+        The non-conflicting ones are processed in ASCENDING region order. UML
+        does not define that order; the tool fixes it and writes it in the header.
         """
-        secimler = []                      # (bolge, kaynak, gecis)
+        secimler = []                      # (region, source, transition)
         for r in range(self.ir.region_count):
             if self.active[r] == NONE:
                 continue
@@ -579,7 +579,7 @@ class Simulator:
         if not secimler:
             return False
 
-        # Ayni gecisi iki bolge sectiyse BIR KEZ islenir.
+        # If two regions picked the same transition it is processed ONCE.
         benzersiz = []
         gorulen = set()
         for r, kaynak, tran in secimler:
@@ -588,8 +588,8 @@ class Simulator:
             gorulen.add(tran.index)
             benzersiz.append((r, kaynak, tran))
 
-        # Bir secimin kaynagi, baska bir secimin kaynaginin OZ ATASI ise
-        # disaridaki dusurulur: oncelik derin olandadir.
+        # When the source of one choice is a PROPER ANCESTOR of another choice's
+        # source, the outer one is dropped: priority goes to the deeper one.
         kalan = []
         for r, kaynak, tran in benzersiz:
             if any(self._is_ancestor(kaynak, digeri)
@@ -599,17 +599,17 @@ class Simulator:
 
         islendi = False
         for r, _kaynak, tran in kalan:
-            # TERMINATE HER SEYI DURDURUR.
+            # TERMINATE STOPS EVERYTHING.
             #
-            # UML 2.5.1, 14.2.3.7: terminate sozde-durumuna girilince
-            # makine yurutmeyi BIRAKIR; hicbir durumdan cikilmaz. Bir
-            # bolge makineyi oldurdukten sonra otekilerin secilmis
-            # gecislerini islemek, olmus bir makinede exit/effect/entry
-            # calistirmak ve bittikten SONRA girilen bir durumu
+            # UML 2.5.1, 14.2.3.7: once a terminate pseudostate is entered the
+            # machine STOPS executing; no state is exited. Processing the chosen
+            # transitions of the other regions after one region has killed the
+            # machine would mean running exit/effect/entry on a dead machine and
+            # reporting a state entered AFTER it had ended.
             # bildirmek demekti.
             if self.terminated:
                 break
-            # Daha once islenen bir gecis bu bolgeyi kapatmis olabilir.
+            # A transition processed earlier may already have closed this region.
             if self.active[r] == NONE and tran.kind != TKIND_INTERNAL:
                 continue
             self._take(tran)
@@ -617,22 +617,22 @@ class Simulator:
         return islendi
 
     def _run_to_completion(self) -> None:
-        """Bekleyen tamamlanma olaylarini kararli konfigurasyona dek isler.
+        """Processes pending completion events until the configuration is stable.
 
-        Dongu KOSULSUZ degil, `completion_pending` bayragina baglidir:
-        tamamlanma olayi bir duruma GIRILDIGINDE dogar (UML 2.5.1,
-        14.2.3.8.3) ve islendiginde -- gecis alinsa da alinmasa da --
-        tukenir. Kosulsuz donmek, tuketilmis bir olayi sonraki her olay
-        gonderiminde yeniden atesliyordu.
+        The loop is not UNCONDITIONAL; it depends on the `completion_pending`
+        flag: a completion event is born WHEN A STATE IS ENTERED (UML 2.5.1,
+        14.2.3.8.3) and is consumed once processed -- whether or not a
+        transition is taken. Looping unconditionally re-fired a consumed event
+        on every later dispatch.
         """
-        # SINIR BOLGE BASINADIR.
+        # THE LIMIT IS PER REGION.
         #
-        # Dongu her adimda TEK BIR BOLGENIN bekleyen tamamlanma olayini
-        # isler. Makine capinda sabit bir sinir, bolge sayisi arttikca
-        # bolgeler arasinda paylasiliyor ve 8 bolgeden sonra tukeniyordu:
-        # diyagramda cizili tamamlanma gecisleri HIC alinmiyordu. Uretilen
-        # C/C++ bunu bildirmiyor bile. Bolge sayisiyla olcekleyince her
-        # bolge kendi butcesine sahip olur, dongusel modele karsi koruma
+        # Each step of the loop processes the pending completion event of A
+        # SINGLE REGION. A fixed machine-wide limit was shared between the
+        # regions as their number grew and ran out after 8: the completion
+        # transitions drawn on the diagram were NEVER taken. The generated C/C++
+        # does not even report it. Scaling with the region count gives every
+        # region its own budget while keeping the guard against a cyclic model.
         # da yerinde kalir.
         sinir = MAX_RTC_STEPS * max(1, self.ir.region_count)
         steps = 0
@@ -645,9 +645,9 @@ class Simulator:
             if bolge == REGION_NONE:
                 return
             if steps >= sinir:
-                # SESSIZCE KESMEK YERINE BILDIR. Onceki surum donguden
-                # cikip devam ediyordu; model kararsiz kaliyor ama
-                # kullaniciya hicbir sey soylenmiyordu.
+                # REPORT RATHER THAN BREAKING SILENTLY. The previous version left the
+                # loop and carried on; the model stayed unstable and the user was told
+                # nothing.
                 self.rtc_overflow = True
                 self._emit("error",
                            "run-to-completion limit (%d steps) reached: the "
@@ -688,12 +688,12 @@ class Simulator:
         self._drain_deferred()
 
     def _is_deferred(self, event_index: int) -> bool:
-        """Etkin konfigurasyonda BIR durum bile bu olayi erteliyor mu?
+        """Does even ONE state in the active configuration defer this event?
 
-        UML 2.5.1, 14.2.3.4.4 (basili s.309): "An Event may be deferred by
+        UML 2.5.1, 14.2.3.4.4 (printed p.309): "An Event may be deferred by
         a composite State or submachine States, in which case it remains
         deferred as long as the composite State remains in the active
-        configuration." Yani yalnizca yaprak degil, ZINCIRIN TAMAMI
+        configuration." So not only the leaf but THE WHOLE CHAIN is examined.
         bakilir.
         """
         for index in self.active_indices():
@@ -703,8 +703,8 @@ class Simulator:
 
     def _defer(self, event_index: int) -> None:
         if len(self.deferred_pool) >= MAX_DEFERRED:
-            # SESSIZCE ATMA. Kaybolan bir olay, modelin neden beklendigi
-            # gibi davranmadigini aciklanamaz kilardi.
+            # DO NOT DROP IT SILENTLY. A lost event would make it impossible to
+            # explain why the model does not behave as expected.
             self.defer_overflow = True
             self._emit("error",
                        "the deferred-event pool is full (%d); the "
@@ -715,11 +715,11 @@ class Simulator:
         self._emit("defer", self.ir.events[event_index])
 
     def _drain_deferred(self) -> None:
-        """Artik ertelenmeyen olaylari havuzdan alip isler."""
+        """Takes the events that are no longer deferred out of the pool."""
         adim = 0
         while adim < MAX_DEFERRED * 2:
             if self.terminated:
-                return                         # sonlanmis makine olay islemez
+                return                         # a terminated machine processes no event
             adim += 1
             siradaki = None
             for index in self.deferred_pool:
@@ -741,10 +741,10 @@ class Simulator:
         index = self._event_index.get(event)
         if index is None or index == COMPLETION:
             return False
-        # ONCE TETIKLEME DENENIR. Belge bunu acikca soyler: ertelenen bir
-        # olay turu, KAYNAGI erteleyen durum olan bir gecisin
-        # tetikleyicisiyse gecis KAZANIR ("a kind of override option").
-        # Once erteleme bakilsaydi o gecis hic ateslenmezdi.
+        # THE TRIGGER IS TRIED FIRST. The spec says so explicitly: when a deferred
+        # event type is the trigger of a transition WHOSE SOURCE is the deferring
+        # state, the transition WINS ("a kind of override option"). Looking at the
+        # deferral first would mean that transition never fired.
         handled = self._try_event(index)
         if handled:
             self._run_to_completion()
@@ -752,24 +752,24 @@ class Simulator:
             return True
         if self._is_deferred(index):
             self._defer(index)
-            return True                        # olay TUKETILDI: havuzda duruyor
+            return True                        # the event is CONSUMED: it stays in the pool
         return False
 
     def do_activity(self) -> None:
         if self.terminated:
-            return              # sonlanmis makine davranis yurutmez
+            return              # a terminated machine runs no behaviour
         for index in self.active_indices():
             st = self.ir.states[index]
             if st.do:
                 self._emit("D", st.name)
 
-    # ----------------------------------------------------------------- durum #
+    # ----------------------------------------------------------------- state #
 
     def active_indices(self) -> List[int]:
-        """Etkin BUTUN durumlar; icten disa, bolge sirasinda.
+        """ALL active states; inside out, in region order.
 
-        Ortogonal olmayan bir modelde bu, yapraktan koke giden eski
-        zincirin ta kendisidir.
+        On a non-orthogonal model this is exactly the old chain running from
+        the leaf up to the root.
         """
         out: List[int] = []
         for r in range(self.ir.region_count - 1, -1, -1):
@@ -783,7 +783,7 @@ class Simulator:
         return self._name(self.state)
 
     def active_chain(self) -> List[str]:
-        """Etkin durumlarin model id'leri (tuvalde vurgulamak icin)."""
+        """The model ids of the active states (for highlighting on the canvas)."""
         return [self.ir.states[i].model_id for i in self.active_indices()]
 
     def is_terminated(self) -> bool:
