@@ -1,12 +1,12 @@
-"""Ana pencere: iki diyagram kipi (durum makinesi + sinif), uretilen kod paneli.
+"""The main window: two diagram modes (state machine + class) and the code panel.
 
-Yerlesim:
-  * Ust arac cubugu: dosya/duzen/gorunum/uretim
-  * Sol dikey arac cubugu: etkin diyagram kipinin araclari (adlar simge altinda)
-  * Merkez: "State Diagram" / "Class Diagram" sekmeleri
-      - Durum kipi: MODEL AGACI + OZELLIKLER | SIMULASYON (ustte) + tuval + SORUNLAR
-      - Sinif kipi: tuval + SORUNLAR
-  * Sag: uretilen kod paneli (F9 ile gizlenir/acilir)
+Layout:
+  * Top toolbar: file/edit/view/generation
+  * Left vertical toolbar: the tools of the active diagram mode (names under icons)
+  * Centre: the "State Diagram" / "Class Diagram" tabs
+      - State mode: MODEL TREE + PROPERTIES | SIMULATION (above) + canvas + PROBLEMS
+      - Class mode: canvas + PROBLEMS
+  * Right: the generated code panel (F9 hides/shows it)
 """
 
 from __future__ import annotations
@@ -28,13 +28,13 @@ from PyQt6.QtWidgets import (QApplication, QDialog, QDialogButtonBox,
 
 
 class _QuietMnemonicStyle(QProxyStyle):
-    """Erisim harflerinin altini cizmeyen stil.
+    """A style that does not underline the access letters.
 
-    Fusion, SH_UnderlineShortcut ipucuna KOSULSUZ 1 doner; Windows'un
-    "Alt'a basilana kadar gizle" davranisi Fusion'da yoktur, bu yuzden
-    "File", "References", "Help" yazilari hep alti cizili gorunur. Ipucunu
-    0'a cekmek yalnizca CIZGIYI kaldirir: Alt+F ve arkadaslari calismaya
-    devam eder, cunku kisayol eslesmesi ayri bir mekanizmadir.
+    Fusion returns 1 UNCONDITIONALLY for the SH_UnderlineShortcut hint; the
+    Windows "hide until Alt is pressed" behaviour does not exist in Fusion, so
+    "File", "References" and "Help" always appear underlined. Setting the hint
+    to 0 removes only THE LINE: Alt+F and friends keep working, because the
+    shortcut matching is a separate mechanism.
     """
 
     def styleHint(self, hint, option=None, widget=None, returnData=None):
@@ -75,31 +75,31 @@ from .workspace_tree import WorkspaceTree
 APP_NAME = "UML Design Studio"
 APP_VERSION = "2.0.0"
 
-#: Ust bardaki simge boyutu. Astah benzeri sik bir serit icin
-#: kucuk tutulur; uc satir tek satira indirilirken yukseklik
+#: The icon size on the top bar. Kept small for a tidy, Astah-like strip;
+#: it also sets the height when the three rows are reduced to one.
 #: buradan belirlenir.
 TOOLBAR_ICON = 16
-#: Ust bardaki menu dugmelerinin punto olcusu. Arayuzun geri kalani 9
-#: punto; menuler simge kipindeki serit icinde bundan da kucuk gorunuyordu.
+#: The point size of the menu buttons on the top bar. The rest of the
+#: interface is 9 point; inside the icon-mode strip the menus looked smaller still.
 MENU_POINT = 10
 
-#: Ayarlarin yazildigi kurulus / uygulama adi.
+#: The organisation / application name the settings are written under.
 SETTINGS_ORG = "UmlDesignStudio"
 SETTINGS_APP = "UmlStateDiagramTool"
 
 
 def app_settings() -> QSettings:
-    """Uygulama ayarlari -- testlerde AYRI bir depoya yazar.
+    """The application settings -- in tests they go to a SEPARATE store.
 
-    NEDEN: arayuz testleri gercek bir MainWindow kurar ve
-    `apply_workspace` calisma alanini "son kullanilanlar" ile
-    "last_workspace"e YAZAR. Bu ayarlar kullanicinin kendi deposuna
-    gidince, testin gecici klasoru (ornegin ``.../umlui_9z0xku7g/calisma``)
-    kullanicinin listesine sizip acilista karsisina cikiyordu -- klasor
-    silindikten sonra bile, bos bir calisma alani olarak.
+    WHY: the interface tests build a real MainWindow and `apply_workspace`
+    WRITES the workspace into "recent" and "last_workspace". Once those
+    settings went into the user's own store, the temporary folder of a test
+    (``.../umlui_9z0xku7g/workspace``, say) leaked into the user's list and met
+    them at start-up -- even after the folder had been deleted, as an empty
+    workspace.
 
-    `UMLSTUDIO_SETTINGS_SCOPE` tanimliysa uygulama adina eklenir; boylece
-    test sureclerinin yazdiklari kullanicinin ayarlarina hic dokunmaz.
+    When `UMLSTUDIO_SETTINGS_SCOPE` is set it is appended to the application
+    name, so what the test processes write never touches the user's settings.
     """
     kapsam = os.environ.get("UMLSTUDIO_SETTINGS_SCOPE", "").strip()
     ad = "%s-%s" % (SETTINGS_APP, kapsam) if kapsam else SETTINGS_APP
@@ -108,10 +108,10 @@ SM_FILTER = "State machine (*.usm);;JSON (*.json);;All files (*)"
 CD_FILTER = "Class diagram (*.ucd);;JSON (*.json);;All files (*)"
 
 def _mnemonic(action, text: str) -> None:
-    """Eylemin menu metnini ERISIM HARFI (&) ile birlikte yazar.
+    """Writes the menu text of an action together with its ACCESS LETTER (&).
 
-    Arac cubugu ipuclari `&` icermemeli; Qt'nin `QAction.text()` degeri
-    hem menude hem ipucunda kullanildigi icin ipucu ayrica korunur.
+    Toolbar tooltips must not contain `&`; because Qt's `QAction.text()` value
+    is used both in the menu and in the tooltip, the tooltip is kept separately.
     """
     ipucu = action.toolTip()
     action.setText(text)
@@ -135,8 +135,8 @@ STATE_TOOLS = [
      "Deep History (H*)  (D)"),
     (Tool.TERMINATE, "Terminate", "X", icons.terminate_icon,
      "Terminate Pseudostate  (X)"),
-    # Fork/join yalnizca ORTOGONAL durumlarla anlamlidir; harfler iki
-    # palette de bostu (bkz. tools/test_standards.py, kisayol tekilligi).
+    # Fork/join are only meaningful with ORTHOGONAL states; the letters were
+    # free in both palettes (see tools/test_standards.py, shortcut uniqueness).
     (Tool.FORK, "Fork", "W", icons.fork_icon,
      "Fork Pseudostate: split into orthogonal regions  (W)"),
     (Tool.JOIN, "Join", "Q", icons.join_icon,
@@ -151,15 +151,15 @@ STATE_TOOLS = [
      "Transition: source first, then target  (T)"),
 ]
 
-#: Sinif kipi araclari.
+#: The class mode tools.
 #:
-#: ADLAR KISALTILMAZ. Onceden menude "Assoc." / "Aggreg." / "General."
-#: yaziyordu; menu ogesi kisaltmak arayuz kilavuzlarina aykiridir ve
-#: UML terimini taniyan biri icin bile okunaksizdir.
+#: THE NAMES ARE NOT ABBREVIATED. The menu used to say "Assoc." / "Aggreg." /
+#: "General."; abbreviating a menu item goes against the interface guidelines
+#: and is unreadable even to someone who knows the UML term.
 #:
-#: Arayuz harfi (`I`) DURUM kipindeki "Initial" ile cakisiyordu: Qt ayni
-#: pencerede iki ayni kisayol gorunce "Ambiguous shortcut" der ve HICBIRI
-#: calismayabilir. Interface artik `E` kullanir.
+#: The access letter (`I`) clashed with "Initial" in STATE mode: seeing two
+#: identical shortcuts in one window, Qt says "Ambiguous shortcut" and NEITHER
+#: may work. Interface now uses `E`.
 CLASS_TOOLS = [
     (ClassTool.SELECT, "Select", "V", icons.select_icon,
      "Select / move / resize  (V)"),
@@ -219,19 +219,19 @@ REFERENCES = [
 
 
 class DesignWindow(QMainWindow):
-    """Diyagram sayfasini tasiyan AYRI ust duzey pencere.
+    """A SEPARATE top-level window carrying the diagram page.
 
-    Kullanici modeli burada duzenlerken ANA pencere serbest kalir: uretilen
-    koda, baska bir modele ya da depo sekmesine bakabilir.
+    While the user edits the model here, the MAIN window stays free: they can
+    look at the generated code, at another model, or at the repository tab.
 
-    Pencere KAPANINCA sayfa ana pencereye geri doner; aksi halde sayfa
-    hicbir yerde gorunmez ve kullanici modelini kaybetmis sanirdi.
+    WHEN THE WINDOW IS CLOSED the page goes back to the main window; otherwise
+    the page would be nowhere and the user would think they had lost the model.
     """
 
     def __init__(self, parent, on_close) -> None:
         super().__init__(parent)
-        # Parent VERILIR (uygulamayla birlikte kapansin) ama Window bayragi
-        # olmadan cocuk bir pano gibi gomulu kalirdi.
+        # A parent IS GIVEN (so it closes with the application) but without the
+        # Window flag the child would stay embedded like a panel.
         self.setWindowFlag(Qt.WindowType.Window, True)
         self.on_close = on_close
 
@@ -249,55 +249,55 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(icons.app_icon())
         self.resize(1680, 980)
-        # Asgari pencere: sol sutun + diyagram + kod paneli asgarilerinin
-        # toplami sigmali, yoksa Qt en sagdaki bolmeyi kirpar.
+        # Minimum window: the minimums of the left column, the diagram and the code
+        # panel have to fit together, or Qt clips the rightmost pane.
         self.setMinimumSize(QSize(1240, 700))
 
-        # ACILISTA ORNEK MODEL YUKLENMEZ.
+        # NO SAMPLE MODEL IS LOADED AT START-UP.
         #
-        # Onceki surum her iki kipi de hazir demo modelle (Blinky / RoomPlan)
-        # aciyordu. Sonuc kullaniciyi yaniltiyordu: calisma alaninda TEK
-        # model yokken -- hatta "No models here yet" yazarken -- tuvalde
-        # dokuz durumluk bir diyagram duruyor, ozellikler panelinde "Blinky"
-        # yaziyordu. Kullanici bunu kendi projesinin bir parcasi saniyor,
+        # The previous version opened both modes with a ready demo model (Blinky /
+        # RoomPlan). The result misled the user: with NO model in the workspace --
+        # while it even said "No models here yet" -- a nine-state diagram sat on the
+        # canvas and the properties panel said "Blinky". The user took it for part of
+        # their own project, and when they deleted it, it came back.
         # sildiginde de geri geliyordu.
         #
-        # Ornekler menuden acilir: File > Sample State Machine / Sample
-        # Class Diagram (bkz. a_demo, a_demo_class).
+        # The samples are opened from the menu: File > Sample State Machine / Sample
+        # Class Diagram (see a_demo, a_demo_class).
         self.doc = Document(empty_machine(), self, default_name="untitled.usm")
         self.class_doc = Document(empty_class_model(), self,
                                   default_name="untitled.ucd")
         self.settings = app_settings()
-        #: ETKIN kipin en son URETILEN dosyalari (disa aktarma / yazma bunu
-        #: kullanir). Model degistiginde bayatlar ama SILINMEZ: kullanici
-        #: derlemeden once eski kodu inceleyebilmelidir.
+        #: The files last GENERATED for the ACTIVE mode (export / write use this).
+        #: It goes stale when the model changes but is NOT DELETED: the user must be
+        #: able to inspect the old code before building.
         self._last_files: Dict[str, str] = {}
-        #: Kip -> o kip icin en son uretilen dosyalar. Sekme degistirmek
-        #: YENIDEN URETIM TETIKLEMEZ; onbellek gosterilir. Aksi halde
-        #: State/Class sekmeleri arasinda gidip gelmek her seferinde bir
-        #: uretim + disk yazma turu baslatirdi.
+        #: Mode -> the files last generated for that mode. Switching tabs DOES NOT
+        #: TRIGGER A REBUILD; the cache is shown. Otherwise going back and forth
+        #: between the State and Class tabs would start a generation plus a disk
+        #: write every time.
         self._built: Dict[str, Dict[str, str]] = {}
-        #: KIP BASINA bayatlik. Tek bir bayrak yanlis olurdu: durum
-        #: makinesini duzenlemek sinif diyagraminin kodunu bayatlatmaz ve
+        #: Staleness PER MODE. A single flag would be wrong: editing the state
+        #: machine does not make the class diagram code stale, and vice versa.
         #: tersi de gecerlidir.
         self._stale_modes = set()
-        #: build() yeniden girise kapalidir (ilerleme cubugu processEvents
-        #: cagirdigi icin kullanici Build'e tekrar basabilir).
+        #: build() is not re-entrant (because the progress bar calls processEvents,
+        #: the user can press Build again).
         self._building = False
         self._last_export_dir = ""
         self.workspace: Optional[Workspace] = None
-        #: Tema degisiminde yeniden boyanacak bolum baslik seritleri.
+        #: The section title strips to repaint on a theme change.
         self._section_headers: List[QLabel] = []
-        #: Eylem -> simge ureteci. Simgeler KURULUM anindaki tema
-        #: renkleriyle cizilir; tema degisince yeniden uretilmeleri
-        #: gerekir, yoksa acik zeminde beyaz simge gorunmez olur.
+        #: Action -> icon factory. The icons are drawn with the theme colours AT
+        #: SET-UP; on a theme change they have to be regenerated, or a white icon
+        #: becomes invisible on a light background.
         self._action_icons = {}
-        #: AYRI pencereye alinmis diyagram sayfalari: kip -> QMainWindow.
+        #: Diagram pages moved into a SEPARATE window: mode -> QMainWindow.
         self._detached = {}
-        #: Sayfa ayriyken sekmede duran yer tutucu etiketler (tema).
+        #: The placeholder labels left in the tab while a page is detached (theme).
         self._placeholders = []
-        #: Depo sekmesine GIRERKEN panellerin durumu (kod, simulasyon).
-        #: Sekmeden cikilinca tercih geri yuklenir; None = depo kipinde degil.
+        #: The state of the panels (code, simulation) when ENTERING the repository tab.
+        #: The preference is restored on leaving; None = not in repository mode.
         self._git_panel_state = None
 
         self._build_ui()
@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
         self._rebuild_timer.setSingleShot(True)
         self._rebuild_timer.timeout.connect(self._rebuild_views)
 
-        #: Ilerleme cubugunu %100'de kisa sure tutup gizler.
+        #: Holds the progress bar at 100% for a moment, then hides it.
         self._progress_hide = QTimer(self)
         self._progress_hide.setSingleShot(True)
         self._progress_hide.timeout.connect(
@@ -319,66 +319,66 @@ class MainWindow(QMainWindow):
         self._restore_state()
         self._sync_mode()
         self._rebuild_views()
-        # ACILISTA BIR KEZ derlenir: kullanici uygulamayi actiginda kod
-        # panelinin bos olmasi beklenmez. Bundan sonrasi Build'e baglidir.
+        # IT BUILDS ONCE AT START-UP: the user does not expect the code panel to be
+        # empty when they open the application. After that it is up to Build.
         QTimer.singleShot(0, self.build)
         QTimer.singleShot(60, self.canvas.zoom_fit)
         QTimer.singleShot(60, self.class_canvas.zoom_fit)
 
-    # ================================================================== kurulum
+    # set-up
 
     def _build_ui(self) -> None:
-        # -- durum makinesi kipi
+        # -- state machine mode
         self.canvas = DiagramCanvas(self.doc, self)
         self.inspector = Inspector(self.doc, self)
         self.problems = ProblemsPanel(self)
         self.sim_panel = SimulatorPanel(self.doc, self)
 
-        # CALISMA ALANI AGACI. Bir calisma alaninda birden fazla model
-        # bulunur (sistem + alt sistemleri); onceki panel yalnizca ACIK
-        # olani gosterdigi icin digerleri arayuzde hic gorunmuyordu.
+        # THE WORKSPACE TREE. A workspace holds more than one model (a system plus
+        # its subsystems); because the previous panel showed only the OPEN one, the
+        # others were nowhere to be seen in the interface.
         self.ws_tree = WorkspaceTree(self)
 
-        # MODEL TREE PANELI KALDIRILDI.
+        # THE MODEL TREE PANEL WAS REMOVED.
         #
-        # Ayni bilgiyi CALISMA ALANI agaci zaten gosteriyordu -- ustelik
-        # yalnizca acik modeli degil, calisma alanindaki BUTUN modelleri.
-        # Iki agac ekranda yan yana durunca kullanici ayni icerigi iki kez
+        # The WORKSPACE tree already showed the same information -- and not just the
+        # open model but EVERY model in the workspace. With the two trees side by
+        # side the user saw the same content twice and the left column wasted space.
         # goruyor, sol sutun geregisiz yer kapliyordu.
         #
-        # Sol sutun kip SEKMELERININ ICINDE DEGIL, onlarin YANINDADIR: model
-        # agaci kaldirildigi icin calisma alani agaci tek gezinme aracidir ve
-        # sinif diyagramina gecince kaybolmasi kullaniciyi modelsiz birakirdi.
-        # PROPERTIES yalnizca durum kipinde anlamlidir (sinif ozellikleri
-        # cift tiklama diyalogundan duzenlenir), o yuzden kipe gore gizlenir.
+        # The left column is NOT INSIDE the mode tabs but BESIDE them: with the model
+        # tree gone, the workspace tree is the only navigation aid, and losing it on
+        # a switch to the class diagram would leave the user without models.
+        # PROPERTIES is only meaningful in state mode (class properties are edited
+        # from the double-click dialog), so it is hidden by mode.
         self._ws_section = self._titled("WORKSPACE", self.ws_tree)
         self._props_section = self._titled("PROPERTIES", self.inspector)
         self.left_col = QSplitter(Qt.Orientation.Vertical)
         self.left_col.addWidget(self._ws_section)
         self.left_col.addWidget(self._props_section)
-        # Ozellikler formu calisma alani agacindan daha COK dikey yer ister:
-        # agac tipik olarak birkac satirdir, form ise her zaman dolu.
+        # The properties form wants MORE vertical room than the workspace tree: the
+        # tree is typically a few rows, the form is always full.
         self.left_col.setSizes([330, 560])
-        # OZELLIKLER FORMU icin asgari genislik. 230 px'te "Extra includes"
-        # etiketi yaninda alana ~90 px kaliyordu ve icerik kirpiliyordu;
-        # kullanici yazdigi #include satirini goremiyordu.
+        # A minimum width for the PROPERTIES FORM. At 230 px the "Extra includes"
+        # label left about 90 px for the field and the content was clipped; the user
+        # could not see the #include line they had typed.
         self.left_col.setMinimumWidth(300)
 
         center_col = QSplitter(Qt.Orientation.Vertical)
         center_col.addWidget(self.sim_panel)
         center_col.addWidget(self.canvas)
         center_col.addWidget(self._titled("PROBLEMS", self.problems))
-        # TUVAL EN BUYUK PAYI ALIR. Simulasyon ve Problems bilgi
-        # seritleridir; tuval calisma alanidir. Eski dagitimda
-        # (190/560/150) ikisi birlikte tuvalin yarisi kadar yer
-        # kapliyordu.
+        # THE CANVAS TAKES THE LARGEST SHARE. Simulation and Problems are
+        # information strips; the canvas is the workspace. In the old split
+        # (190/560/150) the two of them together took half as much room as the
+        # canvas.
         center_col.setSizes([150, 720, 120])
         center_col.setStretchFactor(1, 1)
         self.state_center = center_col
 
         state_page = center_col
 
-        # -- sinif diyagrami kipi
+        # -- class diagram mode
         self.class_canvas = ClassCanvas(self.class_doc, self)
         self.class_problems = ProblemsPanel(self)
 
@@ -388,20 +388,20 @@ class MainWindow(QMainWindow):
         class_page.setSizes([720, 150])
         class_page.setStretchFactor(0, 1)
 
-        # -- depo kipi
+        # -- repository mode
         self.git_panel = GitPanel(self)
 
-        # -- kip sekmeleri
+        # -- mode tabs
         self.mode_tabs = QTabWidget()
         self.mode_tabs.setDocumentMode(True)
-        # DIYAGRAM SAYFALARI YIGIN ICINE SARILIR.
+        # THE DIAGRAM PAGES ARE WRAPPED IN A STACK.
         #
-        # Kullanici tasarim penceresini AYRI bir pencereye alabilir; o sirada
-        # ana pencerede uretilen koda, baska bir modele ya da depoya
-        # bakabilmelidir. Sayfayi sekmeden CIKARMAK olmazdi: active_mode()
-        # sekme INDISINE bakiyor (0=state, 1=class, 2=git) ve bir sekmeyi
-        # kaldirmak butun eslemeyi kaydirirdi. Bunun yerine sekme yerinde
-        # kalir, ICERIGI yer tutucuyla degisir.
+        # The user can move the design window into a SEPARATE window; while that is
+        # so, they must still be able to look at the generated code, at another model
+        # or at the repository in the main window. REMOVING the page from the tab was
+        # not an option: active_mode() looks at the tab INDEX (0=state, 1=class,
+        # 2=git) and removing a tab would shift the whole mapping. Instead the tab
+        # stays in place and ITS CONTENT is swapped for a placeholder.
         self._state_stack = self._detachable(state_page, "State Diagram")
         self._class_stack = self._detachable(class_page, "Class Diagram")
         self.mode_tabs.addTab(self._state_stack, "State Diagram")
@@ -417,41 +417,41 @@ class MainWindow(QMainWindow):
         self.main_splitter.setSizes([290, 1000, 560])
         self.main_splitter.setStretchFactor(1, 3)
         self.main_splitter.setStretchFactor(2, 2)
-        # AYIRICI SONUNA KADAR SURUKLENEREK BOLME YOK EDILEMEZ.
+        # A PANE CANNOT BE DESTROYED BY DRAGGING THE SPLITTER ALL THE WAY.
         #
-        # Varsayilan olarak QSplitter bir bolmeyi 0 piksele indirmeye izin
-        # verir. Diyagram bolmesi bir kez 0'a inince geriye tutulacak
-        # gorunur bir sey kalmaz: kullanici tuvali geri getiremez ve ayar
-        # kaydedildigi icin sorun her acilista tekrarlar. Asgari genislik
-        # her bolmenin ekranda kalmasini garanti eder; paneller yine
-        # F9 / F10 ile TAMAMEN gizlenebilir (gizleme farkli bir yoldur).
+        # By default QSplitter allows a pane to be reduced to 0 pixels. Once the
+        # diagram pane hits 0 there is nothing visible left to grab: the user cannot
+        # bring the canvas back, and because the setting is saved the problem repeats
+        # at every start-up. A minimum width guarantees every pane stays on screen;
+        # the panels can still be hidden COMPLETELY with F9 / F10 (hiding is a
+        # different path).
         self.main_splitter.setChildrenCollapsible(False)
         self.mode_tabs.setMinimumWidth(320)
-        # ...AMA KORUNMASI GEREKEN TEK BOLME DIYAGRAM BOLMESIDIR.
+        # ...BUT THE ONLY PANE THAT NEEDS PROTECTING IS THE DIAGRAM PANE.
         #
-        # Yasak uc bolmeye birden konulunca kod paneli de kapanamaz oldu:
-        # kullanici sag ayiriciyi sonuna kadar surukluyor, panel yerinde
-        # kaliyordu. Oysa kod panelinin yok olmasi tehlikeli degil --
-        # F9 ve View menusu onu geri getirir. Diyagram bolmesinde ise
-        # tutunacak hicbir sey kalmiyordu (bkz. yukaridaki aciklama).
+        # With the ban placed on all three panes the code panel could no longer be
+        # closed: the user dragged the right splitter all the way and the panel
+        # stayed put. Yet the code panel disappearing is not dangerous -- F9 and the
+        # View menu bring it back. In the diagram pane there was nothing left to
+        # grab at all (see the note above).
         self.main_splitter.setCollapsible(
             self.main_splitter.indexOf(self.code_panel), True)
-        # Diyagram bolmesi ACIKCA korunur. setChildrenCollapsible(False) tek
-        # basina yeterli ama isCollapsible() onu YANSITMAZ (Qt yalnizca
-        # bilesen-basi bayragi dondurur, varsayilani "True" gorunur); niyeti
-        # burada acikca yazmak hem okunur hem sinanabilir kilar.
+        # The diagram pane is protected EXPLICITLY. setChildrenCollapsible(False)
+        # alone is enough, but isCollapsible() DOES NOT REFLECT it (Qt only returns
+        # the per-widget flag and its default looks like "True"); writing the intent
+        # out here makes it both readable and testable.
         self.main_splitter.setCollapsible(
             self.main_splitter.indexOf(self.mode_tabs), False)
-        # Suruklemeyle kapatmak ile menuden kapatmak AYNI seye varmali:
-        # aksi halde panel ekranda yokken "Show Code Panel" isaretli kalir
-        # ve dugme bozuk gorunur.
+        # Closing by dragging and closing from the menu must end in the SAME place:
+        # otherwise "Show Code Panel" stays ticked while the panel is off screen and
+        # the button looks broken.
         self.main_splitter.splitterMoved.connect(self._sync_code_panel_action)
-        # Kod panelinin asgari genisligi KENDI baslik seridinden turer
-        # (bkz. CodePanel._fit_header); burada sabit bir sayi vermek
-        # onu ezer ve serit yine kirpilirdi.
+        # The minimum width of the code panel comes from ITS OWN header strip (see
+        # CodePanel._fit_header); a fixed number here would override it and the strip
+        # would be clipped again.
         self.setCentralWidget(self.main_splitter)
 
-        # ------------------------------------------------------------ durum cub.
+        # status bar
         self.lbl_message = QLabel("Ready.")
         self.lbl_workspace = QLabel("")
         self.lbl_git = QLabel("")
@@ -464,21 +464,21 @@ class MainWindow(QMainWindow):
         self.lbl_workspace.setStyleSheet("color: %s;" % C.TEXT_DIM)
         self.lbl_git.setStyleSheet("color: %s;" % C.TEXT_DIM)
 
-        # Derleme ilerleme cubugu -- durum cubugunun EN SAGINDA.
-        # addPermanentWidget sagdan sola yerlestirir, bu yuzden EN SON
-        # eklenen en sagda kalir.
+        # The build progress bar -- AT THE FAR RIGHT of the status bar.
+        # addPermanentWidget places from right to left, so what is added LAST stays
+        # furthest right.
         self.progress = QProgressBar()
         self.progress.setFixedWidth(150)
         self.progress.setFixedHeight(14)
-        # Yuzde YAZISI yok: dolu ve bos kisim uzerinde ayni renkle okunamaz
-        # (bkz. theme.py'deki QProgressBar aciklamasi). Adim adi durum
-        # cubugunun solunda yazili.
+        # No percentage TEXT: one colour cannot be read on both the filled and the
+        # empty part (see the QProgressBar note in theme.py). The step name is
+        # written on the left of the status bar.
         self.progress.setTextVisible(False)
         self.progress.setVisible(False)
 
         bar = self.statusBar()
         bar.addWidget(self.lbl_message, 1)
-        #: Kullanicinin KENDI yazmasi gereken dis sembollerin sayisi.
+        #: The number of external symbols the user has to write THEMSELVES.
         self.lbl_external = QLabel("")
         self.lbl_external.setFont(ui_font(9))
         self.lbl_external.setAccessibleName("External symbols")
@@ -491,29 +491,29 @@ class MainWindow(QMainWindow):
         bar.addPermanentWidget(self.progress)
 
     def _panels_for_git(self, girildi: bool) -> None:
-        """Depo sekmesinde kod ve simulasyon panellerini GIZLER.
+        """HIDES the code and simulation panels on the repository tab.
 
-        Ikisi de DIYAGRAM icindir: kod paneli uretilen kaynagi, simulasyon
-        seridi etkin durumu gosterir. Depo sekmesinde ikisi de anlamsizdir
-        ama ekranin yarisini goturur -- commit agaci ve fark goruntuleyici
-        dar bir seride sikisirdi.
+        Both are FOR THE DIAGRAM: the code panel shows the generated source and
+        the simulation strip the active state. Both are meaningless on the
+        repository tab while taking half the screen -- the commit graph and the
+        diff viewer would be squeezed into a narrow strip.
 
-        Kullanicinin TERCIHI korunur: sekmeden cikilinca paneller girmeden
-        onceki haline doner.
+        The user's PREFERENCE is kept: on leaving the tab the panels return to
+        the state they were in before.
         """
         if girildi:
             if self._git_panel_state is not None:
-                return                      # zaten depo kipindeyiz
-            # HER PANEL ICIN DOGRU KAYNAK:
+                return                      # we are already in repository mode
+            # THE RIGHT SOURCE FOR EACH PANEL:
             #
-            # * Kod paneli sekmelerin DISINDA durur, gorunurlugu guvenilir
-            #   -- ama ayirici sonuna kadar suruklendiyse "gorunur" olup
-            #   0 piksel olabilir; code_panel_open() bunu hesaba katar.
-            # * Simulasyon seridi sekmenin ICINDE. Bu islev sekme
-            #   DEGISTIKTEN SONRA calisir, yani depo sekmesi etkinken
-            #   sim_panel.isVisible() her zaman False'tur; gorunurluge
-            #   bakmak paneli hep kapali kaydeder ve geri getirmezdi.
-            #   Dogru kaynak eylemin isaretidir.
+            # * The code panel sits OUTSIDE the tabs and its visibility is reliable
+            #     -- except that, dragged all the way, it can be "visible" and 0 pixels
+            #     wide; code_panel_open() takes that into account.
+            # * The simulation strip is INSIDE the tab. This function runs AFTER the
+            #     tab has CHANGED, so with the repository tab active sim_panel.isVisible()
+            #     is always False; looking at visibility would always record the panel as
+            #     closed and never bring it back. The right source is the tick of the
+            #     action.
             self._git_panel_state = (self.code_panel_open(),
                                      self.a_sim_panel.isChecked())
             for eylem, panel in ((self.a_code_panel, self.code_panel),
@@ -546,7 +546,7 @@ class MainWindow(QMainWindow):
                                          self.sim_panel, 0.30)
 
     def _detachable(self, page: QWidget, title: str) -> QStackedWidget:
-        """Sayfayi, yerine yer tutucu konabilen bir yigina sarar."""
+        """Wraps the page in a stack so a placeholder can take its place."""
         stack = QStackedWidget()
         stack.addWidget(page)
 
@@ -561,7 +561,7 @@ class MainWindow(QMainWindow):
         return stack
 
     def toggle_design_window(self, checked: bool) -> None:
-        """Etkin diyagram sayfasini AYRI pencereye alir / geri getirir."""
+        """Moves the active diagram page into a SEPARATE window / brings it back."""
         mode = self.active_mode()
         if mode == "git":
             self.a_tool_window.setChecked(False)
@@ -584,23 +584,23 @@ class MainWindow(QMainWindow):
         win.setWindowTitle("%s — %s"
                            % ("State Diagram" if mode == "state"
                               else "Class Diagram", APP_NAME))
-        # setCentralWidget sayfayi yigindan ALIR (yeniden ebeveynler); geri
-        # koyabilmek icin sayfaya AYRICA referans tutulur, yigin indisine
-        # guvenilmez -- sayfa ciktiktan sonra yer tutucu 0. indise kayar.
+        # setCentralWidget TAKES the page out of the stack (it reparents it); to put
+        # it back, a SEPARATE reference is kept -- the stack index cannot be trusted,
+        # as the placeholder shifts to index 0 once the page has left.
         win.setCentralWidget(page)
-        # SAYFAYI ACIKCA GOSTER -- ama YALNIZCA sayfayi.
+        # SHOW THE PAGE EXPLICITLY -- but ONLY the page.
         #
-        # setParent() (setCentralWidget icinden cagrilir) bileseni GIZLI
-        # isaretler ve bu isaret ust bilesen gosterilince KALKMAZ: ayri
-        # pencere bombos aciliyordu.
+        # setParent() (called from inside setCentralWidget) marks the widget HIDDEN,
+        # and that mark IS NOT CLEARED when the parent is shown: the separate window
+        # opened completely empty.
         #
-        # ALT BILESENLER TOPLUCA GOSTERILMEZ. Ilk duzeltmede
-        # `for alt in page.findChildren(QWidget): alt.show()` yaziliydi ve
-        # bu, GIZLI KALMASI GEREKEN bilesenleri de aciyordu -- ozellikle
-        # tuvalin QRubberBand'ini. Gorunmez bir secim kaplamasi tuvalin
-        # ustune yayiliyor, fare tiklamalari ona gidiyor ve kullaniciya
-        # "fare takildi" gibi geliyordu. Qt zaten yalnizca YENIDEN
-        # EBEVEYNLENEN bilesene gizli isaretini koyar; cocuklar kendi
+        # THE CHILD WIDGETS ARE NOT SHOWN WHOLESALE. The first fix read
+        # `for child in page.findChildren(QWidget): child.show()`, and that also
+        # opened widgets that WERE MEANT TO STAY HIDDEN -- above all the QRubberBand
+        # of the canvas. An invisible selection overlay spread over the canvas, mouse
+        # clicks went to it, and to the user it felt as if "the mouse was stuck". Qt
+        # only marks the REPARENTED widget as hidden; the children keep their own
+        # state and become visible when the parent is shown.
         # durumlarini korur ve ust bilesen gosterilince gorunur olur.
         page.show()
         win.resize(1100, 780)
@@ -608,9 +608,9 @@ class MainWindow(QMainWindow):
         stack.setCurrentWidget(stack.widget(stack.count() - 1))
         win.show()
         win.raise_()
-        # TAM YENIDEN BOYAMA. Yeniden ebeveynlenen bilesenin arka tamponu
-        # eski icerigi tasiyor ve pencerenin bir kosesinde onceki
-        # yerlesimden kalma bir leke kaliyordu.
+        # A FULL REPAINT. The back buffer of the reparented widget still carried the
+        # old content and a patch from the previous layout stayed in one corner of
+        # the window.
         page.update()
         self.active_canvas().viewport().update()
         QTimer.singleShot(40, self.active_canvas().zoom_fit)
@@ -622,11 +622,11 @@ class MainWindow(QMainWindow):
             return
         win, page = kayit
         stack = self._state_stack if mode == "state" else self._class_stack
-        win.on_close = None                 # geri cagirma DONGUSUNU kes
+        win.on_close = None                 # break the callback LOOP
         page.setParent(None)
         stack.insertWidget(0, page)
         stack.setCurrentIndex(0)
-        # Ayirmada oldugu gibi: setParent() gizli isaretini birakir.
+        # As with detaching: setParent() leaves the hidden mark behind.
         page.show()
         self.sim_panel.setVisible(self.a_sim_panel.isChecked())
         page.update()
@@ -649,7 +649,7 @@ class MainWindow(QMainWindow):
         f.setLetterSpacing(f.SpacingType.AbsoluteSpacing, 1.0)
         header.setFont(f)
         header.setContentsMargins(10, 6, 10, 6)
-        # Baslik seritleri tema degisiminde yeniden boyanir (bkz. set_theme).
+        # The title strips are repainted on a theme change (see set_theme).
         self._section_headers.append(header)
         layout.addWidget(header)
 
@@ -661,7 +661,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(frame, 1)
         return host
 
-    # ================================================================== kipler
+    # modes
 
     def active_mode(self) -> str:
         index = self.mode_tabs.currentIndex()
@@ -672,14 +672,14 @@ class MainWindow(QMainWindow):
         return "state"
 
     def active_doc(self) -> Document:
-        """Etkin dokuman; depo kipinde durum dokumanina duser."""
+        """The active document; on the repository tab it falls back to the state one."""
         return self.class_doc if self.active_mode() == "class" else self.doc
 
     def active_canvas(self):
         return self.class_canvas if self.active_mode() == "class" else self.canvas
 
     def _sync_mode(self) -> None:
-        """Sekme degisince arac cubuklarini ve kisayollari esler."""
+        """Syncs the toolbars and the shortcuts when the tab changes."""
         mode = self.active_mode()
         state_mode = mode == "state"
         class_mode = mode == "class"
@@ -690,28 +690,28 @@ class MainWindow(QMainWindow):
             a.setEnabled(state_mode)
         for a in self.class_tool_actions.values():
             a.setEnabled(class_mode)
-        # Depo sekmesinde tuval GORUNMEZ. Tuvale is yapan kisayollar orada
-        # etkin kalirsa (Ctrl+A, Del) kullanici hicbir sey gormeden butun
-        # diyagrami silebilir; bu yuzden kip disinda kapatilirlar.
-        # Undo/Redo de bu listeye AITTIR. Depo sekmesinde tuval gorunmez;
-        # orada Ctrl+Z'ye basmak, kullanicinin GORMEDIGI diyagrami sessizce
-        # degistiriyordu -- geri alinan seyi gorene kadar ne oldugunu
-        # anlamanin bir yolu yoktu.
+        # The canvas IS NOT VISIBLE on the repository tab. If the shortcuts that act
+        # on it stayed enabled there (Ctrl+A, Del), the user could delete the whole
+        # diagram without seeing a thing; so they are disabled outside their mode.
+        # Undo/Redo BELONG on that list too. The canvas is invisible on the
+        # repository tab; pressing Ctrl+Z there silently changed a diagram the user
+        # COULD NOT SEE -- with no way of telling what had happened until they
+        # looked at it.
         for a in (self.a_undo, self.a_redo, self.a_select_all,
                   self.a_zoom_in, self.a_zoom_out,
                   self.a_zoom_reset, self.a_zoom_fit):
             a.setEnabled(diagram_mode)
-        # KOD ve SIMULASYON panelleri depo kipinde ACILAMAZ.
+        # The CODE and SIMULATION panels CANNOT BE OPENED in repository mode.
         #
-        # Panelleri sekmeye girerken kapatmak yetmiyordu: kullanici depo
-        # ekranindayken F9/F10'a basip ikisini geri acabiliyor, fark
-        # goruntuleyici yine dar bir seride sikisiyordu. Eylemler kip
-        # disinda kapatilir; sekmeden cikilinca geri acilir.
+        # Closing them on entering the tab was not enough: on the repository screen
+        # the user could press F9/F10 and open both again, and the diff viewer was
+        # squeezed into a narrow strip once more. The actions are disabled outside
+        # their mode; they are re-enabled on leaving the tab.
         self.a_code_panel.setEnabled(diagram_mode)
         self.a_sim_panel.setEnabled(state_mode)
         if not state_mode:
-            # Sinif diyagramina gecilince durum tuvali gizlenir; benzetim
-            # vurgusu orada asili kalmasin.
+            # The state canvas is hidden on a switch to the class diagram; the
+            # simulation highlight must not stay hanging there.
             self._clear_simulation()
         self.a_delete.setEnabled(
             diagram_mode and bool(self.active_canvas().selected_ids()))
@@ -719,9 +719,9 @@ class MainWindow(QMainWindow):
         self.set_class_tool(ClassTool.SELECT)
         self._update_counts()
 
-        # PROPERTIES yalnizca durum kipinde anlamlidir: sinif ozellikleri
-        # cift tiklama diyalogundan duzenlenir, depo kipinde model yoktur.
-        # WORKSPACE agaci HER kipte gorunur -- tek gezinme aracidir.
+        # PROPERTIES is only meaningful in state mode: class properties are edited
+        # from the double-click dialog, and repository mode has no model. The
+        # WORKSPACE tree is visible in EVERY mode -- it is the only navigation aid.
         self._props_section.setVisible(state_mode)
         self.left_col.setVisible(diagram_mode)
         if diagram_mode:
@@ -733,26 +733,26 @@ class MainWindow(QMainWindow):
             self.git_panel.refresh()
             return
         self._panels_for_git(False)
-        # Kip degisince diyagrami pencereye SIGDIR. Tuval gizliyken yapilan
-        # yakinlastirma/kaydirma islemleri gorunumu kaydirir; kullanici sekmeye
-        # dondugunde modeli bulmak icin ugrasmak zorunda kalmamali.
+        # FIT the diagram to the window when the mode changes. Zooming/panning done
+        # while the canvas was hidden shifts the view; the user should not have to
+        # hunt for the model when they come back to the tab.
         QTimer.singleShot(0, self.active_canvas().zoom_fit)
-        # Sekme degistirmek URETIM TETIKLEMEZ. Bunun yerine o kipin en son
-        # derlenmis ciktisi onbellekten gosterilir; henuz derlenmemisse panel
-        # bunu soyler. Boylece State/Class arasinda gidip gelmek disk
-        # yazmaya yol acmaz, ama panel de BASKA kipin kodunu gostermez --
-        # aksi halde Ctrl+E yanlis dosyalari disa aktarabilirdi.
+        # CHANGING TABS TRIGGERS NO GENERATION. Instead the last build output of
+        # that mode is shown from the cache; when it has not been built yet the
+        # panel says so. So going back and forth between State and Class causes no
+        # disk write, and the panel never shows the code of the OTHER mode --
+        # otherwise Ctrl+E could export the wrong files.
         self._show_mode_build()
         self._validate_active()
 
-    # ------------------------------------------------------------------ eylemler
+    # actions
 
     def _build_actions(self) -> None:
         def act(text, slot, shortcut=None, icon=None, tip=None, checkable=False):
             a = QAction(text, self)
             if icon:
                 a.setIcon(icon())
-                # Ureteci sakla: tema degisince simge yeniden cizilir.
+                # Keep the factory: the icon is redrawn on a theme change.
                 self._action_icons[a] = icon
             if shortcut:
                 a.setShortcut(QKeySequence(shortcut))
@@ -827,28 +827,28 @@ class MainWindow(QMainWindow):
                           checkable=True)
         self.a_grid.setChecked(True)
 
-        # TAM EKRAN. F11 standart kisayoldur; Esc de cikarir (asagida
-        # keyPressEvent). Isaretli durumu pencere durumundan TUREMEZ,
-        # kullanici pencere yoneticisiyle de cikabilecegi icin
-        # changeEvent'te eslenir -- aksi halde menudeki tik yalan soyler.
+        # FULL SCREEN. F11 is the standard shortcut; Esc leaves it too (see
+        # keyPressEvent below). The checked state IS NOT DERIVED from the window
+        # state -- the user may leave through the window manager as well -- so it
+        # is synced in changeEvent; otherwise the tick in the menu would lie.
         self.a_fullscreen = act("Full Screen", self.toggle_fullscreen, "F11",
                                 None, "Switches the window to full screen (F11)",
                                 checkable=True)
 
-        # KURTARMA YOLU. Bozuk bir yerlesim (bir bolmenin 0 piksele
-        # inmesi gibi) kaydedildigi icin her acilista tekrarlar; menude
-        # tek tikla varsayilana donmek, kullaniciyi ayarlari elle silmeye
-        # zorlamaktan iyidir.
+        # A RECOVERY PATH. A broken layout (a pane dropped to 0 pixels, say) is
+        # saved and so repeats at every start-up; going back to the default with
+        # one click in the menu beats forcing the user to delete their settings by
+        # hand.
         self.a_reset_layout = act("Reset Layout", self.reset_layout, None,
                                   None, "Restores the default panel sizes")
 
-        # TEMA. Secim QSettings'te saklanir ve acilista uygulanir.
+        # THEME. The choice is stored in QSettings and applied at start-up.
         self.theme_group = QActionGroup(self)
         self.theme_group.setExclusive(True)
         self.theme_actions = {}
         for key, label in THEMES.items():
-            # Alt menunun adi zaten "Theme"; ogede yinelemek gereksiz.
-            # Erisim harfi de eklenir (D / L).
+            # The submenu is already called "Theme"; repeating it in the item is
+            # pointless. An access letter is added as well (D / L).
             a = QAction("&%s" % label, self)
             a.setCheckable(True)
             a.triggered.connect(lambda _c, k=key: self.set_theme(k))
@@ -856,20 +856,20 @@ class MainWindow(QMainWindow):
             self.theme_actions[key] = a
         self.theme_actions[active_theme()].setChecked(True)
 
-        # AYRI SIMGELER. Iki panel anahtari da goz simgesi tasiyinca
-        # seritte yan yana ayirt edilemiyordu; kod paneli sagda bir serit
-        # oldugu icin panel simgesi, benzetim icin de oynat ucgeni.
+        # SEPARATE ICONS. With an eye icon on both panel switches they could not
+        # be told apart side by side on the strip; because the code panel is a
+        # strip on the right, it gets the panel icon and simulation the play triangle.
         self.a_code_panel = act("Show Code Panel", self.toggle_code_panel,
                                 "F9", icons.panel_icon,
                                 "Hide or show the generated-code panel",
                                 checkable=True)
         self.a_code_panel.setChecked(True)
 
-        # SIMULASYON PANELI ACILISTA KAPALIDIR.
+        # THE SIMULATION PANEL IS CLOSED AT START-UP.
         #
-        # Tuvalin ustunden ~190 piksel goturuyordu ve kullanicilarin
-        # cogu once modeli cizip sonra kosturuyor. Tercih KAYDEDILIR:
-        # bir kez acildiysa sonraki acilista da acik gelir.
+        # It took about 190 pixels off the top of the canvas, and most users draw
+        # the model first and run it afterwards. The preference IS SAVED: once
+        # opened, it comes back open at the next start-up.
         self.a_sim_panel = act("Show Simulation", self.toggle_sim_panel,
                                "F10", icons.play_icon,
                                "Hide or show the simulation strip",
@@ -877,14 +877,14 @@ class MainWindow(QMainWindow):
         self.a_sim_panel.setChecked(False)
         self.sim_panel.setVisible(False)
 
-        # BUILD, kod uretiminin TEK tetigidir. Model degistiginde kod artik
-        # kendiliginden uretilmez (bkz. _on_model_changed).
+        # BUILD is the ONLY trigger of code generation. Code is no longer generated
+        # by itself when the model changes (see _on_model_changed).
         self.a_build = act("Build", self.build, "F5", icons.build_icon,
                            "Validate the model and generate the code "
                            "(F5) — nothing is generated until you ask")
-        # Tasarim penceresini AYIRMA. Kullanici modeli ayri bir pencerede
-        # duzenlerken ana pencerede uretilen koda / baska bir modele /
-        # depoya bakabilir.
+        # DETACHING the design window. While the user edits the model in a separate
+        # window they can look at the generated code / another model / the
+        # repository in the main window.
         self.a_tool_window = act("Design Window (separate)",
                                  self.toggle_design_window, "F4",
                                  None,
@@ -902,7 +902,7 @@ class MainWindow(QMainWindow):
         self.a_shortcuts = act("Shortcuts", self.show_shortcuts, "F1")
         self.a_license = act("License (GPL v3)", self.show_license)
 
-        # ------------------------------------------------- durum kipi araclari
+        # state mode tools
         self.tool_group = QActionGroup(self)
         self.tool_group.setExclusive(True)
         self.tool_actions: Dict[Tool, QAction] = {}
@@ -918,7 +918,7 @@ class MainWindow(QMainWindow):
             self._action_icons[a] = icon
         self.tool_actions[Tool.SELECT].setChecked(True)
 
-        # ------------------------------------------------- sinif kipi araclari
+        # class mode tools
         self.class_tool_group = QActionGroup(self)
         self.class_tool_group.setExclusive(True)
         self.class_tool_actions: Dict[ClassTool, QAction] = {}
@@ -935,23 +935,23 @@ class MainWindow(QMainWindow):
         self.class_tool_actions[ClassTool.SELECT].setChecked(True)
 
     def _build_menu(self) -> None:
-        """Menu cubugunu STANDART duzende kurar.
+        """Builds the menu bar in the STANDARD layout.
 
-        Uyulan kurallar (Windows/CUA ve Qt uygulamalarinin ortak duzeni):
+        The rules followed (the common layout of Windows/CUA and Qt apps):
 
-        * Sira: File, Edit, View, ... alan menuleri ..., Help. Onceden
-          Repository, File ile Edit'in ARASINDAYDI; File-Edit bitisikligi
-          butun masaustu kilavuzlarinda sabittir.
-        * HER ogenin menu icinde TEKIL bir erisim harfi (&) vardir;
-          klavye ile menude gezinmenin tek yolu budur.
-        * Diyalog acan komutlar "..." ile biter; dogrudan calisan ya da
-          yalnizca bilgi gosteren komutlar bitmez (About, Shortcuts).
-        * Bolum basliklari `addSection()` ile konur. Once "pasif QAction"
-          kullaniliyordu; ekran okuyucular onu "devre disi menu ogesi"
-          diye okuyordu.
+        * Order: File, Edit, View, ... domain menus ..., Help. Repository used
+          to sit BETWEEN File and Edit; the File-Edit adjacency is fixed in
+          every desktop guideline.
+        * EVERY item has a UNIQUE access letter (&) within its menu; that is
+          the only way to walk the menu from the keyboard.
+        * Commands that open a dialog end with "..."; commands that act
+          directly or only show information do not (About, Shortcuts).
+        * Section headings are placed with `addSection()`. A "disabled
+          QAction" was used before; screen readers announced it as a
+          "disabled menu item".
         """
         m = self.menuBar()
-        #: Tek sirali ust bara tasinacak menuler (bkz. _build_toolbars).
+        #: The menus moved onto the single-row top bar (see _build_toolbars).
         self._menus = []
 
         # -- File ---------------------------------------------------------- #
@@ -988,10 +988,10 @@ class MainWindow(QMainWindow):
         _mnemonic(self.a_delete, "&Delete")
         _mnemonic(self.a_select_all, "Select &All")
         e.addActions([self.a_delete, self.a_select_all])
-        # GORUNUM araclari Edit altinda da durur. Kullanicinin acik
-        # istegi: "geri al, ileri git, fit gibi araclari da edit altina
-        # koy". Ayni eylemin iki menude bulunmasi masaustu
-        # uygulamalarinda olagandir; kisayollari tektir.
+        # The VIEW tools sit under Edit as well. An explicit request from the
+        # user: "put the tools like undo, redo and fit under edit too". The same
+        # action appearing in two menus is common in desktop applications; its
+        # shortcut is single.
         e.addSeparator()
         e.addActions([self.a_zoom_in, self.a_zoom_out, self.a_zoom_reset,
                       self.a_zoom_fit])
@@ -1027,9 +1027,9 @@ class MainWindow(QMainWindow):
 
         # -- Tool ---------------------------------------------------------- #
         #
-        # Ust seritte araclar yalnizca SIMGE olarak duruyor; hangi simgenin
-        # hangi arac oldugunu ogrenmenin tek yolu ipucunu beklemekti. Menu
-        # araclari ADIYLA ve KISAYOLUYLA listeler.
+        # On the top strip the tools appear as ICONS only; the only way to learn
+        # which icon is which tool was to wait for the tooltip. The menu lists the
+        # tools BY NAME and BY SHORTCUT.
         t = m.addMenu("&Tool")
         _mnemonic(self.a_tool_window, "&Design Window (separate)")
         t.addAction(self.a_tool_window)
@@ -1044,9 +1044,9 @@ class MainWindow(QMainWindow):
         k = m.addMenu("&Code")
         self.lang_group = QActionGroup(self)
         self.lang_actions: Dict[str, QAction] = {}
-        # DIL ETIKETLERI TEK KAYNAKTAN gelir (code_panel.LANGUAGES).
-        # Menu ile sag panelin etiketleri elle yazilinca ayrisiyordu.
-        # Erisim harfleri burada eklenir; metnin kendisi degismez.
+        # THE LANGUAGE LABELS COME FROM ONE SOURCE (code_panel.LANGUAGES). Written
+        # by hand, the labels of the menu and of the right panel drifted apart. The
+        # access letters are added here; the text itself is unchanged.
         _KOD_HARF = {"c": "&C", "cpp": "C&++", "puml": "Plant&UML"}
         for text, key in LANGUAGES:
             isaretli = text
@@ -1076,7 +1076,7 @@ class MainWindow(QMainWindow):
 
         # -- References ----------------------------------------------------- #
         r = m.addMenu("&References")
-        # Spesifikasyonun KENDISI: atiflari izlenebilir kilar.
+        # The specification ITSELF: it makes the references followable.
         r.addAction(self.a_spec)
         r.addSeparator()
         for title, detail in REFERENCES:
@@ -1095,21 +1095,21 @@ class MainWindow(QMainWindow):
         self._menus = [f, e, v, t, k, g, r, h]
 
     def _build_toolbars(self) -> None:
-        """TEK SIRALI UST BAR.
+        """A SINGLE-ROW TOP BAR.
 
-        Once uc ayri satir vardi: menu cubugu, ana eylemler, diyagram
-        araclari -- ustune bir de kip sekmeleri. Dort serit, tuvalin
-        ustunden ~120 piksel goturuyordu. Kullanici: "2. ve 3. ust barlari
-        da kaldir, onlari da en ust barda olacak sekilde yerlestir, bana
+        There used to be three separate rows: the menu bar, the main actions and
+        the diagram tools -- plus the mode tabs on top of that. Four strips took
+        about 120 pixels off the canvas. The user: "remove the 2nd and 3rd top
+        bars too, put them in the topmost bar, give me room."
         alan ac."
 
-        Simdi hepsi TEK QToolBar'da: solda menuler (acilir dugme olarak),
-        ardindan ana eylemler, ardindan etkin kipin araclari. QMenuBar
-        nesnesi DURUYOR ama gizli: menuler ona bagli kalir, kisayollar ve
-        `menuBar().actions()` uzerinden yurunen kodlar bozulmaz.
+        Now they are all in ONE QToolBar: the menus on the left (as pop-up
+        buttons), then the main actions, then the tools of the active mode. The
+        QMenuBar object STAYS but hidden: the menus stay attached to it, and
+        shortcuts and code walking `menuBar().actions()` do not break.
 
-        Dar pencerede QToolBar kendi tasma dugmesini gosterir; hicbir sey
-        erisilemez hale gelmez.
+        In a narrow window QToolBar shows its own overflow button; nothing
+        becomes unreachable.
         """
         bar = QToolBar("Main")
         bar.setObjectName("topBar")
@@ -1119,21 +1119,21 @@ class MainWindow(QMainWindow):
         bar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.top_bar = bar
 
-        # -- menuler ------------------------------------------------------
-        # MENU YAZILARI BUYUTULUR. Kullanici "menubari biraz daha buyut,
-        # cok kucuk olmus" dedi: serit simge kipine gecince menu dugmeleri
-        # de arac simgeleriyle ayni kucuk olcege dusmustu.
+        # -- menus ------------------------------------------------------
+        # THE MENU TEXT IS ENLARGED. The user said "make the menu bar a bit bigger,
+        # it has got too small": once the strip went into icon mode, the menu
+        # buttons dropped to the same small size as the tool icons.
         menu_font = ui_font(MENU_POINT)
         self.menu_buttons: List[QToolButton] = []
         for menu in self._menus:
             btn = QToolButton(bar)
-            # ERISIM HARFI (&) KORUNUR.
+            # THE ACCESS LETTER (&) IS PRESERVED.
             #
-            # Gercek menu cubugu gizlenip yerine bu dugmeler konuyor.
-            # Onceden `&` siliniyordu; boylece Alt+F / Alt+E gibi menu
-            # kisayollari HIC CALISMIYORDU -- klavyeyle menuye ulasmanin
-            # tek yolu kapanmisti. QAbstractButton, metindeki `&` icin
-            # kendiliginden bir Alt kisayolu kurar ve InstantPopup
+            # The real menu bar is hidden and these buttons take its place. The `&`
+            # used to be stripped, so menu shortcuts such as Alt+F / Alt+E DID NOT WORK
+            # AT ALL -- the only keyboard route into the menu was closed.
+            # QAbstractButton sets up an Alt shortcut from the `&` in the text by
+            # itself and opens this menu on an InstantPopup button.
             # dugmesinde bu menuyu acar.
             btn.setText(menu.title())
             btn.setMenu(menu)
@@ -1141,20 +1141,20 @@ class MainWindow(QMainWindow):
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
             btn.setAutoRaise(True)
             btn.setFont(menu_font)
-            # Acilan menunun KENDI yazisi da ayni olcekte olmali; yoksa
-            # dugme buyur, icerigi kucuk kalir.
+            # The text of the opened menu must be at the same size; otherwise the
+            # button grows and its content stays small.
             menu.setFont(menu_font)
             bar.addWidget(btn)
             self.menu_buttons.append(btn)
         self.menuBar().setVisible(False)
 
-        # ANA EYLEMLER: yalnizca SIK KULLANILANLAR.
+        # THE MAIN ACTIONS: the FREQUENTLY USED ones only.
         #
-        # Tek serit sinirli: 7 menu + 11 eylem + 10 arac 1500 px'lik bir
-        # ekrana sigmiyor ve araclarin yarisi tasma dugmesinin arkasinda
-        # kaliyordu -- oysa surekli kullanilan sey ARACLAR. Yakinlastirma,
-        # izgara, panel anahtarlari ve disa aktarma seritten cikti; hepsi
-        # View / Code menusunde ve kisayollarinda duruyor.
+        # One row is limited: 7 menus + 11 actions + 10 tools do not fit on a 1500
+        # px screen and half the tools ended up behind the overflow button -- while
+        # the THING IN CONSTANT USE is the TOOLS. Zoom, grid, the panel switches and
+        # export left the strip; they all live in the View / Code menus and in their
+        # shortcuts.
         bar.addSeparator()
         bar.addActions([self.a_new, self.a_open, self.a_save])
         bar.addSeparator()
@@ -1162,15 +1162,15 @@ class MainWindow(QMainWindow):
         bar.addSeparator()
         bar.addActions([self.a_zoom_fit, self.a_build])
         bar.addSeparator()
-        # Panel anahtarlari SERITTE. Menu + kisayol tek basina
-        # kesfedilebilir degil: kullanici kod panelini kapatinca geri
-        # getirmenin gorunur bir yolu kalmiyordu.
+        # The panel switches stay ON THE STRIP. A menu entry plus a shortcut is not
+        # discoverable on its own: once the user closed the code panel there was no
+        # visible way to bring it back.
         bar.addAction(self.a_code_panel)
         bar.addAction(self.a_sim_panel)
 
-        # -- diyagram araclari: ETKIN kipe gore degisir -------------------
-        # Araclar adlariyla birlikte durur: "hangi araci sectim" sorusunun
-        # cevabi bir simgeden okunamiyordu.
+        # -- diagram tools: they change with the ACTIVE mode -------------------
+        # The tools carry their names: the answer to "which tool did I pick" could
+        # not be read off an icon.
         self._tool_sep = bar.addSeparator()
 
         def tool_actions_of(spec, actions):
@@ -1186,21 +1186,21 @@ class MainWindow(QMainWindow):
         for act in self._state_tool_actions + self._class_tool_actions:
             bar.addAction(act)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, bar)
-        # Acilista da kipe gore suz: `_sync_mode` ilk sekme
-        # degisimine kadar cagrilmiyor ve iki kipin araclari
-        # birlikte gorunuyordu (iki ayri 'Select' dugmesi).
+        # Filter by mode at start-up too: `_sync_mode` is not called until the
+        # first tab change, and the tools of both modes were showing together
+        # (two separate 'Select' buttons).
         self._show_tools_for(self.active_mode())
         self._sync_tool_labels()
 
     def _sync_tool_labels(self) -> None:
-        """Butun araclari SIMGE olarak gosterir.
+        """Shows every tool AS AN ICON.
 
-        Bir onceki surumde SECILI arac adiyla da yaziliyordu ("sectigim
-        araci goreyim" istegi icin). Sonuc kotu duruyordu: serit her arac
-        degisiminde genisleyip daraliyor, yanindaki dugmeler kayiyor ve
-        tek bir "Select" yazisi araclarin arasinda yamalik gibi kaliyordu.
-        Secili arac zaten BASILI gorunumuyle belli; hangi arac oldugu
-        ipucunda, Tool menusunde ve durum cubugunda yazili.
+        In the previous version the SELECTED tool was also written out (for the
+        "let me see the tool I picked" request). The result looked bad: the
+        strip widened and narrowed on every tool change, the buttons next to it
+        shifted, and a single "Select" label sat among the tools like a patch.
+        The selected tool is already obvious from its PRESSED look; which tool
+        it is is written in the tooltip, in the Tool menu and in the status bar.
         """
         for act in self._state_tool_actions + self._class_tool_actions:
             dugme = self.top_bar.widgetForAction(act)
@@ -1209,13 +1209,13 @@ class MainWindow(QMainWindow):
             dugme.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
 
     def _show_tools_for(self, mode: str) -> None:
-        """Ust barda YALNIZCA etkin kipin araclarini birakir.
+        """Leaves ONLY the tools of the active mode on the top bar.
 
-        Gorunurluk WIDGET uzerinden degil EYLEM uzerinden ayarlanir:
-        QToolBar kendi yerlesimini kurarken eylemin dugmesini yeniden
-        gosterir, bu yuzden `widgetForAction(...).setVisible(False)`
-        tutmuyordu -- iki kipin araclari ust uste duruyor, seritte iki
-        ayri "Select" dugmesi gorunuyordu.
+        Visibility is set through the ACTION, not through the WIDGET: when
+        QToolBar rebuilds its layout it shows the button of the action again, so
+        `widgetForAction(...).setVisible(False)` did not hold -- the tools of
+        both modes sat on top of each other and two separate "Select" buttons
+        appeared on the strip.
         """
         for act in self._state_tool_actions:
             act.setVisible(mode == "state")
@@ -1240,9 +1240,9 @@ class MainWindow(QMainWindow):
 
         self.ws_tree.model_activated.connect(self.open_model_path)
         self.ws_tree.model_removed.connect(self._on_model_removed)
-        # Agactan secilen eleman ETKIN tuvalde odaklanir. Eskiden yalnizca
-        # durum tuvaline bagliydi; sinif diyagraminda agactan bir sinifa
-        # tiklamak hicbir sey yapmiyordu.
+        # The element chosen in the tree is focused on the ACTIVE canvas. It used
+        # to be bound to the state canvas only; on a class diagram, clicking a
+        # class in the tree did nothing.
         self.ws_tree.element_activated.connect(self._focus_element)
         self.ws_tree.model_selected.connect(self._model_selected)
 
@@ -1257,56 +1257,56 @@ class MainWindow(QMainWindow):
 
         self.sim_panel.active_changed.connect(self.canvas.set_active_states)
         self.sim_panel.message.connect(self.flash)
-        # Simulasyon baslayinca diyagrami sigdir: etkin durum zinciri
-        # vurgulanir, kullanicinin once elle yakinlastirmasi gerekmez.
+        # Fit the diagram when the simulation starts: the active state chain is
+        # highlighted and the user should not have to zoom by hand first.
         self.sim_panel.started.connect(
             lambda: QTimer.singleShot(0, self.canvas.zoom_fit))
 
         self.git_panel.status_changed.connect(self._on_git_status)
-        # Depo panelinde bir MODEL dosyasi secilince, farki ayrica
-        # DIYAGRAM uzerinde de isaretle.
+        # When a MODEL file is selected in the repository panel, also mark the diff
+        # ON THE DIAGRAM.
         self.git_panel.model_diff_requested.connect(self._git_model_diff)
 
         self.mode_tabs.currentChanged.connect(lambda _i: self._sync_mode())
 
-    # ================================================================== akis
+    # flow
 
     def _on_model_changed(self) -> None:
-        # Olay isleme sirasinda eleman silmemek icin bir sonraki dongude yenile.
+        # Refresh on the next loop so no item is deleted during event handling.
         self._rebuild_timer.start(0)
-        # KOD URETIMI BURADA CALISMAZ. Eskiden her degisiklikten 180 ms sonra
-        # tum kod yeniden uretilir, renklendirilir ve DISKE YAZILIRDI; her
-        # surukleme/duzenleme jesti bir dosya yazma turu baslatiyor ve arayuz
-        # takiliyordu (virus tarayicili makinelerde yazma suresi ongorulemez).
-        # Uretim artik yalnizca kullanici Build dedigi zaman calisir.
+        # CODE GENERATION DOES NOT RUN HERE. All the code used to be regenerated,
+        # highlighted and WRITTEN TO DISK 180 ms after every change; every drag or
+        # edit gesture started a file write round and the interface stuttered (on a
+        # machine with a virus scanner the write time is unpredictable).
+        # Generation now runs only when the user says Build.
         self._mark_code_stale()
 
     def _rebuild_views(self) -> None:
         self.canvas.rebuild()
         self.class_canvas.rebuild()
-        # Agactaki ACIK model dugumleri kaydedilmemis degisiklikleri de
-        # gostermeli; kapali dugumlere dokunulmaz (tembel yukleme).
+        # OPEN model nodes in the tree have to show unsaved changes too; closed
+        # nodes are left alone (lazy loading).
         self.ws_tree.set_open_models(self.open_models())
         self.inspector.refresh()
         self.sim_panel.rebuild()
         self._update_title()
         self._update_counts()
-        # DOGRULAMA canli kalir (~0.2-1.3 ms): Problems paneli, tuvaldeki hata
-        # isaretleri ve durum cubugu bunun uzerinden calisir ve kullanicinin
-        # hatayi ANINDA gormesi gerekir. Pahali olan ve diske dokunan adim
-        # KOD URETIMIDIR; o Build dugmesine tasindi.
+        # VALIDATION stays live (~0.2-1.3 ms): the Problems panel, the error marks
+        # on the canvas and the status bar run off it, and the user has to see an
+        # error AT ONCE. The expensive step that touches the disk is CODE
+        # GENERATION; that moved onto the Build button.
         self._validate_active()
 
     def _git_model_diff(self, path: str, taban: str) -> None:
-        """Depo panelinden secilen modelin farkini DIYAGRAM uzerinde gosterir.
+        """Shows the diff of the model selected in the repository panel ON THE DIAGRAM.
 
-        Metinsel fark bir JSON modelinde okunmaz: bir kutuyu tasimak
-        onlarca satir uretir. Kullanicinin sordugu "ne eklendi, ne
-        cikarildi" sorusunun cevabi resmin kendisidir.
+        A textual diff is unreadable on a JSON model: moving one box produces
+        dozens of lines. The answer to the "what was added, what was removed"
+        question the user is asking is the picture itself.
 
-        Fark ancak dosya TUVALDE ACIKSA cizilebilir; degilse durum
-        cubugunda soylenir. Karsilastirma tabani depo panelinin sectigi
-        taraftir: hazirlanmis dosyada hazirlik alani, degilse HEAD.
+        The diff can only be drawn when the file is OPEN ON THE CANVAS;
+        otherwise it is said in the status bar. The comparison base is the side
+        the repository panel picked: the index for a staged file, else HEAD.
         """
         try:
             acik = None
@@ -1349,20 +1349,20 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def _model_selected(self, path: str) -> None:
-        """`model_selected` sinyalinin GUVENLI girisi.
+        """The SAFE entry point of the `model_selected` signal.
 
-        PyQt6'da bir yuvada (slot) yakalanmamis Python istisnasi sureci
-        OLDURUR (0xC0000409). Bir kere tam boyle oldu: sinif tuvalinde
-        `set_diff_marks` yoktu, agacta bir modele tiklamak AttributeError
-        firlatti ve uygulama -- kaydedilmemis modelle birlikte -- kapandi.
+        In PyQt6 an uncaught Python exception in a slot KILLS the process
+        (0xC0000409). That happened exactly once: the class canvas had no
+        `set_diff_marks`, clicking a model in the tree threw AttributeError and
+        the application closed -- taking the unsaved model with it.
 
-        Fark GOSTERIMI bir kolayliktir; basarisiz olmasi kullanicinin
-        calismasini kaybetmesine yol acmamali. Sorun sessizce yutulmaz:
-        durum cubugunda bildirilir ve stderr'e yazilir.
+        SHOWING a diff is a convenience; its failure must not cost the user
+        their work. The problem is not swallowed silently: it is reported in
+        the status bar and written to stderr.
         """
         try:
             self._show_model_diff(path)
-        except Exception as exc:                   # noqa: BLE001 - kasitli
+        except Exception as exc:                   # noqa: BLE001 - deliberate
             try:
                 self.canvas.set_diff_marks(None)
                 self.class_canvas.set_diff_marks(None)
@@ -1373,21 +1373,21 @@ class MainWindow(QMainWindow):
             traceback.print_exc()
 
     def _show_model_diff(self, path: str) -> None:
-        """Agacta secilen modelin DEGISIKLIKLERINI diyagram uzerinde gosterir.
+        """Shows the CHANGES of the model selected in the tree on the diagram.
 
-        Kullanicinin sordugu sey "bu dosyada ne degismis" ve cevabi metin
-        farkinda degil DIYAGRAMDA aramak istiyor: eklenen bloklar yesil,
-        degisenler sari, SILINENLER eski yerlerinde kesik kirmizi hayalet.
+        What the user is asking is "what changed in this file", and they want
+        the answer on the DIAGRAM rather than in a textual diff: added blocks
+        green, changed ones yellow, DELETED ones dashed red ghosts in place.
 
-        Karsilastirma tabani, en genis anlamli tabandir:
+        The comparison base is the widest meaningful base:
 
-          * depoda bir HEAD surumu VARSA taban odur -- boylece hem commit
-            edilmemis hem de kaydedilmemis degisiklikler TEK RESIMDE gorunur;
-          * depo yoksa (ya da dosya hic commit edilmemisse) taban diskteki
-            surumdur, yani yalnizca "kaydetmediklerim" gosterilir.
+          * when a HEAD version EXISTS in the repository that is the base -- so
+            both uncommitted and unsaved changes appear IN ONE PICTURE;
+          * without a repository (or when the file was never committed) the
+            base is the version on disk, so only "what I have not saved" shows.
 
-        Fark ancak dosya TUVALDE ACIKSA cizilebilir: baska bir modelin
-        farkini ekrandaki diyagramin uzerine boyamak yaniltici olurdu.
+        The diff can only be drawn when the file is OPEN ON THE CANVAS: painting
+        another model's diff over the diagram on screen would be misleading.
         """
         if not path:
             return
@@ -1405,7 +1405,7 @@ class MainWindow(QMainWindow):
                 break
 
         if acik_doc is None:
-            # Diyagram ekranda degil; boyayacak bir sey yok.
+            # The diagram is not on screen; there is nothing to paint.
             self.canvas.set_diff_marks(None)
             self.class_canvas.set_diff_marks(None)
             self.flash("%s — open it (double-click) to compare."
@@ -1415,16 +1415,16 @@ class MainWindow(QMainWindow):
         yeni = acik_doc.machine.to_json()
         eski = self._head_version(path)
         if eski is not None:
-            # YAZIM HATASI BURADAYDI: taban HEAD oldugunda isaretler
-            # hesaplaniyor ama tuvale `None` gonderiliyordu; "commit
-            # etmediklerim" gorunumu bu yuzden HIC CIZILMIYORDU.
+            # THE TYPO WAS HERE: with HEAD as the base the marks were computed but
+            # `None` was sent to the canvas; that is why the "what I have not
+            # committed" view WAS NEVER DRAWN.
             kaynak = ("uncommitted changes" if yeni == diskteki
                       else "uncommitted + unsaved changes")
         else:
             eski, kaynak = diskteki, "unsaved changes"
 
         marks = element_status(eski, yeni)
-        # Fark YALNIZCA o modelin kipinde anlamlidir.
+        # A diff is only meaningful in the mode of that model.
         tuval = (self.class_canvas if acik_doc is self.class_doc
                  else self.canvas)
         diger = self.canvas if tuval is self.class_canvas else self.class_canvas
@@ -1442,10 +1442,10 @@ class MainWindow(QMainWindow):
                           kaynak))
 
     def _head_version(self, path: str):
-        """Dosyanin git HEAD'deki icerigi; depo/dosya yoksa None.
+        """The content of the file at git HEAD; None without a repository/file.
 
-        `Repo.file_at` DEPO KOKUNE GORELI yol ister; mutlak yol verilirse
-        git dosyayi bulamaz ve bos doner.
+        `Repo.file_at` wants a path RELATIVE TO THE REPOSITORY ROOT; given an
+        absolute path, git does not find the file and returns empty.
         """
         panel = getattr(self, "git_panel", None)
         repo = getattr(panel, "repo", None) if panel is not None else None
@@ -1454,19 +1454,19 @@ class MainWindow(QMainWindow):
         try:
             goreli = os.path.relpath(path, repo.root).replace(os.sep, "/")
             if goreli.startswith(".."):
-                return None            # depo disinda
+                return None            # outside the repository
             metin = repo.file_at("HEAD", goreli)
             return metin or None
         except Exception:
-            # Depo bos olabilir (HEAD yok) ya da dosya hic commit
-            # edilmemis olabilir; ikisi de HATA DEGIL, "fark yok" demektir.
+            # The repository may be empty (no HEAD) or the file may never have been
+            # committed; neither is AN ERROR, both mean "no diff".
             return None
 
     def _focus_element(self, eid: str) -> None:
-        """Agactan secilen elemani ETKIN tuvalde odaklar.
+        """Focuses the element selected in the tree ON THE ACTIVE CANVAS.
 
-        Eleman hangi modele aitse o kipe de gecer: kullanici agacta bir
-        sinifa tikladiginda durum diyagrami sekmesinde kalmasi anlamsizdi.
+        It also switches to the mode the element belongs to: staying on the
+        state diagram tab when the user clicks a class in the tree made no sense.
         """
         if eid in self.class_doc.machine.classes \
                 or eid in self.class_doc.machine.relations:
@@ -1485,15 +1485,15 @@ class MainWindow(QMainWindow):
 
     def _on_selection(self, ids: List[str]) -> None:
         if list(ids) == self.inspector.selected_ids():
-            # Ayni secim yeniden yayildi (tuval yeniden cizildi). Formu YIKMA:
-            # kullanici o anda bir alana yaziyor olabilir; refresh() odak
-            # korumasi sayesinde yalnizca guvenliyse tazeler.
+            # The same selection was emitted again (the canvas was redrawn). DO NOT
+            # tear the form down: the user may be typing in a field; thanks to its
+            # focus guard, refresh() only refreshes when that is safe.
             self.inspector.refresh()
         else:
             self.inspector.show_selection(ids)
         if len(ids) == 1:
-            # Secim CALISMA ALANI agacinda isaretlenir (model agaci
-            # kaldirildi; ayni bilgiyi zaten o agac tasiyor).
+            # The selection is marked in the WORKSPACE tree (the model tree was
+            # removed; that tree already carries the same information).
             self.ws_tree.select_element(ids[0])
         self.a_delete.setEnabled(bool(ids) and self.active_mode() != "git")
 
@@ -1521,16 +1521,16 @@ class MainWindow(QMainWindow):
         action = self.lang_actions.get(key)
         if action is not None and not action.isChecked():
             action.setChecked(True)
-        # Dil degistirmek KOD hakkinda acik bir kullanici istegidir; panelin
-        # baska bir dilin kodunu gostermesi yaniltici olurdu.
+        # Changing the language is an explicit user request ABOUT THE CODE; a panel
+        # showing the code of another language would be misleading.
         self.build()
 
     def submachine_resolver(self):
-        """Altmakine referanslarini cozen islev.
+        """The function that resolves submachine references.
 
-        ACIK BELGE ONCELIKLIDIR: kullanici referans edilen makineyi baska
-        bir sekmede degistirip henuz kaydetmediyse, diskteki eski kopyayla
-        kod uretmek EKRANDA GORULEN diyagramla uyusmayan bir cikti verirdi.
+        THE OPEN DOCUMENT WINS: if the user changed the referenced machine in
+        another tab and has not saved it yet, generating code from the old copy
+        on disk would disagree with the diagram ON SCREEN.
         """
         from ..core.submachine import workspace_resolver
 
@@ -1553,27 +1553,27 @@ class MainWindow(QMainWindow):
 
     def _undo(self) -> None:
         if self.active_mode() == "git":
-            return          # tuval gorunmuyor; gorunmeyen seyi degistirme
+            return          # the canvas is not visible; do not change what cannot be seen
         self.active_doc().undo_stack.undo()
 
     def _redo(self) -> None:
         if self.active_mode() == "git":
-            return          # tuval gorunmuyor; gorunmeyen seyi degistirme
+            return          # the canvas is not visible; do not change what cannot be seen
         self.active_doc().undo_stack.redo()
 
     def _odaktaki_metin(self):
-        """Bu pencerede odakta bir METIN alani varsa onu dondurur.
+        """Returns the focused TEXT field in this window, if there is one.
 
-        Kod paneli SALT OKUNUR bir editordur ve Qt'de salt okunur bir
-        metin alani `ShortcutOverride` olayini KABUL ETMEZ: pencere
-        kapsamli bir QAction kisayolu onu yener. Editable bir alan yener,
-        salt okunur olan yenilir -- fark tam olarak budur.
+        The code panel is a READ-ONLY editor, and in Qt a read-only text field
+        DOES NOT ACCEPT the `ShortcutOverride` event: a window-scoped QAction
+        shortcut beats it. An editable field wins, a read-only one loses -- that
+        is exactly the difference.
 
-        Sonuc, sessiz bir VERI KAYBIYDI: kullanici uretilen kodu
-        kopyalamak icin panele tiklayip Ctrl+A'ya basiyor, kod
-        secilmiyor; onun yerine GORMEDIGI tuvalde her sey seciliyor ve
-        Del butun modeli siliyordu (9 durum, 11 gecis -> 0). Silme
-        eylemi zaten Ctrl+A ile ETKINLESIYOR, yani iki tusluk bir jest.
+        The consequence was silent DATA LOSS: to copy the generated code the
+        user clicked the panel and pressed Ctrl+A, the code was not selected;
+        instead everything on the canvas they COULD NOT SEE got selected and Del
+        deleted the whole model (9 states, 11 transitions -> 0). The delete
+        action is ENABLED by Ctrl+A itself, so it is a two-key gesture.
         """
         from PyQt6.QtWidgets import (QApplication, QLineEdit,
                                      QPlainTextEdit, QTextEdit)
@@ -1584,11 +1584,11 @@ class MainWindow(QMainWindow):
         return None
 
     def _tuval_odakta(self) -> bool:
-        """Odak ETKIN TUVALIN icinde mi (ya da hicbir yerde mi)?
+        """Is the focus inside THE ACTIVE CANVAS (or nowhere)?
 
-        Tuvali degistiren eylemler yalnizca o zaman calisir. Menuden ya
-        da arac cubugundan gelen cagri odagi degistirmez (dugmeler
-        Qt::NoFocus), dolayisiyla bu kosul onlari engellemez.
+        The actions that change the canvas only run then. A call from the menu
+        or the toolbar does not move the focus (the buttons are Qt::NoFocus), so
+        this condition does not block them.
         """
         from PyQt6.QtWidgets import QApplication
         odak = QApplication.focusWidget()
@@ -1599,22 +1599,22 @@ class MainWindow(QMainWindow):
 
     def _delete_selection(self) -> None:
         if self.active_mode() == "git":
-            return          # tuval gorunmuyor; gorunmeyen seyi silme
+            return          # the canvas is not visible; do not delete what cannot be seen
         if not self._tuval_odakta():
-            # Odak baska bir panelde: kod editoru, calisma alani agaci,
-            # ozellik alani... Del oraya aittir, tuvale degil.
+            # The focus is in another panel: the code editor, the workspace tree, a
+            # property field... Del belongs there, not to the canvas.
             return
         self.active_canvas().delete_selection()
 
-    # ---------------------------------------------------------------- uretim
+    # generation
 
-    # -- 1) DOGRULAMA: ucuz, her model degisiminde calisir ------------------ #
+    # -- 1) VALIDATION: cheap, runs on every model change ------------------- #
 
     def _validate_active(self) -> List[Issue]:
-        """Etkin kipin modelini dogrular ve gostergeleri gunceller.
+        """Validates the model of the active mode and updates the indicators.
 
-        Kod URETMEZ ve diske DOKUNMAZ. Boylece surukleme/duzenleme jestleri
-        dosya yazma turu baslatmaz; kullanici yine de hatayi aninda gorur.
+        It GENERATES no code and DOES NOT TOUCH the disk. So drag/edit gestures
+        start no file write, while the user still sees an error at once.
         """
         if self.active_mode() == "class":
             cm = self.class_doc.machine
@@ -1634,14 +1634,14 @@ class MainWindow(QMainWindow):
         self._update_issue_label(issues)
         return issues
 
-    # -- 2) URETIM: pahali, YALNIZCA Build ile calisir ---------------------- #
+    # -- 2) GENERATION: expensive, runs ONLY on Build ----------------------- #
 
     def _generate_files(self, issues: List[Issue]) -> Optional[Dict[str, str]]:
-        """Etkin kipin kodunu uretir. Hata olursa None doner ve panele yazar."""
+        """Generates the code of the active mode. On an error returns None and writes to the panel."""
         if has_errors(issues):
             n_err = sum(1 for i in issues if i.is_error)
-            # Bayat dosyalari BIRAKMA: aksi halde Ctrl+E / Ctrl+Shift+G bir
-            # onceki (ya da baska kipin) kodunu sessizce diske yazardi.
+            # DO NOT LEAVE stale files behind: otherwise Ctrl+E / Ctrl+Shift+G would
+            # silently write the previous (or the other mode's) code to disk.
             self._drop_build()
             self.code_panel.show_blocked(
                 "%d validation error(s); code generation stopped." % n_err)
@@ -1662,22 +1662,22 @@ class MainWindow(QMainWindow):
         try:
             if is_class:
                 return generator(model)
-            # Durum makinesi ureteclerine ALTMAKINE COZUMLEYICISI verilir.
+            # The state machine generators are given A SUBMACHINE RESOLVER.
             return generator(model, resolve=self.submachine_resolver())
         except CodegenError as exc:
             self._drop_build()
             self.code_panel.show_blocked("Code generation failed: %s" % exc)
             return None
-        except Exception as exc:                       # beklenmeyen durum
+        except Exception as exc:                       # an unexpected condition
             self._drop_build()
             self.code_panel.show_blocked(
                 "Unexpected generation error: %s\n%s"
                 % (exc, traceback.format_exc(limit=3)))
             return None
 
-    # -- 3) BUILD: kullanici istegiyle, ilerleme cubugu ile ---------------- #
+    # -- 3) BUILD: on user request, with a progress bar --------------------- #
 
-    #: Build adimlari: (yuzde, durum cubugunda gorunecek metin).
+    #: The build steps: (percentage, the text to show in the status bar).
     BUILD_STEPS = (
         (10, "Validating model…"),
         (45, "Generating %s…"),
@@ -1687,20 +1687,20 @@ class MainWindow(QMainWindow):
     )
 
     def build(self) -> bool:
-        """Modeli dogrular, kodu uretir, panele koyar ve calisma alanina yazar.
+        """Validates the model, generates the code, fills the panel, writes to the workspace.
 
-        TEK GIRIS NOKTASI. Kullanici Build dedigi (F5), dili degistirdigi ya
-        da kip degistirdigi zaman calisir; model degisiminde CALISMAZ.
+        THE SINGLE ENTRY POINT. It runs when the user says Build (F5), changes
+        the language or changes mode; it does NOT run on a model change.
 
-        Adimlar ARKA IS PARCACIGINDA DEGIL, ana is parcaciginda sirayla
-        kosar. Olculen surelerde uretim 1-6 ms surer (bkz. tools/); is
-        parcacigi eklemek modelin derin kopyasini gerektirir ve kopya ile
-        canli model arasinda sessiz tutarsizlik riski dogurur -- uretilen kod
-        kritik yerlerde kullanildigi icin bu risk kabul edilebilir degil.
-        Ongorulemeyen tek adim DISKE YAZMADIR; cubuk asil orada is gorur.
+        The steps run in order ON THE MAIN THREAD, NOT on a background one. In
+        the measurements generation takes 1-6 ms (see tools/); adding a thread
+        would require a deep copy of the model and create the risk of a silent
+        inconsistency between the copy and the live model -- unacceptable when
+        the generated code is used in critical places. The only unpredictable
+        step is WRITING TO DISK; that is where the bar really earns its place.
         """
         if self._building:
-            return False                      # yeniden girisi engelle
+            return False                      # block re-entry
         self._building = True
         try:
             self._begin_progress()
@@ -1733,21 +1733,21 @@ class MainWindow(QMainWindow):
             self._building = False
 
     def _build_key(self):
-        """Onbellek anahtari: (kip, DIL).
+        """The cache key: (mode, LANGUAGE).
 
-        Dil de anahtara girer; aksi halde kullanici C++'a gecip Build dedikten
-        sonra diger sekmeye donunce panelde HALA C kodu gorunur, basligi
-        'C++' derdi ve Ctrl+E yanlis dosyalari yazardi.
+        The language goes into the key too; otherwise, after the user switched to
+        C++ and pressed Build, returning to the other tab would STILL show C code
+        in the panel with a 'C++' heading, and Ctrl+E would write the wrong files.
         """
         return (self.active_mode(), self.code_panel.current_language())
 
     def _drop_build(self) -> None:
-        """Etkin kip+dil icin uretilen dosyalari ve ONBELLEGI atar."""
+        """Discards the generated files and THE CACHE for the active mode+language."""
         self._last_files = {}
         self._built.pop(self._build_key(), None)
 
     def _show_mode_build(self) -> None:
-        """Etkin kipin ONBELLEKTEKI derleme ciktisini panele koyar."""
+        """Puts the CACHED build output of the active mode into the panel."""
         if self.active_mode() == "git":
             return
         files = self._built.get(self._build_key())
@@ -1765,15 +1765,15 @@ class MainWindow(QMainWindow):
         return (mode or self.active_mode()) in self._stale_modes
 
     def _mark_code_stale(self) -> None:
-        """Degisen MODELIN kipini bayat olarak isaretler.
+        """Marks the mode of the CHANGED MODEL as stale.
 
-        Kod artik kendiliginden yenilenmedigi icin kullanici, ekranda gordugu
-        kaynagin hangi model surumune ait oldugunu bilmek zorundadir; aksi
-        halde eski kodu dogru sanip disa aktarabilirdi.
+        Because the code no longer refreshes by itself, the user has to know
+        which model version the source on screen belongs to; otherwise they
+        could export old code believing it correct.
 
-        Hangi BELGENIN degistigi sinyalin gonderenine bakilarak bulunur:
-        kullanici sinif sekmesindeyken durum makinesini de degistirebilir
-        (ornegin geri al), o yuzden ETKIN kipe bakmak yanlis olurdu.
+        Which DOCUMENT changed is found from the sender of the signal: the user
+        can change the state machine while on the class tab (with an undo, say),
+        so looking at the ACTIVE mode would be wrong.
         """
         gonderen = self.sender()
         if gonderen is self.class_doc:
@@ -1800,9 +1800,9 @@ class MainWindow(QMainWindow):
         percent, text = self.BUILD_STEPS[index]
         self.progress.setValue(percent)
         self.lbl_message.setText(text % args if args else text)
-        # Cubugun GERCEKTEN boyanmasi icin olay dongusune bir tur birak.
-        # Kullanici "derleme surecini gostersin" dedi; adimlar arasinda
-        # boyama yapilmazsa cubuk yalnizca sonda bir kez gorunurdu.
+        # Give the event loop a turn so the bar is REALLY painted. The user asked
+        # to "show the build process"; without a repaint between the steps the bar
+        # would appear only once, at the end.
         QApplication.processEvents()
 
     def _end_progress(self, ok: bool) -> None:
@@ -1810,8 +1810,8 @@ class MainWindow(QMainWindow):
             self.progress.setValue(0)
             self.progress.setVisible(False)
             return
-        # Hizli bir derlemede cubuk goz kirpmasi kadar kalirdi; kisa bir sure
-        # 100%'de tutulur ki kullanici derlemenin BITTIGINI gorsun.
+        # On a fast build the bar would last no longer than a blink; it is held at
+        # 100% briefly so the user sees the build HAS FINISHED.
         self._progress_hide.start(900)
 
     def _report_build(self, files: Dict[str, str],
@@ -1828,17 +1828,17 @@ class MainWindow(QMainWindow):
             self.code_panel.show_ok("%d files · %d lines" % (len(files), total))
         self.flash("Build finished: %d files · %d lines." % (len(files), total))
 
-        # KULLANICININ YAZMASI GEREKENLERI SOYLE.
+        # SAY WHAT THE USER HAS TO WRITE.
         #
-        # Model icindeki entry/exit/do/effect/guard govdeleri kullanicinin
-        # yazdigi C/C++ metinleridir; icindeki cagrilar uretilmez. Bunu
-        # ancak baglama asamasinda "undefined reference" olarak gormek
-        # gec ve anlasilmaz. Uretilen basliklarda belgeleniyor, ama
-        # kullanici dosyayi acmadan da bilmeli.
+        # The entry/exit/do/effect/guard bodies in the model are C/C++ texts
+        # written by the user; the calls inside them are not generated. Seeing
+        # that only at link time as an "undefined reference" is late and obscure.
+        # It is documented in the generated headers, but the user should know
+        # without opening the file.
         self._report_required(files)
 
     def _report_required(self, files: Dict[str, str]) -> None:
-        """Derleme sonrasi, disaridan saglanmasi gereken sembolleri yazar."""
+        """After a build, writes the symbols that have to be supplied externally."""
         try:
             if self.active_mode() != "state":
                 self.lbl_external.setText("")
@@ -1898,15 +1898,15 @@ class MainWindow(QMainWindow):
             self.setWindowTitle("%s — %s" % (self.active_doc().title(),
                                              APP_NAME))
 
-    #: Durum cubugu iletisinin SIDDETI -> renk.
+    #: The SEVERITY of a status bar message -> colour.
     FLASH_RENK = {"error": C.RED, "warning": C.WARN, "ok": C.GREEN}
 
     def flash(self, text: str, kind: str = "info") -> None:
-        """Durum cubuguna ileti yazar ve SIDDETINE gore renklendirir.
+        """Writes a message into the status bar, coloured BY SEVERITY.
 
-        Onceden her ileti duz metin rengindeydi: "Code generation failed"
-        ile "Code panel shown" ayni goruntuydu. Kullanici hata / uyari /
-        kritik metinlerin vurgulanmasini istedi.
+        Every message used to be in the plain text colour: "Code generation
+        failed" and "Code panel shown" looked the same. The user asked for the
+        error / warning / critical texts to stand out.
         """
         self.lbl_message.setText(text)
         renk = self.FLASH_RENK.get(kind)
@@ -1915,27 +1915,27 @@ class MainWindow(QMainWindow):
             else ("color: %s;" % renk) if renk else "")
 
     def flash_error(self, text: str) -> None:
-        """Basarisiz bir islemi KIRMIZI ile bildirir."""
+        """Reports a failed operation in RED."""
         self.flash(text, "error")
 
     def flash_warning(self, text: str) -> None:
-        """Dikkat isteyen bir durumu KEHRIBAR ile bildirir."""
+        """Reports a condition that wants attention in AMBER."""
         self.flash(text, "warning")
 
     def commit_pending_edits(self) -> None:
-        """OZELLIKLER panelinde yazilmakta olan alani modele isler.
+        """Commits the field being typed in the PROPERTIES panel to the model.
 
-        Alanlar degeri ancak ODAK KAYBINDA modele yazar. Kaydetme, disa
-        aktarma ve kapanis yollari modeli dogrudan okudugu icin, imlec bir
-        alanin icindeyken yapilan islem kullanicinin az once yazdigi metni
-        gormezdi: dosyaya eski deger yazilir, uygulama 'Kaydedildi' derdi.
-        Odagi birakmak commit'i tetikler.
+        The fields write their value into the model only ON FOCUS LOSS. Because
+        the save, export and shutdown paths read the model directly, an
+        operation performed while the cursor sat in a field would not see the
+        text the user had just typed: the old value went into the file and the
+        application said 'Saved'. Dropping the focus triggers the commit.
         """
         focus = QApplication.focusWidget()
         if focus is not None and self.inspector.isAncestorOf(focus):
             focus.clearFocus()
 
-    # ============================================================ calisma alani
+    #  workspace
 
     def recent_workspaces(self) -> List[str]:
         stored = self.settings.value("recent_workspaces", [])
@@ -1944,7 +1944,7 @@ class MainWindow(QMainWindow):
         return normalise_recent(list(stored or []))
 
     def choose_workspace(self) -> bool:
-        """Calisma alani diyalogunu acar; secilirse uygular."""
+        """Opens the workspace dialog; applies the workspace if one is chosen."""
         workspace, init_git = pick_workspace(self.recent_workspaces(), self,
                                              allow_cancel=True)
         if workspace is None:
@@ -1954,7 +1954,7 @@ class MainWindow(QMainWindow):
 
     def apply_workspace(self, workspace: Workspace,
                         init_git: bool = False) -> None:
-        """Calisma alanini benimser: yollar, git paneli, son kullanilanlar."""
+        """Adopts the workspace: paths, git panel, recent list."""
         self.workspace = workspace
         try:
             workspace.ensure_layout()
@@ -1985,10 +1985,10 @@ class MainWindow(QMainWindow):
             self._auto_write(self._last_files)
 
     def open_models(self) -> Dict[str, object]:
-        """{mutlak yol: model} -- ACIK belgeler.
+        """{absolute path: model} -- the OPEN documents.
 
-        Agac, acik bir modelin DISKTEKI degil DUZENLENMEKTE olan surumunu
-        gostermelidir; aksi halde kaydedilmemis durumlar orada gorunmez.
+        The tree must show the version of an open model that is BEING EDITED,
+        not the one ON DISK; otherwise unsaved states do not appear there.
         """
         out = {}
         for doc in (self.doc, self.class_doc):
@@ -2001,7 +2001,7 @@ class MainWindow(QMainWindow):
         self.ws_tree.set_open_models(self.open_models())
 
     def open_model_path(self, path: str) -> None:
-        """Agactan cift tiklanan modeli uygun kipte acar."""
+        """Opens the model double-clicked in the tree, in the right mode."""
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 kind = detect_kind(fh.read())
@@ -2028,23 +2028,23 @@ class MainWindow(QMainWindow):
         self.mode_tabs.setCurrentIndex(target_mode)
         self._remember_model(doc, path)
         self.refresh_workspace_tree()
-        # Acilan modeli pencereye sigdir; kullanici onceki modelin yakinlastirma
-        # duzeyiyle bos bir tuvale bakmasin.
+        # Fit the opened model to the window; the user should not look at an empty
+        # canvas at the zoom level of the previous model.
         QTimer.singleShot(40, self.active_canvas().zoom_fit)
         self.flash("Opened: %s" % os.path.basename(path))
 
     def _on_model_removed(self, path: str) -> None:
-        """Agactan silinen model ACIKSA tuvali de KAPAT.
+        """CLOSES the canvas when a model deleted from the tree IS OPEN.
 
-        Onceki surum belgenin icerigini tutuyor, yalnizca `path` alanini
-        temizliyordu. Sonuc kullaniciyi yaniltiyordu: dosya calisma
-        alanindan kalkiyor ama diyagram tuvalde duruyor, baslikta da
-        "sm.usm*" yaziyordu -- yani artik VAR OLMAYAN bir dosyanin adi.
-        Calisma alaninda bulunmayan bir model gosterilmemeli.
+        The previous version kept the content of the document and cleared only
+        the `path` field. The result misled the user: the file left the
+        workspace while the diagram stayed on the canvas, and the title still
+        said "sm.usm*" -- the name of a file that NO LONGER EXISTS. A model
+        that is not in the workspace should not be displayed.
 
-        Veri kaybi riski yok: silme her zaman onay diyalogundan gecer
-        (bkz. workspace_tree.remove_selected) ve diyalog acik modelin
-        KAPATILACAGINI soyler.
+        There is no risk of data loss: deletion always goes through a
+        confirmation dialog (see workspace_tree.remove_selected) and the dialog
+        says the open model WILL BE CLOSED.
         """
         hedef = os.path.normcase(os.path.abspath(path))
         for doc, bos in ((self.doc, empty_machine),
@@ -2053,9 +2053,9 @@ class MainWindow(QMainWindow):
                 continue
             if os.path.normcase(os.path.abspath(doc.path)) != hedef:
                 continue
-            doc.replace(bos(), None)          # tuval bosalir, path temizlenir
+            doc.replace(bos(), None)          # the canvas empties, the path is cleared
         self.refresh_workspace_tree()
-        # Uretilen kod da silinen modele aitti; bayat kalmasin.
+        # The generated code belonged to the deleted model too; do not leave it stale.
         self._drop_build()
         self._show_mode_build()
         QTimer.singleShot(40, self.active_canvas().zoom_fit)
@@ -2081,14 +2081,14 @@ class MainWindow(QMainWindow):
             self._auto_write(self._last_files)
 
     def _auto_write(self, files: Dict[str, str]) -> None:
-        """Uretilen dosyalari calisma alanina yazar (acikken)."""
+        """Writes the generated files into the workspace (when one is open)."""
         if self.workspace is None or not self.workspace.auto_write or not files:
             return
         self._write_files(files, announce=False)
 
     def write_generated_now(self) -> None:
         self.commit_pending_edits()
-        # Diske GUNCEL kod yazilmalidir; bu yuzden once derlenir.
+        # CURRENT code has to be written to disk, so it is built first.
         self.build()
         if self.workspace is None:
             if not self.choose_workspace():
@@ -2112,7 +2112,7 @@ class MainWindow(QMainWindow):
             self.flash("Files were already up to date: %s"
                        % self.workspace.generated_path)
 
-    # ====================================================================== depo
+    #  repository
 
     def refresh_git(self) -> None:
         self.git_panel.refresh()
@@ -2123,7 +2123,7 @@ class MainWindow(QMainWindow):
     def _on_git_status(self, text: str) -> None:
         self.lbl_git.setText(("⎇ " + text) if text else "")
 
-    # ================================================================== dosya
+    # file
 
     def _confirm_discard(self, doc: Optional[Document] = None) -> bool:
         self.commit_pending_edits()
@@ -2160,11 +2160,11 @@ class MainWindow(QMainWindow):
         self.flash("New diagram created.")
 
     def _build_examples_menu(self, parent_menu) -> None:
-        """File > Examples: her arac icin AYRI bir model.
+        """File > Examples: a SEPARATE model for every tool.
 
-        Menu metni ornegin adini, ipucu ise hangi araclari ogrettigini ve
-        ilgili UML 2.5.1 madde numarasini tasir; boylece kullanici hangi
-        ornegi neden acacagini menuden okuyabilir.
+        The menu text carries the name of the example and the tooltip which
+        tools it teaches plus the relevant UML 2.5.1 clause, so the user can
+        read from the menu which example to open and why.
         """
         gal = parent_menu.addMenu("&Examples")
         self._menus_examples = gal
@@ -2184,7 +2184,7 @@ class MainWindow(QMainWindow):
         gal.setToolTipsVisible(True)
 
     def load_example(self, ornek, kip: str) -> None:
-        """Galeriden bir ornegi yukler ve dogru diyagram kipine gecer."""
+        """Loads an example from the gallery and switches to the right mode."""
         belge = self.class_doc if kip == "class" else self.doc
         if not self._confirm_discard(belge):
             return
@@ -2219,9 +2219,9 @@ class MainWindow(QMainWindow):
         if not path:
             return
 
-        # Kipi ICERIK belirler, uzanti degil: '.json' her iki turu de tasiyabilir
-        # ve yanlis kipe yuklenen dosya bos bir modele donusup ilk kaydetmede
-        # ozgun icerigi silerdi.
+        # The mode is decided by the CONTENT, not the extension: '.json' can carry
+        # either type, and a file loaded into the wrong mode would turn into an empty
+        # model and erase the original content on the first save.
         try:
             with open(path, "r", encoding="utf-8") as fh:
                 kind = detect_kind(fh.read())
@@ -2284,7 +2284,7 @@ class MainWindow(QMainWindow):
         return True
 
     def _remember_model(self, doc: Document, path: str) -> None:
-        """Calisma alaninda son kullanilan model dosyasini not eder."""
+        """Notes the model file last used in the workspace."""
         if self.workspace is None or not path:
             return
         rel = self.workspace.relative(path)
@@ -2296,9 +2296,9 @@ class MainWindow(QMainWindow):
             self.workspace.save()
         except WorkspaceError:
             pass
-        # Yeni kaydedilen dosya WORKSPACE agacinda GORUNMELI: aksi halde
-        # kaydetme basarili olsa da kullanici modelin calisma alanina
-        # girmedigini sanir.
+        # A newly saved file MUST APPEAR in the WORKSPACE tree: otherwise, even
+        # though the save succeeded, the user believes the model did not go into
+        # the workspace.
         self.refresh_workspace_tree()
         self.refresh_git()
 
@@ -2325,12 +2325,12 @@ class MainWindow(QMainWindow):
         self.flash("Saved: %s" % path)
         return True
 
-    # ---------------------------------------------------------------- disa akt.
+    # export
 
     def export_code(self) -> None:
         self.commit_pending_edits()
-        # Disa aktarilan kod MODELLE AYNI olmalidir; onceki derlemenin bayat
-        # ciktisini sessizce yazmak kabul edilemez.
+        # The exported code has to MATCH THE MODEL; silently writing the stale
+        # output of a previous build is not acceptable.
         self.build()
         if not self._last_files:
             QMessageBox.information(
@@ -2376,18 +2376,18 @@ class MainWindow(QMainWindow):
         QGuiApplication.clipboard().setText(text)
         self.flash("Copied to the clipboard: %s" % name)
 
-    # ================================================================== diger
+    # other
 
     def select_all(self) -> None:
         metin = self._odaktaki_metin()
         if metin is not None:
-            # Kullanici bir METIN alanindayken Ctrl+A'ya bastiysa metni
-            # secmek ister. Salt okunur kod panelinde Qt bunu kendisi
-            # yapamadigi icin (bkz. _odaktaki_metin) burada yapilir.
+            # When the user pressed Ctrl+A while in a TEXT field they want to select
+            # the text. Because Qt cannot do that itself in a read-only code panel
+            # (see _focused_text_field), it is done here.
             metin.selectAll()
             return
         if self.active_mode() == "git":
-            return          # tuval gorunmuyor
+            return          # the canvas is not visible
         if not self._tuval_odakta():
             return
         if self.active_mode() == "class":
@@ -2414,10 +2414,10 @@ class MainWindow(QMainWindow):
         self.flash("Alignment guides: %s." % ("on" if checked else "off"))
 
     def toggle_fullscreen(self, checked: bool) -> None:
-        """F11 / menu: tam ekrana gecer, ciktiginda ONCEKI duruma doner.
+        """F11 / menu: goes full screen and returns to the PREVIOUS state on exit.
 
-        `showNormal()` cagirmak yanlis olurdu: pencere tam ekrandan once
-        BUYUTULMUS ise kullanici onu kucultulmus halde geri alirdi.
+        Calling `showNormal()` would be wrong: if the window was MAXIMISED
+        before going full screen, the user would get it back un-maximised.
         """
         if checked:
             self._pre_fullscreen_maximized = self.isMaximized()
@@ -2429,7 +2429,7 @@ class MainWindow(QMainWindow):
             self.showNormal()
 
     def changeEvent(self, event) -> None:
-        """Pencere durumu DISARIDAN degisirse menudeki tiki esitler."""
+        """Syncs the tick in the menu when the window state changes FROM OUTSIDE."""
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
             eylem = getattr(self, "a_fullscreen", None)
@@ -2439,7 +2439,7 @@ class MainWindow(QMainWindow):
                 eylem.blockSignals(False)
 
     def keyPressEvent(self, event) -> None:
-        """Esc tam ekrandan cikarir (F11 ile ayni yol kullanilir)."""
+        """Esc leaves full screen (it uses the same path as F11)."""
         if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             self.a_fullscreen.setChecked(False)
             self.toggle_fullscreen(False)
@@ -2447,18 +2447,18 @@ class MainWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def set_theme(self, name: str) -> None:
-        """Koyu / acik tema arasinda gecis yapar.
+        """Switches between the dark and the light theme.
 
-        UC ADIM gerekir ve ucu de zorunludur:
+        THREE STEPS are needed and all three are mandatory:
 
-          1. ``apply_theme`` -- ``C`` niteliklerini yeni palete cevirir.
-          2. Uygulama stil sayfasi YENIDEN uygulanir; stil sayfasi
-             kurulurken renkleri METNE gomdugu icin sadece ``C``yi
-             degistirmek yetmez.
-          3. Renkleri KURULUM aninda okumus bilesenler (tuval firca ve
-             kalemleri, satir-ici ``setStyleSheet`` kullanan paneller)
-             ``retheme()`` ile yeniden kurulur. Bu adim atlanirsa arayuz
-             yeni temaya gecer ama tuval eski zeminde kalir.
+          1. ``apply_theme`` -- turns the ``C`` attributes to the new palette.
+          2. The application style sheet IS REAPPLIED; because the style sheet
+             embeds the colours INTO TEXT when it is built, changing ``C``
+             alone is not enough.
+          3. The widgets that read their colours AT SET-UP (the canvas brushes
+             and pens, the panels using an inline ``setStyleSheet``) are rebuilt
+             with ``retheme()``. Skip this step and the interface moves to the
+             new theme while the canvas stays on the old background.
         """
         yeni = apply_theme(name)
         app = QApplication.instance()
@@ -2473,20 +2473,20 @@ class MainWindow(QMainWindow):
             if callable(fn):
                 fn()
 
-        # Bolum baslik seritleri (WORKSPACE / PROPERTIES / PROBLEMS).
+        # The section title strips (WORKSPACE / PROPERTIES / PROBLEMS).
         for header in self._section_headers:
             header.setStyleSheet(
                 "background: %s; color: %s; border-bottom: 1px solid %s;"
                 % (C.PANEL_DARK, C.TEXT_DIM, C.BORDER))
 
-        # SIMGELER YENIDEN CIZILIR. Simgeler kurulum anindaki tema
-        # renkleriyle bir kez cizilip QAction'a gomulur; tema degisince
-        # yeniden uretilmezlerse acik zeminde beyaz (yani gorunmez)
-        # kalirlar -- arac cubugu bombos gorunur.
+        # THE ICONS ARE REDRAWN. The icons are drawn once with the set-up theme
+        # colours and embedded in the QAction; unless they are regenerated on a
+        # theme change they stay white (that is, invisible) on a light background
+        # -- the toolbar looks empty.
         for action, factory in self._action_icons.items():
             action.setIcon(factory())
 
-        # Tuval sahnesi zemini ve ogeler modelden yeniden kurulur.
+        # The canvas scene background and the items are rebuilt from the model.
         self.canvas.rebuild()
         self.class_canvas.rebuild()
         self._rebuild_views()
@@ -2503,16 +2503,16 @@ class MainWindow(QMainWindow):
         self.class_canvas.viewport().update()
         self.flash("Grid: %s." % ("visible" if checked else "hidden"))
 
-    #: Diyagram bolmesinin ana bolucude alabilecegi EN KUCUK pay.
-    #: Bunun altinda tuval calisilabilir olmaktan cikar.
+    #: The SMALLEST share the diagram pane may take in the main splitter.
+    #: Below that the canvas stops being workable.
     MIN_DIAGRAM_SHARE = 0.22
 
     def _sizes_usable(self, sizes) -> bool:
-        """Kaydedilmis bolucu paylari calisilabilir mi.
+        """Are the saved splitter shares workable.
 
-        Yalnizca sifir denetlemek yetmez: 1 px de "sifir degil"dir ama
-        kullanilamaz. Diyagram bolmesi -- uc kipin de icinde durdugu bolme --
-        toplamin belirgin bir kismini almalidir.
+        Checking for zero alone is not enough: 1 px is also "not zero" but
+        unusable. The diagram pane -- the one all three modes sit in -- has to
+        take a noticeable part of the total.
         """
         toplam = sum(sizes)
         if toplam <= 0:
@@ -2526,13 +2526,13 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _restore_splitter_share(splitter, widget, ratio: float) -> None:
-        """Bilesene splitter icinde GORUNUR bir pay verir.
+        """Gives a widget a VISIBLE share inside the splitter.
 
-        QSplitter, gizlenen bir bilesenin payini komsulara dagitir ve pay
-        yeniden gosterildiginde 0 kalir. Bilesen "gorunur" olur ama ekranda
-        hic yer kaplamaz; kullaniciya dugme calismiyor gibi gelir. Ayni sey
-        kullanici ayirici cubugu sonuna kadar surukleyip pencereyi kapattiginda
-        da olur: kaydedilen 0 pay bir sonraki acilista geri yuklenir.
+        QSplitter distributes the share of a hidden widget among its neighbours,
+        and the share stays 0 when it is shown again. The widget becomes
+        "visible" but takes no room on screen; to the user the button looks
+        broken. The same happens when the user drags the splitter all the way
+        and closes the window: the saved 0 share is restored at the next start.
         """
         index = splitter.indexOf(widget)
         if index < 0:
@@ -2553,17 +2553,17 @@ class MainWindow(QMainWindow):
         splitter.setSizes(sizes)
 
     def reset_layout(self) -> None:
-        """Panel boyutlarini varsayilana dondurur.
+        """Restores the panel sizes to the default.
 
-        Gizlenmis panelleri de geri getirir: kullanici "yerlesimi sifirla"
-        dediginde beklentisi ILK ACILISTAKI goruntudur, yarim yamalak bir
+        It brings hidden panels back too: when the user says "reset the layout"
+        they expect WHAT THEY SAW AT FIRST START, not some half-way state.
         ara durum degil.
         """
         self.a_code_panel.setChecked(True)
         self.code_panel.setVisible(True)
-        # Simulasyon paneli ILK ACILISTA KAPALI; "sifirla" da onu kapatir.
-        # Acik birakmak, sifirlamayi ilk acilistan FARKLI bir duruma
-        # gotururdu.
+        # The simulation panel is CLOSED AT FIRST START; "reset" closes it too.
+        # Leaving it open would take the reset to a state DIFFERENT from the first
+        # start.
         self.a_sim_panel.setChecked(False)
         self.sim_panel.setVisible(False)
         self._clear_simulation()
@@ -2577,10 +2577,10 @@ class MainWindow(QMainWindow):
         self.flash("Layout reset.")
 
     def code_panel_open(self) -> bool:
-        """Kod paneli GERCEKTEN ekranda mi.
+        """Is the code panel REALLY on screen.
 
-        `isVisible()` yetmez: ayirici sonuna kadar suruklendiginde bilesen
-        "gorunur" kalir ama genisligi sifirdir.
+        `isVisible()` is not enough: dragged all the way, the widget stays
+        "visible" while its width is zero.
         """
         index = self.main_splitter.indexOf(self.code_panel)
         if index < 0 or not self.code_panel.isVisible():
@@ -2589,12 +2589,12 @@ class MainWindow(QMainWindow):
         return index < len(sizes) and sizes[index] > 0
 
     def _sync_code_panel_action(self, *_args) -> None:
-        """Ayirici suruklendiginde menu isaretini gercege esitler."""
+        """Syncs the menu tick with reality when the splitter is dragged."""
         acik = self.code_panel_open()
         if acik == self.a_code_panel.isChecked():
             return
-        # Isareti DEGISTIRMEK eylemi tetiklerdi (toggle_code_panel yeniden
-        # pay verir ve kullanicinin surukledigi ayirici geri zipllardi).
+        # CHANGING the tick would trigger the action (toggle_code_panel would hand
+        # out a share again and the splitter the user dragged would spring back).
         self.a_code_panel.blockSignals(True)
         self.a_code_panel.setChecked(acik)
         self.a_code_panel.blockSignals(False)
@@ -2605,19 +2605,19 @@ class MainWindow(QMainWindow):
         if checked:
             self._restore_splitter_share(self.main_splitter,
                                          self.code_panel, 0.40)
-            # `_restore_splitter_share` bagis yapacak bir komsu bulamazsa
-            # SESSIZCE doner ve panel 0 piksel kalir: kullanici "actim ama
-            # gelmiyor" der. Son bir kez zorla.
+            # When `_restore_splitter_share` finds no neighbour to donate, it returns
+            # SILENTLY and the panel stays 0 pixels: the user says "I opened it and
+            # nothing came". Force it one last time.
             self._force_panel_share(self.main_splitter, self.code_panel, 0.34)
         self.flash("Code panel shown." if checked else "Code panel hidden.")
 
     @staticmethod
     def _force_panel_share(splitter, widget, ratio: float) -> None:
-        """Bilesenin payi hala 0 ise paylari YENIDEN dagitir.
+        """Redistributes the shares when the share of a widget is still 0.
 
-        `_restore_splitter_share` ihtiyatlidir: en buyuk komsudan pay
-        koparamiyorsa dokunmadan doner. Bir paneli ACMAK istendiginde bu
-        yetmez -- kullanici icin "acilmadi" demektir.
+        `_restore_splitter_share` is cautious: when it cannot take a share from
+        the largest neighbour it returns untouched. That is not enough when a
+        panel is asked to OPEN -- to the user it means "it did not open".
         """
         index = splitter.indexOf(widget)
         if index < 0:
@@ -2633,7 +2633,7 @@ class MainWindow(QMainWindow):
         digerler = [i for i in range(len(sizes)) if i != index]
         if not digerler:
             return
-        # Kalani komsulara ORANLARINI koruyarak dagit; hepsi 0 ise esit bolus.
+        # Share the rest among the neighbours KEEPING THEIR RATIOS; split evenly if all are 0.
         eski = sum(sizes[i] for i in digerler)
         for i in digerler:
             if eski > 0:
@@ -2653,12 +2653,12 @@ class MainWindow(QMainWindow):
         self.flash("Simulation shown." if checked else "Simulation hidden.")
 
     def _clear_simulation(self) -> None:
-        """Benzetimi durdurur ve tuvaldeki etkin durum vurgusunu siler.
+        """Stops the simulation and clears the active state highlight on the canvas.
 
-        Paneli gizlemek tek basina yetmiyordu: son etkin durum tuvalde
-        vurgulu kaliyor, kullanici onu bir SECIM sanip silmeye ya da
-        tasimaya calisiyordu. reset() `active_changed([])` yayinlar,
-        tuval de her durumun `is_active` bayragini indirir.
+        Hiding the panel alone was not enough: the last active state stayed
+        highlighted on the canvas and the user took it for a SELECTION and tried
+        to delete or move it. reset() emits `active_changed([])` and the canvas
+        lowers the `is_active` flag of every state.
         """
         self.sim_panel.reset(quiet=True)
 
@@ -2667,20 +2667,20 @@ class MainWindow(QMainWindow):
                                 % (title, detail.replace("\n", "<br>")))
 
     def show_spec(self) -> None:
-        """UML 2.5.1 spesifikasyonunu AYRI bir pencerede acar.
+        """Opens the UML 2.5.1 specification in a SEPARATE window.
 
-        Belge pakete GOMULMEZ: OMG telifi altindadir ve 18 MB'dir.
-        Yerelde varsa acilir, yoksa kullaniciya sorulup ONUN ONAYIYLA
-        resmi adresten indirilir (bkz. spec_window.ensure_spec_pdf).
+        The document IS NOT EMBEDDED in the package: it is under OMG's copyright
+        and 18 MB. It is opened when present locally; otherwise the user is
+        asked and, WITH THEIR CONSENT, it is downloaded (spec_window.ensure_spec_pdf).
         """
         from .spec_window import SpecWindow, ensure_spec_pdf
 
-        # ES ZAMANLI IKINCI CAGRI ENGELLENIR.
+        # A SECOND SIMULTANEOUS CALL IS BLOCKED.
         #
-        # Indirme suruyorken menu ogesine yeniden tiklamak ikinci bir
-        # indirici baslatirdi; iki is parcacigi AYNI `.part` dosyasina
-        # yazar ve sonuc bozulur. Eylem de pasiflestirilir ki kullanici
-        # neden tepki alamadigini gorsun.
+        # Clicking the menu item again while a download is running would start a
+        # second downloader; two threads write to the SAME `.part` file and the
+        # result is corrupt. The action is disabled as well, so the user can see
+        # why nothing responds.
         if getattr(self, "_spec_busy", False):
             return
         self._spec_busy = True
@@ -2693,11 +2693,11 @@ class MainWindow(QMainWindow):
         if not yol:
             return
 
-        # ONCEKI PENCERE DUZGUN YIKILIR.
+        # THE PREVIOUS WINDOW IS TORN DOWN PROPERLY.
         #
-        # Yalnizca `close()` cagirip basvuruyu ustune yazmak, Qt nesnesini
-        # Python cop toplayicisinin insafina birakiyordu; ust penceresi
-        # olmayan bir QMainWindow icin bu, hala gosterilirken silinmek
+        # Calling `close()` and overwriting the reference left the Qt object to the
+        # mercy of Python's garbage collector; for a QMainWindow without a parent
+        # that can mean being deleted while it is still shown.
         # anlamina gelebilir.
         mevcut = getattr(self, "_spec_window", None)
         self._spec_window = None
@@ -2761,11 +2761,11 @@ class MainWindow(QMainWindow):
         rows = [
             ("Double-click", "Edit the element (name, behavior, guard…)"),
             ("V", "Select tool"),
-            # HARFLER ELLE YAZILMAZ. Listeler paletle birlikte buyudu ama
-            # bu iki satir donmus kalmisti: fork, join, giris/cikis
-            # noktasi ve altmakine HIC gorunmuyor, var olmayan bir "T"
-            # goruniyor ve sinif tarafinda Interface "E" iken "I"
-            # yaziyordu. Tek kaynak paletin kendisidir.
+            # THE LETTERS ARE NOT WRITTEN BY HAND. The lists grew with the palette but
+            # these two lines had stayed frozen: fork, join, the entry/exit points and
+            # the submachine were NOT SHOWN at all, a "T" that does not exist was, and
+            # on the class side Interface said "I" while it is "E". The single source
+            # is the palette itself.
             (" ".join(t[2] for t in STATE_TOOLS if t[0] is not Tool.SELECT),
              "State-mode tools"),
             (" ".join(t[2] for t in CLASS_TOOLS
@@ -2792,7 +2792,7 @@ class MainWindow(QMainWindow):
                 + "</table>")
         QMessageBox.information(self, "Shortcuts", html)
 
-    # ---------------------------------------------------------------- pencere
+    # window
 
     def _restore_state(self) -> None:
         geo = self.settings.value("geometry")
@@ -2804,43 +2804,43 @@ class MainWindow(QMainWindow):
                 degerler = [int(v) for v in sizes]
             except (TypeError, ValueError):
                 degerler = []
-            # ELEMAN SAYISI TUTMALI. Sol sutun ana bolucuye sonradan
-            # eklendi; onceki surumden kalan 2 elemanli ayar 3 cocuklu
-            # bolucuye uygulanirsa geri kalan cocuk 0 piksel kalir ve sol
-            # panel acilista gorunmez olurdu.
+            # THE ITEM COUNT HAS TO MATCH. The left column was added to the main
+            # splitter later; a 2-item setting left over from an earlier version,
+            # applied to a splitter with 3 children, leaves the remaining child at 0
+            # pixels and the left panel invisible at start-up.
             #
-            # PAY ORANI DA MAKUL OLMALI. Kaydedilmis ayar ['230','0','1364']
-            # ile acilan uygulamada diyagram bolmesi 0 pikseldi ve uc kip de
-            # (durum, sinif, depo) onun icinde oldugu icin "hicbir sey
-            # acilmiyor" gibi gorunuyordu. Asgari genislik sonradan bolmeyi
-            # gorunur yapar ama ORANI duzeltmez: tuval 320 px'e sikisirken
-            # kod paneli 1344 px alirdi. Bozuk bir kayit KISMEN duzeltilmez,
-            # tamamen atilir.
+            # THE SHARE RATIO HAS TO BE SENSIBLE TOO. With the saved setting
+            # ['230','0','1364'] the diagram pane opened at 0 pixels, and because all
+            # three modes (state, class, repository) live inside it, it looked as if
+            # "nothing opens". The minimum width makes the pane visible afterwards but
+            # does not fix the RATIO: the canvas would be squeezed into 320 px while
+            # the code panel took 1344. A corrupt record is not PARTIALLY repaired, it
+            # is discarded entirely.
             if len(degerler) == self.main_splitter.count() \
                     and self._sizes_usable(degerler):
                 self.main_splitter.setSizes(degerler)
-        # Kaydedilmis pay 0 olabilir (kullanici ayiriciyi sonuna kadar
-        # surukleyip cikmistir). Panel "acik" isaretliyken gorunmez kalirsa
-        # dugme bozuk sanilir; paneli goruntuye geri getir.
+        # The saved share may be 0 (the user dragged the splitter all the way and
+        # left). A panel ticked "open" but invisible makes the button look broken;
+        # bring the panel back into view.
         self._restore_splitter_share(self.main_splitter, self.left_col, 0.18)
-        # Kod paneli AYRI: kullanici onu bilerek kapatmis olabilir
-        # (ayiriciyi sona surukleyerek ya da F9 ile). O durumda geri
-        # getirmek, kapatma isini her acilista bozar.
+        # The code panel is DIFFERENT: the user may have closed it deliberately (by
+        # dragging the splitter to the end or with F9). Bringing it back would undo
+        # that decision at every start-up.
         if self.settings.value("code_panel_open", True, type=bool):
             self._restore_splitter_share(self.main_splitter,
                                          self.code_panel, 0.40)
         else:
-            # PANELI GERCEKTEN GIZLE. Eskiden yalnizca isaret kaldiriliyordu:
-            # panel Qt icin "gorunur" kaliyor ama genisligi 0 oluyordu.
-            # O durumda menuden acmak `setVisible(True)` cagirir, panel
-            # zaten gorunur oldugu icin hicbir sey degismez ve dugme
+            # REALLY HIDE THE PANEL. Only the tick used to be cleared: the panel stayed
+            # "visible" as far as Qt was concerned while its width was 0. Opening it
+            # from the menu then called `setVisible(True)`, nothing changed because it
+            # was already visible, and the button looked broken.
             # calismiyor sanilir.
             self.code_panel.setVisible(False)
             self.a_code_panel.blockSignals(True)
             self.a_code_panel.setChecked(False)
             self.a_code_panel.blockSignals(False)
-        # Simulasyon paneli: varsayilan KAPALI, ama kullanici actiysa
-        # tercihi korunur.
+        # The simulation panel: CLOSED by default, but the preference is kept once
+        # the user has opened it.
         if self.settings.value("sim_panel_open", False, type=bool):
             self.a_sim_panel.blockSignals(True)
             self.a_sim_panel.setChecked(True)
@@ -2850,18 +2850,18 @@ class MainWindow(QMainWindow):
                                          self.sim_panel, 0.30)
         else:
             self.sim_panel.setVisible(False)
-        # DIYAGRAM BOLMESI EN SON ve KOSULSUZ kurtarilir.
+        # THE DIAGRAM PANE IS RESCUED LAST and UNCONDITIONALLY.
         #
-        # Bu, korumasi OLMAYAN tek bolmeydi ve tam da o coktu: kaydedilmis
-        # ayar ['230', '0', '1364'] ile acilan uygulamada tuval 0 piksel
-        # genisligindeydi. Uc kip de (durum, sinif, depo) bu bolmenin
-        # icinde oldugu icin uygulama "hicbir sey acilmiyor" gibi
-        # gorunuyordu -- ustelik kullanicinin geri getirmek icin
-        # tutabilecegi gorunur bir ayirici da kalmiyordu.
+        # It was the only pane WITHOUT protection, and it was exactly the one that
+        # collapsed: with the saved setting ['230', '0', '1364'] the canvas opened
+        # 0 pixels wide. Because all three modes (state, class, repository) live
+        # inside this pane, the application looked as if "nothing opens" -- and
+        # there was no visible splitter left for the user to grab and bring it
+        # back.
         self._restore_splitter_share(self.main_splitter, self.mode_tabs, 0.45)
-        # IZGARA AYARLARI KALICI. Kullanici "Snap to Grid"i kapatip
-        # uygulamayi yeniden actiginda ayarin geri acilmasi, dugmenin
-        # calismadigi izlenimi veriyordu.
+        # THE GRID SETTINGS PERSIST. When the user switched "Snap to Grid" off and
+        # reopened the application, the setting coming back on gave the impression
+        # that the button did not work.
         for eylem, anahtar in ((self.a_snap, "snap_to_grid"),
                                (self.a_align, "align_guides"),
                                (self.a_grid, "show_grid")):
@@ -2888,10 +2888,10 @@ class MainWindow(QMainWindow):
         self.git_panel.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("splitter", self.main_splitter.sizes())
-        # KULLANICININ NIYETI de kaydedilir, yalnizca paylar degil.
-        # Pay 0 iki ayri seyden gelebilir: kullanici paneli bilerek
-        # kapatmistir, ya da kayit bozuktur. Ayrimi yapmadan acilista
-        # paneli kosulsuz geri getirmek, kapatma islemini kalicilastirmaz.
+        # THE USER'S INTENT is saved too, not just the shares. A 0 share can come
+        # from two different things: the user closed the panel deliberately, or the
+        # record is corrupt. Bringing the panel back unconditionally at start-up
+        # without telling them apart would never let a close stick.
         self.settings.setValue("code_panel_open", self.code_panel_open())
         self.settings.setValue("sim_panel_open",
                                self.a_sim_panel.isChecked())
@@ -2909,7 +2909,7 @@ class MainWindow(QMainWindow):
 
 
 def _load_license_text() -> str:
-    """LICENSE dosyasini kaynak agacindan ya da PyInstaller paketinden okur."""
+    """Reads the LICENSE file from the source tree or from the PyInstaller bundle."""
     candidates = []
     if getattr(sys, "_MEIPASS", None):
         candidates.append(os.path.join(sys._MEIPASS, "LICENSE"))
@@ -2928,7 +2928,7 @@ def _load_license_text() -> str:
 
 
 def _open_in_file_manager(path: str) -> None:
-    """Klasoru isletim sisteminin dosya yoneticisinde acar."""
+    """Opens the folder in the file manager of the operating system."""
     try:
         if sys.platform.startswith("win"):
             os.startfile(path)                       # type: ignore[attr-defined]
@@ -2943,12 +2943,12 @@ def _open_in_file_manager(path: str) -> None:
 
 
 def install_crash_guard() -> None:
-    """Yakalanmamis istisnalari kullaniciya gosterir; sureci OLDURMEZ.
+    """Shows uncaught exceptions to the user; it DOES NOT KILL the process.
 
-    PyQt6, bir slot govdesinden sizan Python istisnasinda ``qFatal`` cagirir:
-    surec hicbir sey yazmadan aninda sonlanir ve kaydedilmemis butun calisma
-    kaybolur. Ticari kullanimda bu kabul edilemez -- hata bildirilir, kullanici
-    calismasini kaydedip cikabilir.
+    PyQt6 calls ``qFatal`` on a Python exception escaping a slot body: the
+    process ends at once without writing anything and all unsaved work is lost.
+    That is unacceptable in commercial use -- the error is reported and the user
+    can save their work and leave.
     """
     previous = sys.excepthook
 
@@ -2958,21 +2958,21 @@ def install_crash_guard() -> None:
             return
         try:
             detail = "".join(traceback.format_exception(kind, value, tb))
-        except Exception:                     # pragma: no cover - son care
+        except Exception:                     # pragma: no cover - last resort
             detail = "%s: %s" % (getattr(kind, "__name__", kind), value)
 
-        # Konsolsuz (--noconsole) pakette sys.stderr NULL'dur; korumasiz bir
-        # yazma burada AttributeError firlatir ve excepthook'un kendisi coker
-        # -- yani diyalog tam da en cok gerektigi yerde hic acilmaz.
+        # In a console-less (--noconsole) package sys.stderr is NULL; an unguarded
+        # write throws AttributeError here and the excepthook itself crashes --
+        # that is, the dialog never opens exactly where it is needed most.
         stream = sys.stderr
         if stream is not None:
             try:
                 stream.write(detail)
                 stream.flush()
-            except Exception:                 # pragma: no cover - son care
+            except Exception:                 # pragma: no cover - last resort
                 pass
 
-        # QMessageBox ancak bir QApplication varsa kurulabilir.
+        # A QMessageBox can only be built when a QApplication exists.
         try:
             if QApplication.instance() is None:
                 return
@@ -2984,7 +2984,7 @@ def install_crash_guard() -> None:
             box.setInformativeText("%s: %s" % (kind.__name__, value))
             box.setDetailedText(detail)
             box.exec()
-        except Exception:                     # pragma: no cover - son care
+        except Exception:                     # pragma: no cover - last resort
             pass
 
     sys.excepthook = hook
@@ -3001,7 +3001,7 @@ def run(argv: Optional[List[str]] = None) -> int:
 
     window = MainWindow()
 
-    # --- calisma alani: once komut satiri, yoksa acilis diyalogu
+    # --- workspace: the command line first, otherwise the start-up dialog
     cli_root = _workspace_from_argv(argv if argv is not None else sys.argv[1:])
     if cli_root:
         try:
@@ -3021,7 +3021,7 @@ def run(argv: Optional[List[str]] = None) -> int:
 
 
 def _workspace_from_argv(argv: List[str]) -> str:
-    """``--workspace <yol>`` veya ``--workspace=<yol>`` degerini cikarir."""
+    """Extracts the value of ``--workspace <path>`` or ``--workspace=<path>``."""
     for i, arg in enumerate(argv):
         if arg == "--workspace" and i + 1 < len(argv):
             return argv[i + 1]
