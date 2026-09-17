@@ -1,15 +1,15 @@
-"""Kod uretimi icin ara temsil (Intermediate Representation).
+"""Intermediate Representation for code generation.
 
-Diyagram modelini, hedef dilden bagimsiz, *duz* ve *deterministik* tablolara
-cevirir. Bu adim sayesinde C ve C++ ureteci ayni anlamsal cikarimi paylasir;
-iki ureteclerin davranisi ayrisamaz.
+Turns the diagram model into *flat*, *deterministic* tables that are
+independent of the target language. Thanks to this step the C and the C++
+generator share the same semantic reasoning; their behaviour cannot diverge.
 
-Onemli donusumler:
-  * Initial sozde-durumlari elenir; her bolge icin (initial_child, initial_action)
-    tablolarina gomulur.
-  * Choice sozde-durumu gercek (gecici) bir duruma donusur; cikislari
-    "completion" olayi ile tetiklenir.
-  * Ayni guard/action metni tek bir kimlige indirgenir (kod boyutu).
+The important transformations:
+  * Initial pseudostates are eliminated; they are folded into per-region
+    (initial_child, initial_action) tables.
+  * A choice pseudostate becomes a real (transient) state; its outgoing
+    transitions are triggered by the "completion" event.
+  * Identical guard/action text is reduced to a single id (code size).
 """
 
 from __future__ import annotations
@@ -21,33 +21,33 @@ from typing import Dict, List, Optional, Tuple
 from ..core.model import StateKind, StateMachine, TransitionKind
 from ..core.text_layout import expand_breaks
 
-NONE = 0xFF          # gecersiz durum indeksi (uint8 sentinel)
-MAX_VERTICES = 254   # NONE sentinel'i icin bir yer birakiyoruz
+NONE = 0xFF          # invalid state index (uint8 sentinel)
+MAX_VERTICES = 254   # we leave one slot for the NONE sentinel
 
-#: Gecersiz BOLGE indeksi. Durum indeksinden AYRI bir sayi uzayidir;
-#: ayni sentinel'i iki uzayda paylasmak, iki uzaydan biri buyudugunde
-#: fark edilmesi cok zor bir birim kaymasi uretirdi.
+#: Invalid REGION index. It is a SEPARATE number space from the state
+#: index; sharing one sentinel across two spaces would produce a unit
+#: mix-up that is very hard to notice once either space grows.
 REGION_NONE = 0xFF
 MAX_REGIONS = 254
 
-#: En cok olay turu. Olay indisi uretilen kodda `uint8_t`tir; 0 numara
-#: COMPLETION'a ayrilmistir ve 255 INVALID sentinel'idir. Sinir
-#: DENETLENMIYORDU: 255. kullanici olayi sessizce INVALID ile ayni sayiyi
-#: aliyor, otesi ise uint8_t'ye sigmiyordu. Uretilen kod derleniyor ama
-#: yanlis olaya bakiyordu -- gomulu bir aygitta bulunmasi en zor hata
-#: turu.
+#: The maximum number of event types. The event index is a `uint8_t` in
+#: the generated code; number 0 is reserved for COMPLETION and 255 is the
+#: INVALID sentinel. The bound WAS NOT CHECKED: the 255th user event
+#: silently took the same number as INVALID, and anything beyond did not
+#: fit in a uint8_t. The generated code compiled but looked at the wrong
+#: event -- the hardest kind of bug to find on an embedded device.
 MAX_EVENTS = 254
 
-MAX_JUNCTION_DEPTH = 8    # ic ice junction zincirinde en fazla adim
-MAX_JUNCTION_PATHS = 64   # tek bir gecisin acilabilecegi en fazla yol
+MAX_JUNCTION_DEPTH = 8    # the maximum number of steps in a nested junction chain
+MAX_JUNCTION_PATHS = 64   # the maximum number of paths a single transition may open into
 
 KIND_SIMPLE = 0
 KIND_COMPOSITE = 1
 KIND_FINAL = 2
-KIND_CHOICE = 3        # choice ve junction ayni calisma zamani anlamina sahiptir
-KIND_TERMINATE = 4     # terminate sozde-durumu: girilince makine sonlanir
-KIND_HIST_SHALLOW = 5  # H  sozde-durumu (gecici; tarihce cozulur)
-KIND_HIST_DEEP = 6     # H* sozde-durumu (gecici; tarihce cozulur)
+KIND_CHOICE = 3        # choice and junction have the same run-time meaning
+KIND_TERMINATE = 4     # terminate pseudostate: entering it ends the machine
+KIND_HIST_SHALLOW = 5  # H  pseudostate (transient; resolved through history)
+KIND_HIST_DEEP = 6     # H* pseudostate (transient; resolved through history)
 
 TKIND_EXTERNAL = 0
 TKIND_INTERNAL = 1
@@ -55,15 +55,15 @@ TKIND_LOCAL = 2
 
 
 class CodegenError(Exception):
-    """Kod uretimi sirasinda olusan, dogrulamayla yakalanamamis hata."""
+    """An error that arose during code generation and validation did not catch."""
 
 
 def as_statement(code: str) -> str:
-    """Kullanicinin yazdigi eylem metnini gecerli bir C/C++ deyimine cevirir.
+    """Turns action text written by the user into a valid C/C++ statement.
 
-    Arac, eylem alanlarinda sondaki noktali virgulu istege bagli birakir.
-    Tanim burada, ureteclerin ORTAK katmanindadir: hem tek eylemler hem de
-    junction yollarinda birlestirilen eylemler ayni kurala uymak zorundadir.
+    The tool leaves the trailing semicolon optional in action fields. The
+    definition lives here, in the SHARED layer of the generators: single
+    actions and actions merged along junction paths must obey the same rule.
     """
     text = code.strip()
     if not text:
@@ -77,48 +77,48 @@ def as_statement(code: str) -> str:
 class IrState:
     index: int
     model_id: str
-    name: str                     # kullanicinin verdigi ad (C tanimlayicisi)
+    name: str                     # the name the user gave (a C identifier)
     kind: int                     # KIND_*
-    parent: int                   # NONE = kok
+    parent: int                   # NONE = root
     depth: int
     entry: str = ""
     exit: str = ""
     do: str = ""
-    initial_child: int = NONE     # bilesik durumun ILK bolgesinin varsayilani
-    initial_action: int = -1      # initial gecisinin eylem kimligi
-    history_default: int = NONE   # tarih sozde-durumunun varsayilan hedefi
+    initial_child: int = NONE     # the default of the composite state's FIRST region
+    initial_action: int = -1      # the action id of the initial transition
+    history_default: int = NONE   # the default target of a history pseudostate
     note: str = ""
-    #: Bu durumda ERTELENEN olay indeksleri (UML deferrableTrigger).
+    #: The event indices DEFERRED in this state (UML deferrableTrigger).
     deferred: List[int] = field(default_factory=list)
 
-    # -- bolgeler ----------------------------------------------------------- #
-    #: Bu dugumun ICINDE durdugu bolgenin KURESEL indeksi.
+    # -- regions # ---------------------------------------------------------- #
+    #: The GLOBAL index of the region this vertex sits IN.
     region: int = 0
-    #: Bilesik durumun sahip oldugu ILK bolgenin kuresel indeksi.
+    #: The global index of the FIRST region owned by a composite state.
     first_region: int = REGION_NONE
-    #: Bilesik durumun sahip oldugu bolge sayisi (0 = bilesik degil).
+    #: How many regions a composite state owns (0 = not composite).
     region_count: int = 0
 
 
 @dataclass
 class IrRegion:
-    """Bir bolge (UML 2.5.1, 14.2.3.2 Region).
+    """A region (UML 2.5.1, 14.2.3.2 Region).
 
-    Bolge, es zamanli etkin olabilen bir alt-konfigurasyonun kabidir.
-    Calisma zamaninda her bolgenin KENDI etkin yaprak durumu ve KENDI
-    tarih kaydi vardir.
+    A region is the container of a sub-configuration that can be active
+    concurrently. At run time every region has its OWN active leaf state and
+    its OWN history record.
 
-    TARIH BOLGEYE gore anahtarlanir, ust duruma gore DEGIL: ortogonal bir
-    durumda iki bolge ayni ust duruma aittir; tek bir kayit paylasilsaydi
-    derin tarihle geri donuste bolgelerden biri otekinin durumunu geri
-    yuklerdi.
+    HISTORY IS KEYED BY REGION, NOT by the parent state: in an orthogonal
+    state two regions belong to the same parent; if a single record were
+    shared, returning through deep history would make one region restore the
+    other region's state.
     """
 
     index: int
-    owner: int                    # NONE = kok bolge; degilse bilesik durum
-    initial_state: int = NONE     # bolgenin varsayilan alt durumu
-    initial_action: int = -1      # initial gecisinin eylem kimligi
-    name: str = ""                # tanilar icin okunakli ad
+    owner: int                    # NONE = root region; otherwise a composite state
+    initial_state: int = NONE     # the default substate of the region
+    initial_action: int = -1      # the action id of the initial transition
+    name: str = ""                # a readable name, for diagnostics
 
 
 @dataclass
@@ -131,29 +131,29 @@ class IrTransition:
     guard: int = -1
     action: int = -1
     kind: int = TKIND_EXTERNAL
-    text: str = ""                # yorum satiri icin okunakli etiket
+    text: str = ""                # a readable label, for the comment line
 
-    # -- fork / join (UML 2.5.1, 14.2.3.7, basili s.313) -------------------- #
+    # -- fork / join (UML 2.5.1, 14.2.3.7, printed p.313) # ----------------- #
     #
-    # Ikisi de junction gibi TABLOYA DUZLESTIRILIR; calisma zamaninda
-    # ayri bir dugum turu yoktur. Boylece uretilen kod yeni bir durum
-    # sinifi ogrenmek zorunda kalmaz.
+    # Both are FLATTENED INTO THE TABLE like a junction; at run time there
+    # is no separate node kind. That way the generated code never has to
+    # learn a new state class.
     #
-    #: FORK: girilen ortogonal durumun bolgelerinde ACIKCA girilecek
-    #: dugumler. Adi gecmeyen bolgeler varsayilanlariyla baslar.
+    #: FORK: the vertices to be entered EXPLICITLY in the regions of the
+    #: orthogonal state being entered. Unnamed regions start at their default.
     fork_targets: List[int] = field(default_factory=list)
-    #: JOIN: gecisin etkin olmasi icin AYNI ANDA etkin olmasi gereken
-    #: kaynaklar. Bos ise siradan bir gecistir.
+    #: JOIN: the sources that must be active AT THE SAME TIME for the
+    #: transition to be enabled. Empty means an ordinary transition.
     join_sources: List[int] = field(default_factory=list)
-    #: `Ir.extra_table()` tarafindan doldurulur: bu satirin fork/join
-    #: ogelerinin ortak tablodaki baslangic dizini.
+    #: Filled in by `Ir.extra_table()`: the start index of this row's
+    #: fork/join items in the shared table.
     extra_first: int = 0
 
 
-#: C/C++ anahtar kelimeleri ve cagri gibi gorunen yapilar.
+#: C/C++ keywords and constructs that look like a call.
 #:
-#: `if (x)` bir islev cagrisi DEGILDIR; ayiklanmazsa kullaniciya
-#: "if islevini yazmalisiniz" denirdi.
+#: `if (x)` is NOT a function call; without filtering, the user would be
+#: told "you must write the if function".
 _ANAHTAR = {
     "if", "else", "for", "while", "switch", "case", "default", "do",
     "return", "break", "continue", "goto", "sizeof", "typedef", "struct",
@@ -164,13 +164,13 @@ _ANAHTAR = {
     "this", "and", "or", "not",
 }
 
-#: `ad(` bicimindeki cagrilar. Once gelen `.`/`->`/`::` varsa UYE
-#: cagrisidir (ctx->reset() gibi) ve kullanicinin baglamina aittir.
+#: Calls of the form `name(`. A preceding `.`/`->`/`::` makes it a MEMBER
+#: call (like ctx->reset()) and it belongs to the user's context.
 _CAGRI = re.compile(r"(?<![\w.>:])([A-Za-z_]\w*)\s*\(")
 
 
 def _argument_sayisi(metin: str, acilis: int) -> int:
-    """`(` konumundan baslayarak ust duzey virgullerle argumani sayar."""
+    """Counts the arguments by top-level commas, starting at the `(`."""
     derinlik = 0
     sayi = 0
     gorulen = False
@@ -192,11 +192,11 @@ def _argument_sayisi(metin: str, acilis: int) -> int:
 
 
 def _dizgileri_bosalt(metin: str) -> str:
-    """Dizgi ve karakter sabitlerinin ICINI bosaltir.
+    """Blanks out the INSIDE of string and character literals.
 
-    Regex yerine elle taranir: kacis dizilerini (`"a\\"b"`) dogru ele alan
-    bir desen yazmak, hem okunmasi zor hem de bu dosyada bir kez daha
-    kacis kacirmaya acik. Uzunluk korunur, boylece konumlar kaymaz.
+    Scanned by hand rather than with a regex: a pattern that handles escape
+    sequences (`"a\\"b"`) correctly is both hard to read and one more chance
+    to miss an escape in this file. The length is preserved so offsets hold.
     """
     out = []
     tirnak = ""
@@ -220,8 +220,8 @@ def _dizgileri_bosalt(metin: str) -> str:
 
 
 def _cagrilar(metin: str):
-    """Metindeki (ad, arguman_sayisi) cagrilarini verir."""
-    # Dizgi icindeki parantezler arguman sayimini bozardi.
+    """The (name, argument_count) calls found in the text."""
+    # Parentheses inside a string would break the argument count.
     temiz = _dizgileri_bosalt(metin)
     for m in _CAGRI.finditer(temiz):
         ad = m.group(1)
@@ -232,7 +232,7 @@ def _cagrilar(metin: str):
 
 @dataclass
 class RequiredSymbol:
-    """Kullanicinin saglamasi gereken bir dis islev."""
+    """An external function the user has to supply."""
 
     name: str
     argc: int = 0
@@ -240,7 +240,7 @@ class RequiredSymbol:
     sites: List[str] = field(default_factory=list)
 
     def summary(self) -> str:
-        """Belgeye yazilacak tek satirlik ozet."""
+        """The one-line summary written into the documentation."""
         arg = "no arguments" if self.argc == 0 else (
             "1 argument" if self.argc == 1 else "%d arguments" % self.argc)
         rol = ("used in a guard, so it must RETURN a value"
@@ -263,15 +263,15 @@ class Ir:
     guards: List[str] = field(default_factory=list)
     actions: List[str] = field(default_factory=list)
 
-    # Kaynak durumlara gore gruplanmis gecis araligi: state -> (first, count)
+    # Transition range grouped by source state: state -> (first, count)
     tran_slice: Dict[int, Tuple[int, int]] = field(default_factory=dict)
 
-    #: Kok bolgelerin kuresel indeksleri (su an tek oge).
+    #: The global indices of the root regions (a single item for now).
     root_regions: List[int] = field(default_factory=list)
     max_depth: int = 1
 
-    # ---------------------------------------------------------------- yardim #
-    # Eski cagri noktalari icin: kok bolgenin varsayilani.
+    # --------------------------------------------------------------- helpers #
+    # For old call sites: the default of the root region.
     @property
     def root_initial(self) -> int:
         if not self.root_regions:
@@ -289,11 +289,11 @@ class Ir:
         return len(self.regions)
 
     def has_orthogonal(self) -> bool:
-        """Modelde BIRDEN COK bolgeli bir durum var mi?"""
+        """Does the model contain a state with MORE THAN ONE region?"""
         return any(st.region_count > 1 for st in self.states)
 
     def regions_of(self, state_index: int) -> List[int]:
-        """Bir bilesik durumun sahip oldugu bolgelerin kuresel indeksleri."""
+        """The global indices of the regions owned by a composite state."""
         st = self.states[state_index]
         if st.region_count <= 0:
             return []
@@ -322,19 +322,19 @@ class Ir:
                    for st in self.states)
 
     def required_functions(self) -> List["RequiredSymbol"]:
-        """Kullanicinin KENDISININ yazmasi gereken islevler.
+        """The functions the user has to write THEMSELVES.
 
-        Model icindeki entry/exit/do govdeleri, gecis eylemleri ve guard
-        ifadeleri kullanicinin yazdigi C/C++ metinleridir; icindeki
-        cagrilar uretec tarafindan TANIMLANMAZ. Bunlari soylemezsek
-        kullanici eksikligi ancak baglama (link) asamasinda
-        "undefined reference to `led_write`" diye ogrenir.
+        The entry/exit/do bodies, transition effects and guard expressions in
+        the model are C/C++ texts written by the user; the calls inside them
+        are NOT DEFINED by the generator. If we do not say so, the user finds
+        out about the gap only at link time, as
+        "undefined reference to `led_write`".
 
-        Ad, KAC ARGUMANLA cagrildigi ve nerede gectigi toplanir. Tip
-        cikarimi YAPILMAZ: yanlis bir prototip yazmak, hic yazmamaktan
-        daha kotudur (ornegin `void f()` bildirimi gercek imzayi
-        gizleyip sessiz bir uyumsuzluk yaratabilir). Bu yuzden uretilen
-        dosyalarda bunlar BELGELENIR, bildirilmez.
+        The name, HOW MANY ARGUMENTS it is called with and where it appears
+        are collected. NO type inference is done: writing a wrong prototype is
+        worse than writing none (a `void f()` declaration, for instance, can
+        hide the real signature and create a silent mismatch). So the
+        generated files DOCUMENT these rather than declare them.
         """
         bulunan: Dict[str, RequiredSymbol] = {}
 
@@ -361,26 +361,26 @@ class Ir:
         return sorted(bulunan.values(), key=lambda r: r.name)
 
     def time_triggers(self):
-        """(durum, olay, gecikme_ifadesi) uclulerinin listesi.
+        """A list of (state, event, delay_expression) triples.
 
-        Bir durumdan cikan `after(N)` tetikleyicili her gecis icin bir
-        kayit. Uretilen kod, durumun GIRISINDE zamanlayiciyi baslatir ve
-        CIKISINDA iptal eder; olayi posta eden kullanicinin kendisidir.
+        One record for every transition out of a state with an `after(N)`
+        trigger. The generated code starts the timer ON ENTRY to the state and
+        cancels it ON EXIT; posting the event is up to the user.
 
-        IC GECISLER DE BURADADIR. Iki ayri soru vardir ve eskiden
-        birbirine karistiriliyordu:
+        INTERNAL TRANSITIONS ARE HERE TOO. There are two separate questions,
+        and they used to be confused with each other:
 
-        1. Gecis atesleyince zamanlayici YENIDEN BASLAR MI? Ic gecis ne
-           giris ne cikis calistirdigi icin baslamaz -- ve bu dogrudur.
-        2. Duruma girilirken zamanlayici HIC BASLAR MI? Baslamalidir:
-           durumun `after(N)` tetikleyicili bir gecisi vardir.
+        1. Does the timer RESTART when the transition fires? It does not,
+           because an internal transition runs neither exit nor entry -- and
+           that is correct.
+        2. Does the timer START AT ALL when the state is entered? It must:
 
-        Ikinci soru da "hayir" diye yanitlaniyordu: ic gecis listeden
-        tumden ELENIYORDU. Sonuc, benzetimde calisan ama gomulu kodda
-        HICBIR SEY YAPMAYAN bir diyagramdi. Uretilen dosyada o olayi
-        posta etmesi gereken kanca yoktu, dolayisiyla olay hic dogmuyor
-        ve ic gecis hic ateslenmiyordu. Aygitta sessizce olu kod, arayuzde
-        calisir gorunen bir cizim.
+        The second question was being answered "no" as well: internal
+        transitions were dropped from the list entirely. The result was a
+        diagram that worked in simulation but did NOTHING in the embedded
+        code. The generated file had no hook to post that event, so the event
+        was never born and the internal transition never fired. Silently dead
+        code on the device, a drawing that looked alive in the interface.
         """
         from ..core.model import time_event_delay
         out = []
@@ -402,19 +402,19 @@ class Ir:
         return bool(self.time_triggers())
 
     def has_deferred(self) -> bool:
-        """Modelde ERTELENEN olay var mi?"""
+        """Does the model have any DEFERRED event?"""
         return any(st.deferred for st in self.states)
 
     def has_fork_join(self) -> bool:
-        """Modelde fork ya da join var mi?
+        """Does the model contain a fork or a join?
 
-        Yoksa uretilen kodda ilgili tablolar ve dallar HIC yazilmaz;
-        boylece basit modellerin ciktisi aynen eskisi gibi kalir.
+        If not, the corresponding tables and branches are NEVER written into
+        the generated code, so the output of simple models stays as it was.
         """
         return any(t.fork_targets or t.join_sources for t in self.transitions)
 
     def extra_table(self) -> List[int]:
-        """Fork hedefleri ve join kaynaklarinin duzlestirilmis tablosu."""
+        """The flattened table of fork targets and join sources."""
         out: List[int] = []
         for t in self.transitions:
             t.extra_first = len(out)
@@ -429,7 +429,7 @@ class Ir:
 # --------------------------------------------------------------------------- #
 
 def _dedup_add(pool: List[str], text: str) -> int:
-    """Ayni metni tekrar eklemez; kimligini dondurur. Bos metin -> -1."""
+    """Never adds the same text twice; returns its id. Empty text -> -1."""
     t = text.strip()
     if not t:
         return -1
@@ -445,7 +445,7 @@ _KIND_MAP = {
     StateKind.COMPOSITE: KIND_COMPOSITE,
     StateKind.FINAL: KIND_FINAL,
     StateKind.CHOICE: KIND_CHOICE,
-    StateKind.JUNCTION: KIND_CHOICE,   # junction = statik choice; ayni tablo anlami
+    StateKind.JUNCTION: KIND_CHOICE,   # junction = static choice; same table meaning
     StateKind.TERMINATE: KIND_TERMINATE,
     StateKind.SHALLOW_HISTORY: KIND_HIST_SHALLOW,
     StateKind.DEEP_HISTORY: KIND_HIST_DEEP,
@@ -459,15 +459,15 @@ _TKIND_MAP = {
 
 
 def build_ir(sm: StateMachine, resolve=None) -> Ir:
-    """Dogrulanmis bir modelden IR uretir.
+    """Produces the IR from a validated model.
 
-    Not: `validate()` hatasiz gecmis olmali. Yine de burada savunmaci
-    kontroller var; tutarsizlik CodegenError firlatir.
+    Note: `validate()` must have passed without errors. There are still
+    defensive checks here; an inconsistency raises CodegenError.
 
-    ``resolve``: altmakine referanslarini cozen islev
-    (``ref -> StateMachine``). Modelde altmakine varsa makine ONCE
-    duzlestirilir: UML 2.5.1, 14.2.3.4.7 altmakineyi "macro-like
-    insertion" olarak tanimlar, yani genisleme anlamin KENDISIDIR.
+    ``resolve``: the function that resolves submachine references
+    (``ref -> StateMachine``). If the model has a submachine, the machine is
+    flattened FIRST: UML 2.5.1, 14.2.3.4.7 defines a submachine as a
+    "macro-like insertion", so the expansion IS the meaning.
     """
     from ..core.submachine import SubmachineError, flatten, has_submachine
 
@@ -489,9 +489,9 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         user_includes=[ln.strip() for ln in (sm.user_includes or "").splitlines() if ln.strip()],
     )
 
-    # --- 1) Indekslenecek dugumler: initial DISINDA her sey ------------------ #
-    # INITIAL gibi FORK ve JOIN de tabloya girmez: ucu de bilesik gecisin
-    # icine duzlestirilir (bkz. asagidaki 5. adim).
+    # --- 1) Vertices to index: everything EXCEPT initial -----------------------
+    # Like INITIAL, FORK and JOIN do not enter the table either: all three
+    # are flattened into the compound transition (see step 5 below).
     _ELENEN = (StateKind.INITIAL, StateKind.FORK, StateKind.JOIN,
                StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
     vertices = [s for s in sm.ordered_states() if s.kind not in _ELENEN]
@@ -513,10 +513,10 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             kind=_KIND_MAP[s.kind],
             parent=parent_idx,
             depth=sm.depth(s.id),
-            # SATIR SONU ISARETI GERCEK SATIR SONUNA CEVRILIR.
-            # Isaret C'de dizge disinda gecerli degildir; oldugu gibi
-            # yazilirsa uretilen kod derlenmez. Dizge icindekilere
-            # dokunulmaz (bkz. core/text_layout).
+            # THE LINE-BREAK MARKER IS TURNED INTO A REAL NEWLINE.
+            # The marker is not valid outside a string in C; written as is, the
+            # generated code would not compile. What is inside a string is left
+            # alone (see core/text_layout).
             entry=expand_breaks(s.entry).strip(),
             exit=expand_breaks(s.exit).strip(),
             do=expand_breaks(s.do).strip(),
@@ -525,7 +525,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
 
     ir.max_depth = max([st.depth for st in ir.states] or [0]) + 1
 
-    # --- 2) Olay tablosu ----------------------------------------------------- #
+    # --- 2) Event table --------------------------------------------------------
     ir.events = ["COMPLETION"] + sm.events()
     if len(ir.events) - 1 > MAX_EVENTS:
         raise CodegenError(
@@ -533,7 +533,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             % (len(ir.events) - 1, MAX_EVENTS))
     event_index = {name: i for i, name in enumerate(ir.events)}
 
-    # Erteleme listeleri olay indekslerine cevrilir.
+    # The defer lists are converted into event indices.
     for i, s_ in enumerate(vertices):
         indeksler = []
         for ad in (s_.deferred or []):
@@ -547,25 +547,25 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 indeksler.append(event_index[ad])
         ir.states[i].deferred = sorted(indeksler)
 
-    # ERTELEME MASKESI 32 BITLIKTIR.
+    # THE DEFER MASK IS 32 BITS WIDE.
     #
-    # Maske, uretilen kodda durum basina TEK bir uint32 alanidir. Daha
-    # genis bir olay tablosu icin bayt matrisi gerekirdi; bu, gomulu
-    # hedefte STATE_COUNT x EVENT_COUNT bayt demek. Sinir ACIKCA
-    # soylenir -- sessizce yanlis maske uretmektense reddedilir.
+    # The mask is a SINGLE uint32 field per state in the generated code. A
+    # wider event table would need a byte matrix, which on an embedded
+    # target means STATE_COUNT x EVENT_COUNT bytes. The limit is stated
+    # EXPLICITLY -- rejected rather than silently producing a wrong mask.
     if any(st.deferred for st in ir.states) and len(ir.events) > 32:
         raise CodegenError(
             "Deferred events are supported for up to 32 event types; this "
             "model has %d." % (len(ir.events) - 1))
 
-    # --- 2b) BOLGE TABLOSU --------------------------------------------------- #
+    # --- 2b) REGION TABLE ------------------------------------------------------
     #
-    # Bolgeler KURESEL olarak numaralanir. Sira DETERMINISTIKTIR ve
-    # calisma zamanindaki isleme sirasini da belirler: once kok bolgeler,
-    # sonra her bilesik durumun bolgeleri, durum indeksi sirasiyla.
-    # UML, ortogonal bolgelerin hangi sirayla islenecegini TANIMLAMAZ
-    # (14.2.3.8.3); arac bu sirayi sabitler ve uretilen baslikta yazar,
-    # boylece iki uretim ayni davranisi verir.
+    # Regions are numbered GLOBALLY. The order is DETERMINISTIC and also
+    # fixes the processing order at run time: the root regions first, then
+    # the regions of each composite state, in state index order. UML does
+    # NOT define the order in which orthogonal regions are processed
+    # (14.2.3.8.3); the tool fixes that order and writes it in the generated
+    # header, so two generations give the same behaviour.
     for _ in range(sm.region_count(None)):
         ir.root_regions.append(len(ir.regions))
         ir.regions.append(IrRegion(index=len(ir.regions), owner=NONE,
@@ -582,7 +582,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         raise CodegenError("This model has %d regions; at most %d are supported."
                            % (len(ir.regions), MAX_REGIONS))
 
-    # Her dugum, icinde durdugu bolgenin KURESEL indeksini tasir.
+    # Every vertex carries the GLOBAL index of the region it sits in.
     for i, s in enumerate(vertices):
         st = ir.states[i]
         if s.parent is None:
@@ -597,7 +597,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         st.region = ust.first_region + min(sm.region_of(s.id),
                                            ust.region_count - 1)
 
-    # --- 3) Initial gecisleri tablolara gom ---------------------------------- #
+    # --- 3) Fold the initial transitions into tables ---------------------------
     def compile_initial(region: Optional[str],
                         region_index: int = 0) -> Tuple[int, int]:
         init = sm.initial_of(region, region_index)
@@ -611,13 +611,13 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             raise CodegenError("The target of the initial transition could not be resolved.")
         tgt = sm.states.get(tr.target)
         if tgt is not None and (tgt.kind.is_history or tgt.kind is StateKind.TERMINATE):
-            # Dogrulayici V054 bunu engeller; savunmaci kontrol.
+            # The validator prevents this with V054; a defensive check.
             raise CodegenError(
                 "An initial transition cannot target a history or terminate pseudostate.")
         return index_of[tr.target], _dedup_add(ir.actions,
                                               expand_breaks(tr.action))
 
-    # HER BOLGENIN kendi varsayilan girisi vardir (14.2.3.2, basili s.307).
+    # EVERY REGION has its own default entry (14.2.3.2, printed p.307).
     for reg in ir.regions:
         if reg.owner == NONE:
             sahip_id = None
@@ -636,15 +636,15 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         reg.initial_state = cocuk
         reg.initial_action = eylem
 
-    # Eski alanlar ILK bolgeyi gosterir; tek bolgeli modellerde bu tam
-    # olarak onceki davranistir.
+    # The old fields point at the FIRST region; for single-region models
+    # that is exactly the previous behaviour.
     for st in ir.states:
         if st.kind == KIND_COMPOSITE and st.region_count > 0:
             ilk = ir.regions[st.first_region]
             st.initial_child = ilk.initial_state
             st.initial_action = ilk.initial_action
 
-    # --- 3b) Tarih (history) sozde-durumlarinin varsayilan hedefleri --------- #
+    # --- 3b) Default targets of the history pseudostates -----------------------
     for st in ir.states:
         if st.kind in (KIND_HIST_SHALLOW, KIND_HIST_DEEP):
             if st.parent == NONE:
@@ -657,14 +657,14 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                         "The default transition target of history '%s' could not be resolved." % st.name)
                 st.history_default = index_of[outs[0].target]
 
-    # --- 4) Junction zincirlerinin duzlestirilmesi --------------------------- #
-    # UML 2.5.1, 14.2.3.4.4: junction *statik* bir dallanmadir -- guard'lari
-    # bilesik gecis ISLETILMEDEN once degerlendirilir. Choice ise dinamiktir
-    # (guard'lar gelen gecisin effect'inden SONRA bakilir). Bu farki calisma
-    # zamaninda tasimak yerine junction yollari burada duzlestirilir: her yol,
-    # guard'lari VE ile birlestirilmis tek bir gecise doner. Boylece motorun
-    # "guard'i dogrula, sonra isle" akisi junction icin dogru semantigi verir
-    # ve Python / C / C++ gerceklestirmeleri kendiliginden ayni davranir.
+    # --- 4) Flattening the junction chains -------------------------------------
+    # UML 2.5.1, 14.2.3.4.4: a junction is a *static* branch -- its guards are
+    # evaluated BEFORE the compound transition runs. A choice is dynamic (the
+    # guards are examined AFTER the incoming transition's effect). Rather than
+    # carrying that difference at run time, junction paths are flattened here:
+    # each path becomes one transition whose guards are ANDed together. That
+    # way the engine's "check the guard, then run" flow gives the right
+    # semantics, and Python / C / C++ agree by construction.
     junction_ids = {s.id for s in sm.states.values()
                     if s.kind is StateKind.JUNCTION}
 
@@ -674,12 +674,12 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
 
     def _walk(target: str, guards: List[str], actions: List[str],
               depth: int, seen: frozenset):
-        """Junction hedefini gercek hedeflere cozer (derinlik-oncelikli).
+        """Resolves a junction target to real targets (depth first).
 
-        Cozulemeyen bir yol SESSIZCE atilamaz: atilirsa kullanicinin cizdigi
-        gecis IR'den dusup olay hicbir uyari olmadan yok sayilir ya da makine
-        yanlis duruma gider. Bu yuzden dongu ve derinlik asimi CodegenError
-        yukseltir (dogrulayici V074/V075 ile zaten daha once uyarir).
+        A path that cannot be resolved must not be dropped SILENTLY: dropping
+        it would take the transition the user drew out of the IR, and the event
+        would be ignored without warning or the machine would go to the wrong
+        state. So a cycle or a depth overrun raises CodegenError (the validator
         """
         if target not in junction_ids:
             yield target, guards, actions
@@ -708,23 +708,23 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         return " && ".join("(%s)" % p for p in kept)
 
     def _combine_action(parts: List[str]) -> str:
-        """Yol uzerindeki eylemleri tek bir govdede birlestirir.
+        """Merges the effects along the path into a single body.
 
-        Her parca AYRI AYRI sonlandirilir. Arac noktali virgulsuz eylem
-        yazmaya izin verir (uretecler sonuna kendisi ekler); parcalar ham
-        haliyle alt alta yapistirilirsa 'cnt++' + 'hits++;' birlesir ve
-        uretilen kod derlenmez.
+        Every part is terminated SEPARATELY. The tool allows an effect without
+        a semicolon (the generators append one); pasting the parts raw under
+        each other would merge 'cnt++' and 'hits++;' and the generated code
+        would not compile.
         """
         return "\n".join(as_statement(p) for p in parts if p.strip())
 
-    # --- 5) Gecis tablosu (kaynak durum sirasina gore gruplu) ---------------- #
+    # --- 5) Transition table (grouped by source state order) -------------------
     initial_ids = {s.id for s in sm.states.values() if s.kind is StateKind.INITIAL}
     history_ids = {s.id for s in sm.states.values() if s.kind.is_history}
     fork_ids = {s.id for s in sm.states.values() if s.kind is StateKind.FORK}
     join_ids = {s.id for s in sm.states.values() if s.kind is StateKind.JOIN}
 
     def _ortak_sahip(idler: List[str]) -> Optional[str]:
-        """Verilen dugumlerin ORTAK ortogonal sahibi (yoksa None)."""
+        """The COMMON orthogonal owner of the given vertices (None if any)."""
         if not idler:
             return None
         ortak = idler[0]
@@ -740,12 +740,12 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 if s.kind is StateKind.EXIT_POINT}
 
     def _entry_cozumle(entry_id: str):
-        """Giris noktasini (sahip, ic hedefler, segmentler) olarak cozer.
+        """Resolves an entry point into (owner, inner targets, segments).
 
-        UML 2.5.1, 14.2.3.7 (basili s.313) NOTE: "If multiple Regions are
-        involved, the entry point acts as a fork Pseudostate." Bu yuzden
-        giris noktasi TAM OLARAK fork gibi derlenir; tek bolgede de ayni
-        makineyi kullanmak iki ayri kod yolu tutmaktan iyidir.
+        UML 2.5.1, 14.2.3.7 (printed p.313) NOTE: "If multiple Regions are
+        involved, the entry point acts as a fork Pseudostate." So an entry
+        point is compiled EXACTLY like a fork; using the same machinery for
+        the single-region case beats keeping two separate code paths.
         """
         nokta = sm.states[entry_id]
         sahip = nokta.parent
@@ -767,7 +767,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         return sahip, [index_of[h] for h in sirali], segmentler
 
     def _exit_cozumle(exit_id: str):
-        """Cikis noktasinin disariya giden gecisini dondurur."""
+        """Returns the outgoing transition of an exit point."""
         nokta = sm.states[exit_id]
         cikislar = sm.outgoing(exit_id)
         if not cikislar:
@@ -782,7 +782,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         return cikis
 
     def _fork_cozumle(fork_id: str):
-        """Fork segmentlerini (sahip, hedef listesi) olarak cozer."""
+        """Resolves the fork segments into (owner, target list)."""
         segmentler = sm.outgoing(fork_id)
         hedefler = [t.target for t in segmentler]
         sahip = _ortak_sahip(hedefler)
@@ -797,7 +797,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 % sm.states[fork_id].name)
 
         def _bolge_sirasi(hedef: str) -> int:
-            """Hedefin `sahip` altinda dustugu bolge."""
+            """The region the target falls into, under `owner`."""
             cur = hedef
             adim = 0
             while cur is not None and adim <= len(sm.states) + 1:
@@ -810,14 +810,14 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 adim += 1
             return 0
 
-        # Hedefler BOLGE sirasina gore girilir. Model dosyasindaki ok
-        # sirasina birakilsaydi ayni diyagram iki farkli giris sirasi
-        # uretebilir ve kod uretimi DETERMINISTIK olmazdi.
+        # Targets are entered in REGION order. Left to the arrow order in the
+        # model file, the same diagram could produce two different entry orders
+        # and code generation would not be DETERMINISTIC.
         sirali = sorted(hedefler, key=_bolge_sirasi)
         return sahip, [index_of[h] for h in sirali], segmentler
 
     def _join_cozumle(join_id: str):
-        """Join segmentlerini (sahip, kaynak listesi, cikis gecisi) olarak cozer."""
+        """Resolves join segments into (owner, source list, exit transition)."""
         segmentler = [t for t in sm.transitions.values() if t.target == join_id]
         kaynaklar = [t.source for t in segmentler]
         sahip = _ortak_sahip(kaynaklar)
@@ -842,17 +842,17 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         first = idx
         for tr in sm.outgoing(st.model_id):
             if tr.source in initial_ids:
-                continue                      # initial gecisleri zaten gomuldu
+                continue                      # initial transitions are already folded in
             if tr.source in history_ids:
-                continue                      # tarih varsayilanlari tabloya girmez
+                continue                      # history defaults do not enter the table
             if tr.target in join_ids:
-                continue                      # join segmenti: cikista uretilir
+                continue                      # join segment: produced at the exit
 
-            # CIKIS NOKTASI: icerideki ok sinirdaki noktayi hedefler.
-            # UML 2.5.1, 14.2.3.7 (basili s.313): "Transitions terminating
+            # EXIT POINT: the inner arrow targets the point on the border.
+            # UML 2.5.1, 14.2.3.7 (printed p.313): "Transitions terminating
             # on an exit point ... implies exiting of this composite State".
-            # Derlemede ok, noktanin DISARIDAKI hedefine baglanir; bilesik
-            # durumdan cikisi zaten LCA hesabi saglar.
+            # When compiling, the arrow is bound to the OUTER target of the point;
+            # the LCA calculation already provides the exit from the composite state.
             if tr.target in exit_ids:
                 cikis = _exit_cozumle(tr.target)
                 ev_name = tr.event.strip()
@@ -876,7 +876,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 idx += 1
                 continue
 
-            # GIRIS NOKTASI: fork gibi derlenir (belgenin kendi NOTE'u).
+            # ENTRY POINT: compiled like a fork (the spec's own NOTE).
             if tr.target in entry_ids:
                 sahip, hedefler, segmentler = _entry_cozumle(tr.target)
                 ev_name = tr.event.strip()
@@ -900,10 +900,10 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 idx += 1
                 continue
 
-            # FORK: tek satir uretilir. Hedef, segmentlerin ORTAK ortogonal
-            # sahibidir; segment hedefleri `fork_targets` olarak tasinir ve
-            # calisma zamaninda ilgili bolgelerde ACIKCA girilir. Adi
-            # gecmeyen bolgeler varsayilanlariyla baslar.
+            # FORK: a single row is produced. The target is the COMMON orthogonal
+            # owner of the segments; the segment targets travel as `fork_targets`
+            # and are entered EXPLICITLY in their regions at run time. Unnamed
+            # regions start at their defaults.
             if tr.target in fork_ids:
                 sahip, hedefler, segmentler = _fork_cozumle(tr.target)
                 ev_name = tr.event.strip()
@@ -960,11 +960,11 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                                              tr.label() or "(completion)"),
                 ))
                 idx += 1
-        # JOIN: cikis gecisi, ortogonal SAHIBIN satirlarina eklenir.
-        # Boylece bolgelerden herhangi birinden yukari yuruyen arama onu
-        # bulur; etkinlik kosulu ise butun kaynaklarin AYNI ANDA etkin
-        # olmasidir (14.2.3.7: "all incoming Transitions have to complete
-        # before execution can continue through an outgoing Transition").
+        # JOIN: the exit transition is added to the rows of the orthogonal OWNER.
+        # That way a search walking up from any of the regions finds it; the
+        # enabling condition is that all sources are active AT THE SAME TIME
+        # (14.2.3.7: "all incoming Transitions have to complete before execution
+        # can continue through an outgoing Transition").
         for join_id in sorted(join_ids):
             sahip, kaynaklar, cikis = _join_cozumle(join_id)
             if index_of.get(sahip) != st.index:
@@ -984,8 +984,8 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 model_id=cikis.id,
                 source=st.index,
                 target=index_of[cikis.target],
-                event=0,                      # join tetikleyici tasiyamaz
-                guard=-1,                     # join guard tasiyamaz
+                event=0,                      # a join carries no trigger
+                guard=-1,                     # a join carries no guard
                 action=_dedup_add(ir.actions,
                                   _combine_action(segment_eylemleri)),
                 kind=TKIND_EXTERNAL,

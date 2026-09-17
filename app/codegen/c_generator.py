@@ -1,16 +1,16 @@
-"""C11 + GNU uzantilari hiyerarsik durum makinesi ureteci - MISRA C:2012 hedefli.
+"""C11 + GNU extensions hierarchical state machine generator - MISRA C:2012.
 
-Uretilen kod:
-  * dinamik bellek kullanmaz, ozyineleme icermez,
-  * tum tablolar `static const` (flash'ta durur),
-  * tek bir `<prefix>_t` ornegi ile yeniden girilebilir (reentrant),
-  * -std=gnu11 -Wall -Wextra -Werror ile uyari uretmeden derlenir,
-  * MISRA C:2012 zorunlu (mandatory/required) kurallari gozetilerek uretilir.
+The generated code:
+  * uses no dynamic memory and contains no recursion,
+  * keeps every table `static const` (it lives in flash),
+  * is reentrant through a single `<prefix>_t` instance,
+  * compiles without warnings under -std=gnu11 -Wall -Wextra -Werror,
+  * is produced with the mandatory/required rules of MISRA C:2012 in mind.
 
-Calisma zamani algoritmasi UML 2.5.1 run-to-completion semantigini izler:
-exit yolu -> gecis eylemi -> entry yolu -> varsayilan alt duruma inis ->
-completion (olaysiz) gecislerinin cozulmesi. Ek olarak shallow/deep history
-ve terminate sozde-durumlarini destekler.
+The runtime algorithm follows the UML 2.5.1 run-to-completion semantics:
+exit path -> transition effect -> entry path -> descent into the default
+substate -> resolution of completion (event-less) transitions. It also
+supports shallow/deep history and terminate pseudostates.
 """
 
 from __future__ import annotations
@@ -43,22 +43,22 @@ MISRA_NOTE = [
 
 
 # --------------------------------------------------------------------------- #
-#  Metin yardimcilari
+#   Text helpers
 # --------------------------------------------------------------------------- #
 
 def c_comment(text: str) -> str:
-    """Bir metni tek satirlik C yorumu icinde guvenli hale getirir."""
+    """Makes a text safe to place inside a single-line C comment."""
     one = " ".join(str(text).split())
     return one.replace("*/", "* /")
 
 
-#: Deyim sonlandirma kurali IR katmanindadir; junction yollarinda birlestirilen
-#: eylemler de AYNI kurali kullanmak zorunda oldugu icin tanim tektir.
+#: The statement-termination rule lives in the IR layer; the definition is
+#: single because effects merged along junction paths use the SAME rule.
 as_statement = _as_statement
 
 
 def as_expression(expr: str) -> str:
-    """Guard metnini gecerli bir C ifadesine cevirir (sondaki ; atilir)."""
+    """Turns guard text into a valid C expression (a trailing ; is dropped)."""
     s = expr.strip()
     while s.endswith(";"):
         s = s[:-1].rstrip()
@@ -66,11 +66,11 @@ def as_expression(expr: str) -> str:
 
 
 def align_rows(rows, gap: int = 2) -> List[str]:
-    """(kod, yorum) ikililerini YORUMLAR AYNI SUTUNDA baslayacak sekilde yazar.
+    """Writes (code, comment) pairs so THE COMMENTS START IN THE SAME COLUMN.
 
-    Sabit genislikli "%-38s" bicimleri, adlar uzadikca bozuluyordu:
-    BLINKY_TRANSITION_COUNT satiri otekilerden kayiyor ve dosya duzensiz
-    gorunuyordu. Genislik, o BLOKTAKI en uzun koda gore HESAPLANIR.
+    Fixed-width "%-38s" formats broke down as the names grew longer: the
+    BLINKY_TRANSITION_COUNT line drifted away from the others and the file
+    looked untidy. The width is COMPUTED from the longest code in THAT BLOCK.
     """
     kodlar = [k for k, _c in rows]
     en_uzun = max((len(k) for k in kodlar), default=0)
@@ -84,10 +84,10 @@ def align_rows(rows, gap: int = 2) -> List[str]:
 
 
 def align_enum(rows, gap: int = 1) -> List[str]:
-    """(ad, "= deger,", yorum) uclulerini UC SUTUN halinde hizalar.
+    """Aligns (name, "= value,", comment) triples into THREE COLUMNS.
 
-    Enum govdesinde hem "=" isaretleri hem yorumlar ayni sutunda durur;
-    tek sutun hizalamak degerleri tirtikli birakiyordu.
+    Inside an enum body both the "=" signs and the comments stay in the same
+    column; aligning a single column left the values ragged.
     """
     ad_g = max((len(a) for a, _d, _y in rows), default=0)
     deger_g = max((len(d) for _a, d, _y in rows), default=0)
@@ -98,50 +98,50 @@ def align_enum(rows, gap: int = 1) -> List[str]:
     return out
 
 
-#: Satir sonunda ACILIS parantezi birakan HER satir.
+#: EVERY line that leaves an OPENING brace at its end.
 #:
-#: Kural tek ve genel: kodu `{` ile biten bir satirda parantez KENDI
-#: SATIRINA iner. Anahtar kelimeye gore ayri ayri desen yazmak, her
-#: seferinde bir bicimi disarida birakiyordu -- once kontrol deyimleri,
-#: sonra cok satirli kosullar, sonra dizi baslaticilar ve `extern "C"`.
+#: The rule is single and general: on a line whose code ends with `{` the
+#: brace moves to ITS OWN LINE. Writing a separate pattern per keyword left
+#: one style out every time -- first control statements, then multi-line
+#: conditions, then array initialisers and `extern "C"`.
 #:
-#: Dizgi ve karakter sabitleri ONCE ayiklanir: `printf("{")` satirinin
-#: sonundaki parantez KOD degildir.
+#: String and character literals are stripped FIRST: the brace at the end
+#: of a `printf("{")` line is NOT code.
 _SONDA_SUSLU = re.compile(r"^(?P<pad>\s*)(?P<govde>.*\S)\s*\{\s*$")
 
-#: Satir sonundaki `// ...` notu.
+#: A trailing `// ...` note.
 _SATIR_NOTU = re.compile(r"\s*(//[^\n]*)$")
 
-#: Kontrol deyiminin BASLANGICI (parantezi ayni satirda olmayabilir).
+#: The START of a control statement (its parenthesis may be on another line).
 _KONTROL_BAS = re.compile(
     r"^(?P<pad>\s*)(?:\}\s*)?"
     r"(?:if|else\s+if|for|while|switch)\b")
 
-#: Dizgi ve karakter sabitleri -- parantez sayarken atilir.
+#: String and character literals -- dropped when counting parentheses.
 _SABIT = re.compile(r'"(?:[^"\\]|\\.)*"' + r"|'(?:[^'\\]|\\.)*'")
 
 
 def _paren_farki(kod: str) -> int:
-    """Satirin ACIK parantez dengesi (dizgiler sayilmaz)."""
+    """The OPEN parenthesis balance of the line (strings are not counted)."""
     duz = _SABIT.sub("", kod)
     return duz.count("(") - duz.count(")")
 
 
-#: `} ad;` -- govdesi biten bir typedef'in AD TASIYAN kapanis satiri.
+#: `} name;` -- the NAMED closing line of a typedef whose body has ended.
 #:
-#: `};` (adsiz kapanis) ve `} while (...);` KAPSAM DISIDIR: birinde ad
-#: yok, otekinde addan sonra parantez geliyor.
+#: `};` (an unnamed close) and `} while (...);` are OUT OF SCOPE: one has
+#: no name, the other has a parenthesis after the name.
 _ADLI_KAPANIS = re.compile(r"^\s*\}\s*[A-Za-z_]\w*\s*;")
 
 
 def blank_before_close(lines: List[str]) -> List[str]:
-    """`} ad;` satirinin ONUNE bir bos satir koyar.
+    """Puts a blank line BEFORE a `} name;` line.
 
-    Kullanici tip govdesinin son uyesi ile typedef adinin arasinda bir
-    nefes istedi: govde bittigi yer goz ile HEMEN secilebilsin. Kural
-    tek yerde uygulanir, cunku yayim noktalari cok ve biri unutulursa
-    ayni dosyada iki bicim olusur -- nitekim `blinky_transition_t` ve
-    `drawable_t` ilk gecimde tam boyle atlanmisti.
+    The user asked for a breath between the last member of a type body and
+    the typedef name, so the eye can pick out where the body ends AT ONCE.
+    The rule is applied in one place, because there are many emission points
+    and forgetting one would leave two styles in the same file -- which is
+    exactly how `blinky_transition_t` and `drawable_t` got missed at first.
     """
     out: List[str] = []
     for line in lines:
@@ -153,49 +153,49 @@ def blank_before_close(lines: List[str]) -> List[str]:
 
 
 def _tek_satir(metin: str) -> str:
-    """Kullanici notunu TEK SATIRLIK bir yoruma indirger.
+    """Reduces a user note to a SINGLE-LINE comment.
 
-    Not alani cok satirli yazilabilir; `///<` ve `/**< ... */` tek
-    satirliktir. Ham metni koymak yorumu -- ve ardindan gelen kodu --
-    bozardi. `c_comment` ayrica yorum kapanisini etkisizlestirir.
+    The note field may be written over several lines, while `///<` and
+    `/**< ... */` are single-line. Dropping the raw text in would break the
+    comment -- and the code after it. `c_comment` also defuses a comment close.
     """
     return c_comment(" ".join((metin or "").split()))
 
 
 def allman(lines: List[str]) -> List[str]:
-    """Acilis suslu parantezlerini KENDI SATIRINA indirir.
+    """Moves opening braces ONTO THEIR OWN LINE.
 
-    Uretilen kodda islevler zaten Allman bicimindeydi ama kontrol
-    deyimleri K&R kaliyordu (`if (x) {`); ayni dosyada iki bicim birden
-    duruyordu. Kullanici "kivircilari ac" dedi.
+    Functions in the generated code were already in Allman style, but control
+    statements stayed K&R (`if (x) {`); two styles sat in the same file. The
+    user asked to "open the braces".
 
-    KURAL TEKTIR: kodu `{` ile biten her satirda parantez alt satira
-    iner. Once anahtar kelimeye gore desenler yazilmisti ve her defasinda
-    bir bicim disarida kaliyordu -- cok satirli kosullar, dizi
-    baslaticilar, `extern "C"`. Tek kural bunlarin hepsini kapsar ve
-    ileride eklenecek bir bicim icin yeniden dusunmeyi gerektirmez.
+    THERE IS ONE RULE: on every line whose code ends with `{`, the brace moves
+    to the next line. Patterns written per keyword came first, and each time
+    one style was left out -- multi-line conditions, array initialisers,
+    `extern "C"`. A single rule covers all of them and needs no rethinking for
+    a style added later.
 
-    COK SATIRLI KOSULDA girinti, deyimin BASLADIGI satirdan alinir:
-
+    IN A MULTI-LINE CONDITION the indentation is taken from the line the
+    statement STARTS on:
         while ((steps < LIMIT) &&
                (!me->terminated))
         {
 
-    Bunun icin acik parantez dengesi izlenir; devam satirinin nasil
-    basladigina bakmak yetmiyordu (`source, found)) {` gibi sarmalanmis
-    bir cagri listesi tanimlayiciyla baslar).
+    For that the open-parenthesis balance is tracked; looking at how the
+    continuation line begins was not enough (a wrapped call list such as
+    `source, found)) {` begins with an identifier).
 
-    Donusum METIN uzerinde yapilir: 80'den fazla yayim noktasini tek tek
-    degistirmek yerine tek ve sinanabilir bir gecis kullanilir. Yorum
-    satirlarina ve blok yorumlarin ICINE dokunulmaz.
+    The transformation works on TEXT: instead of changing more than eighty
+    emission points one by one, a single testable pass is used. Comment lines
+    and the INSIDE of block comments are left alone.
 
-    Ayni gecis, kapanis `} ad;` satirlarinin onune bos satir da koyar
-    (bkz. :func:`blank_before_close`); butun ureteciler zaten buradan
-    geciyor, bicim kurallarinin tek kapisi olsun.
+    The same pass also puts a blank line before closing `} name;` lines (see
+    :func:`blank_before_close`); every generator already goes through here, so
+    the layout rules have a single door.
     """
     out: List[str] = []
     blok_yorumda = False
-    #: Kosulu HENUZ bitmemis kontrol deyiminin girintisi ve paren dengesi.
+    #: Indentation and paren balance of a control statement not yet finished.
     acik_pad = None
     acik_derinlik = 0
 
@@ -214,8 +214,8 @@ def allman(lines: List[str]) -> List[str]:
             out.append(line)
             continue
 
-        # Satir sonundaki `// ...` notu DEYIMLE birlikte kalir; parantezin
-        # yanina yapistirmak notu anlamsiz kilardi.
+        # A trailing `// ...` note stays WITH THE STATEMENT; sticking it next to
+        # the brace would make the note meaningless.
         notu = ""
         kod = line
         eslesme = _SATIR_NOTU.search(line)
@@ -225,7 +225,7 @@ def allman(lines: List[str]) -> List[str]:
 
         m = _SONDA_SUSLU.match(kod)
         if m is None:
-            # Parantez yok: acik bir kosul suruyorsa dengesini guncelle.
+            # No brace: if an open condition is running, update its balance.
             if acik_pad is not None:
                 acik_derinlik += _paren_farki(kod)
                 if acik_derinlik <= 0:
@@ -241,8 +241,8 @@ def allman(lines: List[str]) -> List[str]:
             continue
 
         govde = m.group("govde").rstrip()
-        # Parantezin girintisi: cok satirli bir kosulun ortasindaysak
-        # deyimin BASLADIGI girinti, degilse satirin kendi girintisi.
+        # Indentation of the brace: the indentation the statement STARTS at when
+        # we are inside a multi-line condition, otherwise the line's own.
         if acik_pad is not None:
             pad = acik_pad
             acik_pad = None
@@ -268,14 +268,14 @@ def indent_block(code: str, pad: str) -> List[str]:
 
 
 def banner(ir: Ir, filename: str, kind: str) -> List[str]:
-    # URETIM ZAMANI YAZILMAZ.
+    # THE GENERATION TIME IS NOT WRITTEN.
     #
-    # Basliktaki saniyelik damga, model HIC DEGISMESE bile her uretimde
-    # dosyayi farkli kiliyordu: calisma alanina yazma adimi dosyayi
-    # yeniden yaziyor, git calisma agacinda butun uretilen dosyalar
-    # "degismis" gorunuyor ve fark ekraninda tek satirlik bir tarih
-    # degisikliginden baska bir sey olmuyordu. Ayni modelden AYNI kaynak
-    # uretilmesi surum kontrolu icin sart.
+    # A second-resolution stamp in the header made the file different on every
+    # run even when the model had NOT changed at all: the write-to-workspace
+    # step rewrote the file, every generated file looked "modified" in the git
+    # working tree, and the diff view showed nothing but a one-line date
+    # change. Producing THE SAME source from the same model is essential for
+    # version control.
     lines = [
         "/*" + "*" * 76,
         " * @file    %s" % filename,
@@ -295,24 +295,24 @@ def banner(ir: Ir, filename: str, kind: str) -> List[str]:
 
 
 # --------------------------------------------------------------------------- #
-#  Ureteci
+#   The generator
 # --------------------------------------------------------------------------- #
 
 class CGenerator:
-    """IR -> (.h, .c) ikilisi."""
+    """IR -> the (.h, .c) pair."""
 
     def __init__(self, ir: Ir) -> None:
         self.ir = ir
         self.p = ir.prefix                 # blinky
         self.P = ir.prefix.upper()         # BLINKY
 
-    # -- adlandirma --------------------------------------------------------- #
+    # -- naming # ----------------------------------------------------------- #
     #
-    # UML adlari UpperCamelCase'tir (UML 2.5.1); C sabitleri
-    # SCREAMING_SNAKE_CASE olur ve donusum SOZCUK SINIRINI KORUR:
-    #   LedOn -> BLINKY_STATE_LED_ON   (eskiden BLINKY_STATE_LEDON)
-    # Donusum app/core/naming.py'dedir; dogrulayici cakisma denetimini AYNI
-    # islevle yapar, yoksa uretecin gercekte yazacagi sembolu goremez.
+    # UML names are UpperCamelCase (UML 2.5.1); C constants become
+    # SCREAMING_SNAKE_CASE and the conversion PRESERVES THE WORD BOUNDARY:
+    #     LedOn -> BLINKY_STATE_LED_ON   (formerly BLINKY_STATE_LEDON)
+    # The conversion lives in app/core/naming.py; the validator checks for
+    # collisions with the SAME function, or it could not see the real symbol.
 
     def state_enum(self, st: IrState) -> str:
         return "%s_STATE_%s" % (self.P, screaming_snake(st.name))
@@ -327,7 +327,7 @@ class CGenerator:
         return "%s_event_t" % self.p
 
     def _demo_required_note(self) -> List[str]:
-        """MCU orneginde, MODELDEN gelen islevleri tek tek sayar."""
+        """Counts the functions that come FROM THE MODEL in the MCU example."""
         gerekli = self.ir.required_functions()
         if not gerekli:
             return ["/*",
@@ -353,17 +353,17 @@ class CGenerator:
         return L
 
     def _required_block(self) -> List[str]:
-        """Kullanicinin SAGLAMASI gereken sembolleri belgeler.
+        """Documents the symbols the user has to SUPPLY.
 
-        Model icindeki entry/exit/do govdeleri ve guard ifadeleri
-        kullanicinin yazdigi C metinleridir; icindeki cagrilari uretec
-        TANIMLAMAZ. Soylenmezse eksiklik ancak baglama asamasinda
-        "undefined reference to `led_write`" olarak ortaya cikar -- hedef
-        donanimda, gec ve anlasilmaz bir bicimde.
+        The entry/exit/do bodies and guard expressions in the model are C
+        texts written by the user; the generator does NOT DEFINE the calls
+        inside them. Unless we say so, the gap only surfaces at link time as
+        "undefined reference to `led_write`" -- on the target hardware, late
+        and in a form that is hard to read.
 
-        PROTOTIP YAZILMAZ, yalnizca BELGELENIR. Tip bilgisi modelde yok;
-        uydurma bir `void led_write();` bildirimi gercek imzayla sessizce
-        uyumsuz olabilir ve bu, hic bildirmemekten daha tehlikelidir.
+        NO PROTOTYPE IS WRITTEN, only DOCUMENTATION. The model carries no type
+        information; an invented `void led_write();` declaration can silently
+        disagree with the real signature, which is worse than declaring nothing.
         """
         gerekli = self.ir.required_functions()
         L: List[str] = [
@@ -396,17 +396,17 @@ class CGenerator:
         return L
 
     def _first_include_name(self) -> str:
-        """Kullanicinin include satirlarindan ILK baslik adini cikarir.
+        """Extracts the FIRST header name from the user include lines.
 
-        Satir TIRNAKLI olmak zorunda degildir: aci parantezli bir include
-        da gecerlidir ve ilk satir bir yorum olabilir. Bu ad eskiden
-        kosulsuz olarak tirnaga gore bolunup ikinci parca aliniyordu;
-        tirnak icermeyen her ilk satirda kod uretimi IndexError ile
-        cokuyordu. Kullanicinin gordugu sey, yalnizca bir aciklama
-        cumlesi kurulamadigi icin HIC kod uretilmemesiydi.
+        The line does not have to be QUOTED: an angle-bracket include is valid
+        too, and the first line may be a comment. This name used to be taken by
+        splitting unconditionally on the quote and picking the second part; for
+        every first line without a quote, code generation crashed with
+        IndexError. What the user saw was that NO code was generated at all,
+        merely because one explanatory sentence could not be built.
 
-        Tirnakli ya da acili ILK satir taranir; hicbiri yoksa notr bir
-        ifade dondurulur.
+        The FIRST quoted or angled line is scanned; when there is none, a
+        neutral expression is returned.
         """
         for satir in self.ir.user_includes:
             eslesme = re.search(r'[<"]([^>"]+)[>"]', satir)
@@ -420,7 +420,7 @@ class CGenerator:
     def ctx_type(self) -> str:
         return self.ir.context_type if self.ir.has_context() else "void"
 
-    # -- baslik ------------------------------------------------------------- #
+    # -- header # ----------------------------------------------------------- #
 
     def header(self) -> str:
         ir = self.ir
@@ -435,11 +435,11 @@ class CGenerator:
             L += [""]
         L += ["#ifdef __cplusplus", 'extern "C" {', "#endif", ""]
 
-        # C++ tarafiyla AYNI yerde: bolumlerin basinda.
+        # The SAME place as on the C++ side: at the start of the sections.
         L += self._required_block()
         L += ["/* ----------------------------------------------------------- dimensions -- */"]
-        # DEGERLER AYNI SUTUNDA. Sabit dolgu ile yazilinca uzun adlar
-        # (BLINKY_MAX_RUN_TO_COMPLETION_STEPS) satiri kaydiriyordu.
+        # VALUES IN THE SAME COLUMN. Written with fixed padding, long names
+        # (BLINKY_MAX_RUN_TO_COMPLETION_STEPS) pushed the line out of line.
         olculer = [
             ("%s_STATE_COUNT" % self.P, "(%uU)" % ir.state_count,
              "Number of vertices in the state table."),
@@ -476,8 +476,8 @@ class CGenerator:
               " * The values are indices into the generated lookup tables, so they",
               " * must not be reordered by hand.", " */"]
         L += ["typedef enum", "{"]
-        # Sutunlar BLOGA gore hesaplanir (bkz. align_rows): sabit "%-38s"
-        # dolgusu, ad uzayinca satiri kaydiriyordu.
+        # Columns are computed PER BLOCK (see align_rows): fixed "%-38s" padding
+        # shifted the line as soon as a name grew.
         satirlar = []
         for st in ir.states:
             kind_txt = {KIND_SIMPLE: "simple", KIND_COMPOSITE: "composite",
@@ -485,13 +485,13 @@ class CGenerator:
                         KIND_TERMINATE: "terminate",
                         KIND_HIST_SHALLOW: "shallow history",
                         KIND_HIST_DEEP: "deep history"}[st.kind]
-            # KULLANICININ NOTU DA KODA GECER.
+            # THE USER'S NOTE GOES INTO THE CODE TOO.
             #
-            # Not alani iki ayri duzenleyicide toplaniyor ve IR'ye kadar
-            # geliyordu ama HICBIR cikti onu kullanmiyordu: kullanicinin
-            # "bu durum neden var" aciklamasi diyagramda kaliyor, kodu
-            # okuyan gomulu muhendisine ulasmiyordu. Sinif diyagraminin
-            # notlari zaten boyle yayimlaniyor.
+            # The note field is collected in two separate editors and travelled all
+            # the way to the IR, but NO output used it: the user's explanation of
+            # "why this state exists" stayed on the diagram and never reached the
+            # embedded engineer reading the code. The class diagram already emits its
+            # notes this way.
             aciklama = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
                 aciklama = "%s -- %s" % (aciklama, _tek_satir(st.note))
@@ -501,8 +501,8 @@ class CGenerator:
         satirlar.append(("    %s_STATE_NONE" % self.P, "= 255U",
                          "/**< invalid / no state */"))
         L += align_enum(satirlar)
-        # Kapanistan once BOS SATIR: govde ile "} tip;" birbirine
-        # yapisik duruyordu.
+        # A BLANK LINE before the close: the body and "} type;" were stuck
+        # together.
         L += ["", "} %s;" % self.type_state(), ""]
 
         L += ["/* --------------------------------------------------------------- events -- */"]
@@ -524,9 +524,9 @@ class CGenerator:
               " * read-only. Do not write to the fields from outside -- use the",
               " * functions below.", " */"]
         L += ["typedef struct", "{"]
-        # Tip, alan adi ve yorum UC AYRI SUTUN olarak hizalanir. Sabit
-        # dolguyla yazilinca "terminated" gibi uzun bir ad yorumu kaydiriyor
-        # ve struct duzensiz gorunuyordu.
+        # The type, the field name and the comment are aligned as THREE SEPARATE
+        # COLUMNS. With fixed padding a long name such as "terminated" shifted the
+        # comment and the struct looked untidy.
         alanlar = [
             (self.type_state(), "state;", "/**< active leaf state */"),
             (self.ctx_type(), "*ctx;",
@@ -555,8 +555,8 @@ class CGenerator:
         tip_g = max(len(t) for t, _a, _y in alanlar)
         L += align_rows([("    %-*s %s" % (tip_g, tip, ad), yorum)
                          for tip, ad, yorum in alanlar])
-        # Kapanistan once BOS SATIR: govde ile "} tip;" birbirine yapisik
-        # duruyordu.
+        # A BLANK LINE before the close: the body and "} type;" were stuck
+        # together.
         L += ["", "} %s;" % self.type_obj(), ""]
 
         L += ["/* ------------------------------------------------------------------ API -- */", ""]
@@ -691,7 +691,7 @@ class CGenerator:
         L += ["#ifdef __cplusplus", "}", "#endif", "", "#endif /* %s */" % guard, ""]
         return "\n".join(allman(L))
 
-    # -- kaynak ------------------------------------------------------------- #
+    # -- source # ----------------------------------------------------------- #
 
     def source(self) -> str:
         ir = self.ir
@@ -700,7 +700,7 @@ class CGenerator:
         L += ["#include <stddef.h>   /* NULL */"]
         L += ['#include "%s.h"' % self.p, ""]
 
-        # ---- ic sabitler
+        # ---- internal constants
         L += ["/* ------------------------------------------------------ internal constants -- */"]
         L += ["#define %s_KIND_SIMPLE     (0U)" % self.P]
         L += ["#define %s_KIND_COMPOSITE  (1U)" % self.P]
@@ -715,7 +715,7 @@ class CGenerator:
         L += ["#define %s_NO_ID           (-1)" % self.P]
         L += [""]
 
-        # ---- gecis kaydi
+        # ---- transition record
         L += ["/* ------------------------------------------------------ transition row -- */"]
         L += ["typedef struct", "{"]
         L += ["    uint8_t source;    /**< source state            */"]
@@ -741,7 +741,7 @@ class CGenerator:
         L += self._public_api()
         return "\n".join(allman(L))
 
-    # ------------------------------------------------------------------ tablolar #
+    # -------------------------------------------------------------------- tables #
 
     def _tables(self) -> List[str]:
         ir = self.ir
@@ -769,12 +769,12 @@ class CGenerator:
             L += ["    %-26s /* %s */" % (kmap[st.kind] + ",", c_comment(st.name))]
         L += ["};", ""]
 
-        # NOT: durum basina "initial_child" / "initial_action" tablolari
-        # KALDIRILDI. Varsayilan giris artik BOLGE basinadir
-        # (<p>_region_initial / <p>_region_initial_action); ortogonal bir
-        # durumda tek bir alan zaten yetmezdi. Iki tabloyu birden tutmak
-        # ayni bilgiyi iki yerde saklamak ve -Wunused-const-variable
-        # uyarisi uretmek olurdu.
+        # NOTE: the per-state "initial_child" / "initial_action" tables were
+        # REMOVED. The default entry is now PER REGION
+        # (<p>_region_initial / <p>_region_initial_action); a single field was
+        # never enough for an orthogonal state anyway. Keeping both tables would
+        # mean storing the same information twice and would produce a
+        # -Wunused-const-variable warning.
 
         if ir.has_history():
             L += ["/** @brief Default target of a history pseudostate (255 = none). */"]
@@ -796,7 +796,7 @@ class CGenerator:
             L += ['    "%s",' % ev]
         L += ["};", ""]
 
-        # -- gecis tablosu
+        # -- transition table
         if ir.has_fork_join():
             ekstra = ir.extra_table()
             L += ["/** @brief Fork targets and join sources, flattened. */"]
@@ -850,7 +850,7 @@ class CGenerator:
             L += ["    %-6s /* %s */" % ("%uU," % cnt, c_comment(st.name))]
         L += ["};", ""]
 
-        # -- BOLGE TABLOLARI --------------------------------------------- #
+        # -- REGION TABLES ----------------------------------------------- #
         if ir.has_deferred():
             L += ["/** @brief Deferred event types per state, as a bit mask."]
             L += [" *"]
@@ -928,7 +928,7 @@ class CGenerator:
         L += [""]
         return L
 
-    # -------------------------------------------------------------- bildirimler #
+    # ------------------------------------------------------------- declarations #
 
     def _forward_decls(self) -> List[str]:
         p, P = self.p, self.P
@@ -990,7 +990,7 @@ class CGenerator:
     # --------------------------------------------------------- entry/exit/do #
 
     def _ctx_preamble(self) -> List[str]:
-        """Eylem govdelerinde 'ctx' yerel degiskenini tanimlar."""
+        """Defines the local 'ctx' variable inside the action bodies."""
         return [
             "    %s *ctx = me->ctx;" % self.ctx_type(),
             "    %s_UNUSED(me);" % self.P,
@@ -1000,10 +1000,10 @@ class CGenerator:
     def _behaviour_switches(self) -> List[str]:
         ir = self.ir
         L: List[str] = []
-        # Ad, BILDIRIMDEKI adla birebir ayni olmak zorunda. Kisaltmalar
-        # acilirken ("exec" -> "execute", "do" -> "do_activity") burasi
-        # hesapla uretildigi icin gozden kacmis ve bildirilen islevler
-        # TANIMSIZ kalmisti; -Werror ile derleme cokuyordu.
+        # The name has to match the one in the DECLARATION exactly. When the
+        # abbreviations were spelled out ("exec" -> "execute", "do" ->
+        # "do_activity") this spot was missed because it is computed, and the
+        # declared functions stayed UNDEFINED; -Werror broke the build.
         for tag, attr, title in (("entry", "entry", "entry"),
                                  ("exit", "exit", "exit"),
                                  ("do_activity", "do", "do")):
@@ -1029,17 +1029,17 @@ class CGenerator:
         return L + self._timer_switches()
 
     def _timer_switches(self) -> List[str]:
-        """after(N) zamanlayicilarini baslatan/iptal eden switch'ler.
+        """The switches that start/cancel the after(N) timers.
 
-        UML'de TimeEvent bir tetikleyicidir; ZAMANI TUTMAK makinenin isi
-        degildir. Uretilen kod bu yuzden iki KANCA cagirir ve kullanici
-        onlari kendi zamanlayicisiyla gerceklestirir. Olayi posta etmek de
-        kullanicinin isidir -- boylece kesme baglami, saat kaynagi ve
-        cozunurluk tamamen onun elinde kalir.
+        In UML a TimeEvent is a trigger; KEEPING TIME is not the machine's job.
+        So the generated code calls two HOOKS and the user implements them with
+        their own timer. Posting the event is the user's job as well -- which
+        leaves the interrupt context, the clock source and the resolution
+        entirely in their hands.
 
-        Kancalar GIRISTE baslar, CIKISTA iptal edilir: durumdan cikildiginda
-        bekleyen bir zamanlayicinin atesleyip yanlis bir olay gondermesi
-        yaygin ve bulunmasi zor bir hatadir.
+        The hooks start ON ENTRY and are cancelled ON EXIT: a pending timer
+        firing after the state was left, and sending the wrong event, is a
+        common and hard-to-find bug.
         """
         ir = self.ir
         ucler = ir.time_triggers()
@@ -1069,11 +1069,11 @@ class CGenerator:
                 L += ["    {"]
                 for ev, gecikme in gruplu[src]:
                     if etiket == "start":
-                        # GECIKME PARAMETRE TIPINE CEVRILIR. Ifade her
-                        # zaman bir sabit degildir: `after(timeout_ms())`
-                        # ya da `after(g_timeout)` gibi bir int deger,
-                        # uint32_t parametreye dokunulmadan gecince
-                        # -Wsign-conversion ile derleme DURUYORDU -- tam
+                        # THE DELAY IS CAST TO THE PARAMETER TYPE. The expression is not
+                        # always a constant: an int value such as `after(timeout_ms())`
+                        # or `after(g_timeout)`, passed untouched into a uint32_t
+                        # parameter, STOPPED the build with -Wsign-conversion -- with
+                        # exactly the flags the README guarantees.
                         # da README'nin garanti ettigi bayraklarla.
                         L += ["        %s(me, (uint8_t)%s, (uint8_t)%s, (uint32_t)(%s));"
                               % (kanca, self.state_enum(ir.states[src]),
@@ -1129,7 +1129,7 @@ class CGenerator:
     # ---------------------------------------------------------------- runtime #
 
     def _history_helpers(self) -> List[str]:
-        """resolve_history + land: tarih/terminate cozumlemesi."""
+        """resolve_history + land: history/terminate resolution."""
         p, P = self.p, self.P
         obj = self.type_obj()
         L: List[str] = []
@@ -1217,7 +1217,7 @@ class CGenerator:
                 "}",
                 "",
             ]
-        # land: hedefe varista tarih/terminate/inis cozumu
+        # land: resolve history/terminate/descent on arrival at the target
         L += [
             "/**",
             " * @brief  Determines the real leaf state once a target is reached.",
@@ -2045,7 +2045,7 @@ class CGenerator:
             "",
         ]
 
-    # ------------------------------------------------------------- genel API #
+    # ------------------------------------------------------------ public API #
 
     def _public_api(self) -> List[str]:
         p, P = self.p, self.P
@@ -2253,14 +2253,14 @@ class CGenerator:
         ]
 
 
-    # ----------------------------------------------------- MCU tumlestirme #
+    # ----------------------------------------------------- MCU integration #
 
     def demo_source(self) -> str:
-        """Uretilen makineyi bir MCU super dongusunde kullanan ornek.
+        """An example that uses the generated machine in an MCU super loop.
 
-        Kullanicinin istedigi cikti bir birim test kosumu DEGIL, kodun gercek
-        hedefte nasil surulecegini gosteren bir sablondur: kurulum, ardindan
-        olay besleyen sonsuz dongu.
+        What the user asked for is not a unit-test run but a template showing
+        how the code is driven on the real target: set-up, then an endless loop
+        feeding events.
         """
         ir = self.ir
         p = self.p
@@ -2407,10 +2407,10 @@ class CGenerator:
 # --------------------------------------------------------------------------- #
 
 def generate_c(sm, with_demo: bool = True, resolve=None) -> Dict[str, str]:
-    """Modelden {dosya_adi: icerik} sozlugu uretir.
+    """Produces a {file_name: content} dictionary from the model.
 
-    ``with_demo`` acikken uretilen ucuncu dosya bir BIRIM TEST degil, makineyi
-    bir MCU super dongusunde suren tumlestirme ornegidir.
+    With ``with_demo`` on, the third generated file is not a UNIT TEST but an
+    integration example driving the machine in an MCU super loop.
     """
     ir = build_ir(sm, resolve)
     gen = CGenerator(ir)

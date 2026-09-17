@@ -1,10 +1,10 @@
-"""C++11 hiyerarsik durum makinesi ureteci.
+"""C++11 hierarchical state machine generator.
 
-C ureteciyle *ayni* IR'yi ve *ayni* calisma zamani algoritmasini kullanir;
-yalnizca paketleme farklidir:
-  * tablolar .cpp icinde isimsiz uzayda `constexpr`,
-  * durum/olay kimlikleri `enum class` (tip guvenli),
-  * istisna yok, RTTI yok, dinamik bellek yok - gomulu hedefler icin uygun.
+It uses the *same* IR and the *same* runtime algorithm as the C generator;
+only the packaging differs:
+  * the tables are `constexpr` in an anonymous namespace inside the .cpp,
+  * state/event ids are an `enum class` (type safe),
+  * no exceptions, no RTTI, no dynamic memory - suitable for embedded targets.
 """
 
 from __future__ import annotations
@@ -35,17 +35,17 @@ MISRA_NOTE_CPP = [
 ]
 
 
-#: Ad donusumu cekirdekte tanimlidir; dogrulayici da AYNI islevi kullanir
-#: (bkz. app/core/naming.py). Geriye donuk uyumluluk icin buradan da yayimlanir.
+#: The name conversion lives in the core and the validator uses the SAME
+#: function (see app/core/naming.py). Re-exported here for compatibility.
 pascal = _pascal
 
 
 def section(title: str, indent: str = "") -> str:
-    """C ureteciyle AYNI genislikte bolum basligi.
+    """A section heading of the SAME width as in the C generator.
 
-    Kullanici "c ve c++ yorum satirlari ve kod duzeni de ayni olsun"
-    dedi. C tarafinda `/* ---...--- states -- */` seklinde 79 karakterlik
-    seritler vardi; C++ tarafinda hic yoktu ve dosya bolumsuz akiyordu.
+    The user asked for "the comment lines and the code layout to be the same
+    in C and C++ too". The C side had 79-character bands such as
+    `/* ---...--- states -- */`; C++ had none and ran on without sections.
     """
     kuyruk = " %s --" % title
     genislik = 79 - len(indent)
@@ -54,11 +54,11 @@ def section(title: str, indent: str = "") -> str:
 
 
 def doc(lines: List[str], indent: str = "") -> List[str]:
-    """Doxygen blogu: `/** ... */`.
+    """A Doxygen block: `/** ... */`.
 
-    C tarafi her islev icin @brief/@param/@return yaziyordu; C++ tarafi
-    tek satirlik `///` ile yetiniyordu. Ayni belgeleme derinligi icin
-    bloklar burada uretilir.
+    The C side wrote @brief/@param/@return for every function; the C++ side
+    made do with a one-line `///`. The blocks are produced here so the
+    documentation has the same depth on both sides.
     """
     if len(lines) == 1:
         return ["%s/** %s */" % (indent, lines[0])]
@@ -70,14 +70,14 @@ def doc(lines: List[str], indent: str = "") -> List[str]:
 
 
 def banner(ir: Ir, filename: str, kind: str) -> List[str]:
-    # URETIM ZAMANI YAZILMAZ.
+    # THE GENERATION TIME IS NOT WRITTEN.
     #
-    # Basliktaki saniyelik damga, model HIC DEGISMESE bile her uretimde
-    # dosyayi farkli kiliyordu: calisma alanina yazma adimi dosyayi
-    # yeniden yaziyor, git calisma agacinda butun uretilen dosyalar
-    # "degismis" gorunuyor ve fark ekraninda tek satirlik bir tarih
-    # degisikliginden baska bir sey olmuyordu. Ayni modelden AYNI kaynak
-    # uretilmesi surum kontrolu icin sart.
+    # A second-resolution stamp in the header made the file different on every
+    # run even when the model had NOT changed at all: the write-to-workspace
+    # step rewrote the file, every generated file looked "modified" in the git
+    # working tree, and the diff view showed nothing but a one-line date
+    # change. Producing THE SAME source from the same model is essential for
+    # version control.
     lines = [
         "//" + "=" * 76,
         "// @file    %s" % filename,
@@ -103,7 +103,7 @@ class CppGenerator:
         self.cls = pascal(ir.name)
 
     def _demo_required_note(self) -> List[str]:
-        """MCU orneginde MODELDEN gelen islevleri tek tek sayar."""
+        """Counts the functions that come FROM THE MODEL in the MCU example."""
         gerekli = self.ir.required_functions()
         if not gerekli:
             return ["// This model's behaviours are self-contained: they call",
@@ -124,11 +124,11 @@ class CppGenerator:
         return L
 
     def _required_block(self) -> List[str]:
-        """Kullanicinin SAGLAMASI gereken semboller (C tarafiyla ayni kural).
+        """The symbols the user must SUPPLY (same rule as on the C side).
 
-        Bkz. c_generator.CGenerator._required_block: prototip YAZILMAZ,
-        yalnizca belgelenir; tip bilgisi modelde yoktur ve uydurma bir
-        bildirim gercek imzayla sessizce uyumsuz olabilir.
+        See c_generator.CGenerator._required_block: NO prototype is written,
+        only documentation; the model carries no type information and an
+        invented declaration could silently disagree with the real signature.
         """
         gerekli = self.ir.required_functions()
         L = [section("you must provide")]
@@ -236,7 +236,7 @@ class CppGenerator:
                         KIND_TERMINATE: "terminate",
                         KIND_HIST_SHALLOW: "shallow history",
                         KIND_HIST_DEEP: "deep history"}[st.kind]
-            # Kullanicinin NOTU da koda gecer (bkz. C ureteci).
+            # The user's NOTE goes into the code as well (see the C generator).
             aciklama = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
                 aciklama = "%s -- %s" % (aciklama, _tek_satir(st.note))
@@ -311,8 +311,8 @@ class CppGenerator:
                   "@return true after a terminate pseudostate or the final",
                   "        state of the root region."], "    ")
         L += ["    bool isTerminated() const noexcept;", ""]
-        # TEK SATIRLIK GOVDE YAZILMAZ: uretilen kodun tamaminda gecerli
-        # olan kural (MISRA C++ M6-3-1 ruhu) burada da uygulanir.
+        # NO SINGLE-LINE BODY IS WRITTEN: the rule that holds throughout the
+        # generated code (the spirit of MISRA C++ M6-3-1) applies here too.
         L += doc(["@brief  Returns the active leaf state.",
                   "@return The active state, or State::None before start()."],
                  "    ")
@@ -450,7 +450,7 @@ class CppGenerator:
         ad_g = max(len(a) for _t, a, _y in uyeler)
         L += ["    %-*s %-*s  ///< %s" % (tip_g, tip, ad_g, ad, yorum)
               for tip, ad, yorum in uyeler]
-        # Kapanistan once BOS SATIR (C tarafiyla ayni bicim).
+        # A BLANK LINE before the closing brace (same layout as the C side).
         L += ["", "};", ""]
         if ir.has_time_events():
             L += doc(['@brief  Starts a relative time trigger, written by YOU.',
@@ -517,7 +517,7 @@ class CppGenerator:
             L += ["    std::uint8_t  joinCount;   // join segment sources"]
         L += ["};", ""]
 
-        # ---- tablolar
+        # ---- tables
         L += [section("tables"), ""]
         L += ["constexpr std::uint8_t kParent[] = {"]
         for st in ir.states:
@@ -535,9 +535,9 @@ class CppGenerator:
             L += ["    %-17s // %s" % (kmap[st.kind] + ",", c_comment(st.name))]
         L += ["};", ""]
 
-        # Durum basina "initial child" tablolari KALDIRILDI: varsayilan
-        # giris artik BOLGE basinadir. Ortogonal bir durumda tek bir alan
-        # zaten yetmezdi.
+        # The per-state "initial child" tables were REMOVED: the default entry is
+        # now PER REGION. In an orthogonal state a single field would not have
+        # been enough anyway.
         if ir.has_deferred():
             L += ["// Deferred event types per state, as a bit mask."]
             L += ["// UML 2.5.1, 14.2.3.4.4: an occurrence of a deferred type is"]
@@ -628,10 +628,10 @@ class CppGenerator:
 
         L += ["constexpr Transition kTransitions[] = {"]
         if ir.tran_count == 0:
-            # URETILEN KODDAKI YORUMLAR INGILIZCEDIR. Bu uc dal
-            # (gecissiz model, eylemsiz model, sozde-durum exiti) ornek
-            # modelde hic calismadigi icin Turkce kalmisti; C ureteci
-            # ayni yerlerde zaten ingilizce yaziyordu.
+            # THE COMMENTS IN THE GENERATED CODE ARE ENGLISH. These three branches
+            # (a model with no transition, a model with no effect, a pseudostate exit)
+            # never ran on the sample model, so they had been left in Turkish; the C
+            # generator already wrote English in the same places.
             if ir.has_fork_join():
                 L += ["    { 0U, 0U, 0U, kTransitionExternal, -1, -1,"
                       " 0U, 0U, 0U }  // no transition in the model"]
@@ -722,7 +722,7 @@ class CppGenerator:
         L += ["}  // namespace %s" % self.ns, ""]
         return "\n".join(allman(L))
 
-    # --------------------------------------------------------------- uyeler #
+    # -------------------------------------------------------------- members #
 
     def _ctx_preamble(self) -> List[str]:
         return [
@@ -746,30 +746,30 @@ class CppGenerator:
             L += ["    , history_()"]
         L += ["{"]
 
-        # `active_` SIFIRLA DEGIL, kNone ILE DOLDURULUR.
+        # `active_` IS FILLED WITH kNone, NOT WITH ZERO.
         #
-        # Uye baslatici listesindeki `active_()` diziyi deger-baslatir,
-        # yani her ogeyi 0 yapar. Ama 0 GECERLI BIR DURUM INDISIDIR;
-        # "bos" demek icin kullanilan deger kNone = 255'tir. Kurulmus ama
-        # HENUZ start() cagrilmamis bir nesnede `isIn()` bu yuzden her
-        # bolgede 0 numarali durumu etkin bildiriyordu -- C ureteci
-        # (construct icinde acikca STATE_NONE yazar) ve Python referansi
-        # ise etkin durum olmadigini soyluyordu.
+        # `active_()` in the member initialiser list value-initialises the array,
+        # i.e. sets every element to 0. But 0 IS A VALID STATE INDEX; the value
+        # that means "empty" is kNone = 255. So on an object that was constructed
+        # but whose start() had NOT been called yet, `isIn()` reported state 0 as
+        # active in every region -- while the C generator (which writes STATE_NONE
+        # explicitly inside construct) and the Python reference both said there
+        # was no active state.
         #
-        # Iz karsilastiran test bunu GOREMEZ: karsilastirma start()
-        # sonrasinda basliyor ve start() butun bolgeleri zaten dolduruyor.
+        # The trace-comparison test CANNOT SEE this: the comparison begins after
+        # start(), and start() already fills every region.
         L += ["    for (std::uint8_t region = 0U; region < kRegionCount; ++region) {"]
         L += ["        active_[region] = kNone;"]
         L += ["    }"]
         if ir.has_history():
-            # SINIR kRegionCount'tur, kStateCount DEGIL.
+            # THE BOUND IS kRegionCount, NOT kStateCount.
             #
-            # `history_` bolge basina bir kayit tutar (uye bildirimi
-            # `history_[kRegionCount]`). Dongu durum sayisina kadar
-            # gitseydi -- ve gidiyordu -- her kurulusta nesnenin SONUNDAN
-            # TASAN bir yazma olurdu: history_ sinifin son uyesi oldugu
-            # icin cagiranin yigini ya da komsu bir alan bozulur. Iz
-            # karsilastiran test bunu GOREMEZ; yazilan bayt hic geri
+            # `history_` keeps one entry per region (the member is declared
+            # `history_[kRegionCount]`). Had the loop run up to the state count -- and
+            # it did -- every construction would write PAST THE END of the object:
+            # history_ is the last member of the class, so the caller's stack or a
+            # neighbouring field gets corrupted. The trace-comparison test CANNOT SEE
+            # this either; the byte written is never read back.
             # okunmaz.
             L += ["    for (std::uint8_t i = 0U; i < kRegionCount; ++i) {"]
             L += ["        history_[i] = kNone;"]
@@ -1078,7 +1078,7 @@ class CppGenerator:
         L += ["    return leafOf(state);"]
         L += ["}", ""]
 
-        # resolveHistory (yalnizca modelde tarih varsa)
+        # resolveHistory (only when the model has history)
         if ir.has_history():
             L += doc(['@brief  Resolves a history pseudostate to its recorded substate',
                      '        (UML 2.5.1, 14.2.3.4.5).',
@@ -1157,7 +1157,7 @@ class CppGenerator:
             L += ["    return descend(stored);"]
             L += ["}", ""]
 
-        # land: hedefe varista tarih/terminate/inis cozumu
+        # land: resolve history/terminate/descent on arrival at the target
         L += doc(['@brief  Determines the real leaf state once a target is reached.',
                  '@param  target  The declared transition target.',
                  '@return The settled leaf state; history and terminate resolve here.'])
@@ -1716,10 +1716,10 @@ class CppGenerator:
         return L
 
 
-    # ----------------------------------------------------- MCU tumlestirme #
+    # ----------------------------------------------------- MCU integration #
 
     def demo_source(self) -> str:
-        """Uretilen sinifi bir MCU super dongusunde kullanan ornek."""
+        """An example that drives the generated class in an MCU super loop."""
         ir = self.ir
         cls = self.cls
         ns = self.ns
@@ -1854,10 +1854,10 @@ class CppGenerator:
 
 
 def generate_cpp(sm, with_demo: bool = True, resolve=None) -> Dict[str, str]:
-    """Modelden {dosya_adi: icerik} sozlugu uretir.
+    """Produces a {file_name: content} dictionary from the model.
 
-    ``with_demo`` acikken uretilen ucuncu dosya bir BIRIM TEST degil, sinifi
-    bir MCU super dongusunde suren tumlestirme ornegidir.
+    With ``with_demo`` on, the third generated file is not a UNIT TEST but an
+    integration example driving the class in an MCU super loop.
     """
     ir = build_ir(sm, resolve)
     gen = CppGenerator(ir)
