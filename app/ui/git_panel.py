@@ -1,18 +1,18 @@
-"""Git paneli: commit agaci, degisiklik listeleri ve fark goruntuleyici.
+"""The Git panel: commit graph, change lists and the diff viewer.
 
-Yerlesim
---------
-    [ arac cubugu ]
-    [ dal / durum seridi ]
+Layout
+------
+    [ toolbar ]
+    [ branch / status strip ]
     ------------------------------------------------------------------
-    | commit agaci (serit cizimli)                                   |
+    | commit graph (drawn with lanes)                                |
     ------------------------------------------------------------------
-    | HAZIRLANMIS / HAZIRLANMAMIS  |  FARK                           |
+    | STAGED / UNSTAGED            |  DIFF                           |
     ------------------------------------------------------------------
 
-Butun git cagrilari ``app.core.git_backend`` uzerinden yapilir; ag islemleri
-(getir / cek / gonder) arayuzu kilitlemesin diye ayri bir is parcaciginda
-kosar.
+Every git call goes through ``app.core.git_backend``; the network operations
+(fetch / pull / push) run on a separate thread so they do not lock the
+interface.
 """
 
 from __future__ import annotations
@@ -45,14 +45,14 @@ NODE_R = 4.4
 
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
 UNTRACKED_ROLE = Qt.ItemDataRole.UserRole + 2
-#: Klasor dugumunun tam yolu (dosya dugumlerinde bos).
+#: The full path of a folder node (empty on file nodes).
 FOLDER_ROLE = Qt.ItemDataRole.UserRole + 3
 
 
-# ============================================================== is parcaciklari
+#  threads
 
 class GitWorker(QThread):
-    """Uzun suren git islemini (ag) arayuzu bloklamadan kosturur."""
+    """Runs a long (network) git operation without blocking the interface."""
 
     done = pyqtSignal(str)
     failed = pyqtSignal(str)
@@ -61,19 +61,19 @@ class GitWorker(QThread):
         super().__init__(parent)
         self._task = task
 
-    def run(self) -> None:               # pragma: no cover - is parcacigi
+    def run(self) -> None:               # pragma: no cover - thread
         try:
             self.done.emit(self._task())
         except GitError as exc:
             self.failed.emit(exc.message)
-        except Exception as exc:         # beklenmeyen: yine de arayuze tasi
+        except Exception as exc:         # unexpected: carry it to the interface anyway
             self.failed.emit(str(exc))
 
 
-# =================================================================== fark gorunumu
+#  diff view
 
 class _DiffHighlighter(QSyntaxHighlighter):
-    """Birlesik fark metnini satirin ilk karakterine gore renklendirir."""
+    """Colours unified diff text by the first character of the line."""
 
     def __init__(self, doc) -> None:
         super().__init__(doc)
@@ -95,7 +95,7 @@ class _DiffHighlighter(QSyntaxHighlighter):
         if text.startswith("@@"):
             self.setFormat(0, len(text), self.f_hunk)
         elif text.startswith("### "):
-            # Anlamsal model farkinda dosya basligi (bkz. core/model_diff).
+            # The file header in a semantic model diff (see core/model_diff).
             self.setFormat(0, len(text), self.f_hunk)
         elif text.startswith(("diff --git", "index ", "--- ", "+++ ",
                               "new file", "deleted file", "old mode",
@@ -109,7 +109,7 @@ class _DiffHighlighter(QSyntaxHighlighter):
 
 
 class DiffView(QPlainTextEdit):
-    """Salt-okunur, renklendirilmis fark goruntuleyici."""
+    """A read-only, syntax-coloured diff viewer."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -124,11 +124,11 @@ class DiffView(QPlainTextEdit):
                            "border: none; }" % (C.EDITOR_BG, C.TEXT))
 
     def retheme(self) -> None:
-        """Renkler KURULUMDA satir-ici stile gomulur; yeniden yazilmali.
+        """The colours are embedded in inline styles AT SET-UP; rewrite them.
 
-        Renklendirici de kurulum anindaki renklerle derlenir, bu yuzden
-        bastan kurulur -- yoksa fark satirlari eski temanin yesil/
-        kirmizisinda kalirdi.
+        The highlighter is compiled with the set-up colours too, so it is
+        rebuilt -- otherwise the diff lines would stay in the green/red of the
+        old theme.
         """
         self._apply_theme()
         self._hl = _DiffHighlighter(self.document())
@@ -139,10 +139,10 @@ class DiffView(QPlainTextEdit):
         self.verticalScrollBar().setValue(0)
 
 
-# ================================================================ commit agaci
+#  commit graph
 
 class CommitGraphView(QAbstractScrollArea):
-    """Serit (lane) cizimli commit agaci -- GitKraken benzeri gorunum."""
+    """A commit graph drawn with lanes -- a GitKraken-like look."""
 
     commit_selected = pyqtSignal(str)      # sha
 
@@ -152,13 +152,13 @@ class CommitGraphView(QAbstractScrollArea):
         self._row_of: Dict[str, int] = {}
         self._current = -1
         self._lanes = 0
-        #: Rozetlere ayrilan ORTAK genislik (bkz. _ref_zone_width).
+        #: The COMMON width reserved for the badges (see _ref_zone_width).
         self._ref_zone = 0.0
-        #: Imlecin ustunde durdugu satir (-1 = yok).
+        #: The row the cursor is hovering over (-1 = none).
         self._hover_row = -1
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        # Fare izleme: dugum uzerine gelince commit mesajini gostermek icin
-        # dugme basili olmadan da hareket olaylari gerekir.
+        # Mouse tracking: to show the commit message when hovering over a node,
+        # move events are needed even without a button held down.
         self.viewport().setMouseTracking(True)
         self._apply_theme()
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -172,7 +172,7 @@ class CommitGraphView(QAbstractScrollArea):
         self._apply_theme()
         self.viewport().update()
 
-    # ------------------------------------------------------------------ veri
+    # data
 
     def set_commits(self, commits: List[Commit]) -> None:
         keep = self.current_sha()
@@ -196,18 +196,18 @@ class CommitGraphView(QAbstractScrollArea):
             return self._commits[self._current]
         return None
 
-    # ------------------------------------------------------------------ olcu
+    # measurement
 
     def _graph_width(self) -> int:
         return GRAPH_LEFT * 2 + max(1, self._lanes) * LANE_W
 
     def _ref_zone_width(self) -> float:
-        """Butun satirlarda ROZETLERE ayrilacak ORTAK genislik.
+        """The COMMON width reserved FOR THE BADGES on every row.
 
-        En genis rozet dizisine gore olculur ve ust sinirla kirpilir; cok
-        uzun bir dal adi konu sutununu ekran disina itmemeli. Rozeti
-        olmayan satirlar da bu bosluktan sonra baslar, boylece konular
-        hizalanir.
+        It is measured from the widest badge sequence and clipped by an upper
+        bound; a very long branch name must not push the subject column off the
+        screen. Rows without a badge start after the same gap, so the subjects
+        line up.
         """
         if not self._commits:
             return 0.0
@@ -238,7 +238,7 @@ class CommitGraphView(QAbstractScrollArea):
     def sizeHint(self) -> QSize:
         return QSize(720, 320)
 
-    # ------------------------------------------------------------------ cizim
+    # painting
 
     def paintEvent(self, event) -> None:
         p = QPainter(self.viewport())
@@ -265,24 +265,24 @@ class CommitGraphView(QAbstractScrollArea):
         def x_of(lane: int) -> float:
             return GRAPH_LEFT + lane * LANE_W + LANE_W / 2.0
 
-        # --- imlecin ustundeki satir (secili satirin ALTINA cizilir)
+        # --- the hovered row (drawn UNDER the selected row)
         if first <= self._hover_row <= last and self._hover_row != self._current:
             p.fillRect(QRectF(0, self._hover_row * ROW_H - offset, vw, ROW_H),
                        QColor(C.HOVER))
 
-        # --- secili satir zemini
+        # --- the background of the selected row
         if first <= self._current <= last:
             p.fillRect(QRectF(0, self._current * ROW_H - offset, vw, ROW_H),
                        QColor(C.SELECTION))
 
-        # --- kenarlar (ebeveyn baglantilari)
+        # --- edges (parent links)
         for row, commit in enumerate(self._commits):
             yc = y_of(row)
             xc = x_of(commit.lane)
             for parent in commit.parents:
                 prow = self._row_of.get(parent)
                 if prow is None:
-                    # yuklenmemis ata: kisa bir sap ciz
+                    # an ancestor that is not loaded: draw a short stub
                     if -ROW_H <= yc <= vh + ROW_H:
                         self._pen_for(p, commit.lane)
                         p.drawLine(QPointF(xc, yc),
@@ -306,7 +306,7 @@ class CommitGraphView(QAbstractScrollArea):
                     path.lineTo(QPointF(xp, yp))
                 p.drawPath(path)
 
-        # --- dugumler ve metin
+        # --- nodes and text
         gw = self._graph_width()
         for row in range(first, last + 1):
             commit = self._commits[row]
@@ -323,14 +323,14 @@ class CommitGraphView(QAbstractScrollArea):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawEllipse(QPointF(xc, yc), radius + 3.0, radius + 3.0)
 
-            # -- sag taraf: etiketler + konu + yazar + tarih + sha
+            # -- right side: labels + subject + author + date + sha
             #
-            # KONU SUTUNU SABIT x'te BASLAR. Etiketler eskiden konuyu saga
-            # itiyordu: iki dalin bulundugu bir gecmiste "main" rozeti olan
-            # satirin konusu digerlerinden daha saga kayiyor, mesajlar
-            # birbirine karisiyordu. Rozetlere ayrilan genislik BUTUN
-            # satirlar icin ortaktir (bkz. _ref_zone_width), boylece konular
-            # tek bir sutunda hizalanir -- GitKraken'in yaptigi da budur.
+            # THE SUBJECT COLUMN STARTS AT A FIXED x. The labels used to push the
+            # subject right: in a history with two branches, the subject of the row
+            # carrying the "main" badge sat further right than the others and the
+            # messages became tangled. The width reserved for badges is COMMON to
+            # ALL rows (see _ref_zone_width), so the subjects line up in a single
+            # column -- which is what GitKraken does too.
             x = gw + 6.0
             p.setFont(ui_font(8))
             for ref in commit.refs[:4]:
@@ -400,7 +400,7 @@ class CommitGraphView(QAbstractScrollArea):
         p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), text)
         return x + w + 5.0
 
-    # ------------------------------------------------------------------ girdi
+    # input
 
     def mousePressEvent(self, event) -> None:
         if not self._commits:
@@ -409,7 +409,7 @@ class CommitGraphView(QAbstractScrollArea):
         self._set_current(int(row))
 
     def _row_at(self, y: float) -> int:
-        """Ekran y'sindeki satir; alan disi ise -1."""
+        """The row at a screen y; -1 when outside the area."""
         if not self._commits:
             return -1
         row = int((y + self.verticalScrollBar().value()) // ROW_H)
@@ -418,12 +418,12 @@ class CommitGraphView(QAbstractScrollArea):
         return -1
 
     def mouseMoveEvent(self, event) -> None:
-        """Dugum uzerinde commit mesajini ipucu olarak gosterir.
+        """Shows the commit message as a tooltip over the node.
 
-        Ipucu YALNIZCA daireye yakinken cikar. Butun satiri ipucu alanina
-        cevirmek, konu metni zaten okunurken ekrani surekli kaplayan bir
-        balonla sonuclanirdi; kullanicinin istedigi de "dairelerin ustune
-        gelince" davranisidir.
+        The tooltip appears ONLY near the circle. Turning the whole row into a
+        tooltip area would give a balloon constantly covering the screen while
+        the subject text is perfectly readable anyway; what the user asked for
+        is the "hover over the circles" behaviour.
         """
         row = self._row_at(event.position().y())
         if row != self._hover_row:
@@ -454,7 +454,7 @@ class CommitGraphView(QAbstractScrollArea):
 
     @staticmethod
     def _commit_tooltip(commit) -> str:
-        """Daire ipucu: konu, govde, yazar, tarih, sha ve dallar."""
+        """The circle tooltip: subject, body, author, date, sha and branches."""
         satirlar = [commit.subject]
         govde = (getattr(commit, "body", "") or "").strip()
         if govde:
@@ -525,10 +525,10 @@ def _short_date(iso: str) -> str:
         return iso[:16]
 
 
-# ============================================================== commit diyalogu
+#  commit dialog
 
 class CommitDialog(QDialog):
-    """Commit mesaji + degistir (amend) secenegi."""
+    """A commit message plus the amend option."""
 
     def __init__(self, staged: int, can_amend: bool, parent=None) -> None:
         super().__init__(parent)
@@ -547,8 +547,8 @@ class CommitDialog(QDialog):
         self.edit = QPlainTextEdit()
         self.edit.setFont(mono_font(10))
         self.edit.setPlaceholderText("Commit message")
-        # Yer tutucu metin ETIKET DEGILDIR (WCAG 3.3.2): odak
-        # gelince kaybolur ve ekran okuyucu her zaman okumaz.
+        # Placeholder text IS NOT A LABEL (WCAG 3.3.2): it disappears when the
+        # field takes focus and a screen reader does not always announce it.
         self.edit.setAccessibleName("Commit message")
         layout.addWidget(self.edit, 1)
 
@@ -577,26 +577,26 @@ class CommitDialog(QDialog):
         return self.chk_amend.isChecked()
 
 
-# ==================================================================== ana panel
+#  main panel
 
 class GitPanel(QWidget):
-    """Calisma alaninin git durumu, gecmisi ve farklari."""
+    """The git status, history and diffs of the workspace."""
 
-    status_changed = pyqtSignal(str)        # durum cubugu icin kisa ozet
-    #: Depo panelinde bir MODEL dosyasi secildi -> tuvalde gorsel fark.
+    status_changed = pyqtSignal(str)        # a short summary for the status bar
+    #: A MODEL file was selected in the repository panel -> a visual diff.
     #:
-    #: Kullanici "eklenen/cikarilan seyleri modelin resmi uzerinde
-    #: goster" dedi. Metinsel fark bir JSON modelinde okunmaz;
-    #: diyagramin kendisi okunur. Dosya yolu ve karsilastirma
-    #: tabani (HEAD ya da hazirlik alani) birlikte yayilir.
-    model_diff_requested = pyqtSignal(str, str)   # (mutlak yol, taban)
+    #: The user said "show the added/removed things on the picture of the
+    #: model". A textual diff is unreadable on a JSON model; the diagram
+    #: itself is readable. The file path and the comparison base (HEAD or
+    #: the staging area) are emitted together.
+    model_diff_requested = pyqtSignal(str, str)   # (absolute path, base)
 
     def _apply_static_styles(self) -> None:
-        """Satir-ici stilleri ETKIN temadan yeniden yazar.
+        """Rewrites the inline styles from the ACTIVE theme.
 
-        Bu panelin renkleri KURULUM aninda satir-ici stile gomuluyordu ve
-        tema degisiminde hicbiri yenilenmiyordu: acik temaya gecilince
-        arayuzun geri kalani aciliyor, depo paneli komple KOYU kaliyordu.
+        The colours of this panel were embedded into inline styles AT SET-UP
+        time and none was refreshed on a theme change: switching to the light
+        theme lit up everything else while this panel stayed entirely DARK.
         """
         self._bar.setStyleSheet("background: %s; border-bottom: 1px solid %s;"
                                 % (C.PANEL_DARK, C.BORDER))
@@ -613,11 +613,11 @@ class GitPanel(QWidget):
                 % (C.PANEL_DARK, C.TEXT_DIM, C.BORDER))
 
     def retheme(self) -> None:
-        """Tema degisiminde renkleri yeniden okur.
+        """Rereads the colours on a theme change.
 
-        Bu panelin bircok rengi KURULUM aninda satir-ici stile gomulur;
-        alt bilesenleri bastan kurmak yerine panelin kendi tazeleme yolu
-        cagrilir -- o yol etiketleri ve stilleri zaten yeniden yazar.
+        Many of the colours of this panel are embedded into inline styles at
+        set-up; rather than rebuilding the child widgets, the panel's own
+        refresh path is called -- it already rewrites the labels and styles.
         """
         self._apply_static_styles()
         for alt in self.findChildren(QWidget):
@@ -629,8 +629,8 @@ class GitPanel(QWidget):
             try:
                 yenile()
             except Exception:
-                # Tazeleme disaridan veri ister (git deposu gibi); tema
-                # degisimi bu yuzden basarisiz OLMAMALI.
+                # Refreshing asks for outside data (the git repository); a theme
+                # change therefore MUST NOT fail.
                 pass
         self.update()
 
@@ -639,18 +639,18 @@ class GitPanel(QWidget):
         self.repo: Optional[Repo] = None
         self._worker: Optional[GitWorker] = None
         self._mode = "worktree"            # "worktree" | "commit"
-        #: Tema degisiminde yeniden boyanacak bilesenler. Renkleri
-        #: satir-ici stile gomuldugu icin tek tek tutulmak zorundalar.
+        #: The widgets to repaint on a theme change. They have to be held one
+        #: by one because their colours are embedded in inline styles.
         self._lists = []
         self._headers = []
         self._build()
         self._apply_static_styles()
         self.set_root(None)
 
-    # ------------------------------------------------------------------ kurulum
+    # set-up
 
     def _head(self, title: str) -> QLabel:
-        """Bolum basligi kurar ve temaya kaydeder."""
+        """Sets up a section heading and records it for the theme."""
         lbl = _header(title)
         self._headers.append(lbl)
         return lbl
@@ -660,7 +660,7 @@ class GitPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        # -- arac cubugu
+        # -- toolbar
         bar = QWidget()
         self._bar = bar
         row = QHBoxLayout(bar)
@@ -707,7 +707,7 @@ class GitPanel(QWidget):
         row.addWidget(self.lbl_branch)
         outer.addWidget(bar)
 
-        # -- bilgi seridi (depo yok / git yok gibi durumlar)
+        # -- information strip (no repository, no git, and so on)
         self.notice = QLabel("")
         self.notice.setFont(ui_font(9))
         self.notice.setWordWrap(True)
@@ -715,7 +715,7 @@ class GitPanel(QWidget):
         self.notice.setVisible(False)
         outer.addWidget(self.notice)
 
-        # -- commit agaci | degisiklikler + fark
+        # -- commit graph | changes + diff
         self.graph = CommitGraphView(self)
 
         self.list_staged = self._list()
@@ -792,12 +792,12 @@ class GitPanel(QWidget):
 
     def _tool(self, text: str, slot: Callable[[], None],
               hint: str = "") -> QToolButton:
-        """Depo komut dugmesi.
+        """A repository command button.
 
-        IPUCU ZORUNLUDUR. Bu dugmelerin bir kismi geri alinmasi zor ya da
-        AGA CIKAN islemler (Fetch / Pull / Push); ne yaptigini yazmadan
-        sunmak hem kullanilabilirlik hem erisilebilirlik acisindan kusur.
-        Ipucu ayni zamanda ekran okuyucularin okudugu aciklamadir.
+        A TOOLTIP IS MANDATORY. Some of these buttons are hard to undo or reach
+        THE NETWORK (Fetch / Pull / Push); offering them without saying what
+        they do is a flaw in both usability and accessibility. The tooltip is
+        also the description a screen reader announces.
         """
         btn = QToolButton()
         btn.setText(text)
@@ -812,14 +812,14 @@ class GitPanel(QWidget):
         return btn
 
     def _list(self) -> QTreeWidget:
-        """Degisen dosyalarin KLASOR AGACI.
+        """The FOLDER TREE of the changed files.
 
-        Onceden duz bir listeydi ve her satir tam yolu yaziyordu
-        ("generated/blinky.c", "model/blinky.usm", ...). Calisma alani
-        buyudukce liste okunaksiz hale geliyordu: hangi degisikligin
-        hangi alt sisteme ait oldugu ancak yolu okuyarak anlasiliyordu.
-        Agac, klasor yapisini dogrudan gosterir; bir klasoru secmek
-        ICINDEKI butun dosyalari secer (topluca hazirlamak icin).
+        It used to be a flat list where every row wrote the full path
+        ("generated/blinky.c", "model/blinky.usm", ...). As the workspace grew,
+        the list became unreadable: which change belonged to which subsystem
+        could only be worked out by reading the path. The tree shows the folder
+        structure directly; selecting a folder selects every file INSIDE it (to
+        stage them in one go).
         """
         agac = QTreeWidget()
         agac.setFont(mono_font(9))
@@ -828,22 +828,22 @@ class GitPanel(QWidget):
         agac.setSelectionMode(
             QAbstractItemView.SelectionMode.ExtendedSelection)
         agac.setUniformRowHeights(True)
-        agac.setExpandsOnDoubleClick(False)   # cift tik HAZIRLAR
+        agac.setExpandsOnDoubleClick(False)   # a double click STAGES
         self._lists.append(agac)
         apply_contrast(agac)
         return agac
 
-    # ------------------------------------------------------------------ kok
+    # root
 
     def set_root(self, root: Optional[str]) -> None:
-        """Panelin uzerinde calisacagi klasoru degistirir."""
+        """Changes the folder the panel works on."""
         self.repo = Repo(root) if root else None
         self.refresh()
 
-    # ------------------------------------------------------------------ yenile
+    # refresh
 
     def refresh(self) -> None:
-        """Durumu ve gecmisi diskten yeniden okur."""
+        """Rereads the status and the history from disk."""
         if not git_available():
             self._set_enabled(False)
             self._notice("git was not found. This panel starts working as "
@@ -905,11 +905,11 @@ class GitPanel(QWidget):
         self.lbl_branch.setText("   ".join(bits))
 
     def _notice(self, text: str, kind: str = "warning") -> None:
-        """Bilgi seridi. SIDDETE gore renklenir.
+        """The information strip. It is coloured BY SEVERITY.
 
-        Serit her zaman kehribardi; "git was not found" gibi calismayi
-        TAMAMEN engelleyen durumlar da bir uyariyla ayni goruntuyle
-        cikiyordu. Engelleyici durum KIRMIZI yazilir.
+        The strip used to be amber always; a condition that blocks work
+        COMPLETELY, such as "git was not found", came out looking exactly like
+        a warning. A blocking condition is written in RED.
         """
         self.notice.setText(text)
         self.notice.setVisible(bool(text))
@@ -932,7 +932,7 @@ class GitPanel(QWidget):
             b.setEnabled(on)
         self.btn_init.setEnabled(not on)
 
-    # ------------------------------------------------------------------ listeler
+    # lists
 
     def _fill_lists(self, staged: List[GitFile], unstaged: List[GitFile],
                     conflicts: List[GitFile]) -> None:
@@ -948,8 +948,8 @@ class GitPanel(QWidget):
                     [(gf, C.GIT_CONFLICT) for gf in conflicts]
                     + [(gf, C.GIT_UNSTAGED) for gf in unstaged])
 
-        # Acik klasorler ve secili dosya YENILEMEDEN SONRA korunur;
-        # aksi halde her F6 kullaniciyi kokten yeniden gezdirirdi.
+        # Expanded folders and the selected file are KEPT ACROSS A REFRESH;
+        # otherwise every F6 would send the user walking down from the root again.
         _restore_expanded(self.list_staged, acik_s)
         _restore_expanded(self.list_unstaged, acik_u)
         _restore_path(self.list_staged, keep_s)
@@ -958,11 +958,11 @@ class GitPanel(QWidget):
             self.diff.show_diff("", "Working tree is clean.")
 
     def _selected_paths(self, lst: QTreeWidget) -> List[str]:
-        """Secili DOSYALARIN yollari.
+        """The paths of the SELECTED FILES.
 
-        Bir KLASOR secildiginde icindeki butun dosyalar sayilir: kullanici
-        "generated" klasorunu secip topluca hazirlayabilsin. Ayni dosya
-        iki kez sayilmaz (hem kendisi hem ustu secili olabilir).
+        When a FOLDER is selected, every file inside it counts: the user can
+        pick the "generated" folder and stage it in one go. The same file is
+        never counted twice (both it and its parent may be selected).
         """
         out: List[str] = []
         gorulen = set()
@@ -973,7 +973,7 @@ class GitPanel(QWidget):
                     out.append(yol)
         return out
 
-    # ------------------------------------------------------------------ farklar
+    # diffs
 
     def _show_file_diff(self, item: Optional[QTreeWidgetItem],
                         staged: bool) -> None:
@@ -981,7 +981,7 @@ class GitPanel(QWidget):
             return
         path = item.data(0, PATH_ROLE)
         if not path:
-            # KLASOR dugumu: tek bir farki yoktur; ozet yazilir.
+            # A FOLDER node: it has no single diff; a summary is written.
             dosyalar = _dosyalari(item)
             self.diff_header.setText(
                 "DIFF — %s/   %d file(s)"
@@ -993,10 +993,10 @@ class GitPanel(QWidget):
         untracked = bool(item.data(0, UNTRACKED_ROLE))
         self._mode = "worktree"
 
-        # MODEL DOSYALARI ANLAMSAL KARSILASTIRILIR. JSON'un satir farki
-        # okunamaz: bir durumu tasimak ilgisiz satirlar uretir, bir durum
-        # eklemek onlarca satir olarak cikar. Uretilen C/C++ dosyalarinda
-        # metin farki dogru oldugu icin onlara dokunulmaz.
+        # MODEL FILES ARE COMPARED SEMANTICALLY. A line diff of JSON is
+        # unreadable: moving a state produces unrelated lines, adding one comes
+        # out as dozens. For generated C/C++ files the textual diff is right, so
+        # they are left alone.
         model = self._model_diff_text(path, staged=staged, untracked=untracked)
         if model is not None:
             metin, add, dele, degisen = model
@@ -1005,8 +1005,8 @@ class GitPanel(QWidget):
                 % (path, add, dele, degisen,
                    "staged" if staged else "unstaged"))
             self.diff.show_diff(metin, "No model changes.")
-            # RESIM UZERINDE de goster: metin ozeti neyin degistigini
-            # soyler, diyagram NEREDE degistigini gosterir.
+            # Show it ON THE PICTURE too: the textual summary says WHAT changed,
+            # the diagram shows WHERE.
             if self.repo is not None:
                 tam = os.path.join(self.repo.root, path)
                 self.model_diff_requested.emit(
@@ -1026,12 +1026,12 @@ class GitPanel(QWidget):
 
     def _model_diff_text(self, path: str, staged: bool = False,
                          untracked: bool = False, sha: Optional[str] = None):
-        """Model dosyasi icin (metin, +, -, ~); model degilse ``None``.
+        """(text, +, -, ~) for a model file; ``None`` when not a model.
 
-        Eski surum git'ten, yeni surum calisma agacindan (yada commit'ten)
-        okunur. Okuma basarisiz olursa ``None`` donulur ve cagiran taraf
-        metin farkina duser -- anlamsal gorunum bir KOLAYLIKTIR, tek
-        bilgi kaynagi degildir.
+        The old version is read from git, the new one from the working tree (or
+        from a commit). When a read fails ``None`` is returned and the caller
+        falls back to the textual diff -- the semantic view is a CONVENIENCE,
+        not the single source of truth.
         """
         if not path.lower().endswith((".usm", ".ucd", ".json")):
             return None
@@ -1045,7 +1045,7 @@ class GitPanel(QWidget):
                 try:
                     eski_metin = self.repo.file_at(ebeveyn, path)
                 except GitError:
-                    eski_metin = ""      # ilk commit: ebeveyn yok
+                    eski_metin = ""      # the first commit: no parent
             elif untracked:
                 eski_metin = ""
                 with open(os.path.join(self.repo.root, path),
@@ -1083,9 +1083,9 @@ class GitPanel(QWidget):
         add, dele = diff_stats(text)
         subject = commit.subject if commit else sha[:8]
 
-        # Commit YALNIZCA model dosyalari tasiyorsa anlamsal gorunum
-        # verilir; kod ve model karisiksa metin farki tek ve tutarli bir
-        # goruntu sundugu icin ona dokunulmaz.
+        # The semantic view is given only when the commit carries model files
+        # alone; when code and model are mixed, the textual diff offers one
+        # consistent view, so it is left in place.
         model_yollari = [f.path for f in files
                          if f.path.lower().endswith((".usm", ".ucd"))]
         if model_yollari and len(model_yollari) == len(files):
@@ -1111,7 +1111,7 @@ class GitPanel(QWidget):
                                     subject, len(files), add, dele))
         self.diff.show_diff(text, "This commit is empty.")
 
-    # ------------------------------------------------------------------ islemler
+    # operations
 
     def _guard(self) -> bool:
         return self.repo is not None and self.repo.is_repo()
@@ -1221,7 +1221,7 @@ class GitPanel(QWidget):
             return
         self._try(lambda: self.repo.checkout(choice), "Could not switch branch")
 
-    # ------------------------------------------------------------------ ag
+    # network
 
     def _network(self, task: Callable[[], str], label: str) -> None:
         if not self._guard():
@@ -1280,16 +1280,16 @@ class GitPanel(QWidget):
             lambda: self.repo.push(remote=remote, branch=branch,
                                    set_upstream=first_push), "Push")
 
-    # ------------------------------------------------------------------ kapanis
+    # shutdown
 
     def shutdown(self) -> None:
-        """Pencere kapanirken bekleyen ag islemini sonlandirir."""
+        """Ends the pending network operation as the window closes."""
         worker = self._worker
         if worker is not None and worker.isRunning():
             worker.wait(3000)
 
 
-# ==================================================================== yardimcilar
+#  helpers
 
 def _header(title: str) -> QLabel:
     lbl = QLabel(title)
@@ -1304,7 +1304,7 @@ def _header(title: str) -> QLabel:
 
 
 def _dosyalari(item: QTreeWidgetItem) -> List[str]:
-    """Dugumun (ve altindakilerin) DOSYA yollari."""
+    """The FILE paths of the node (and of everything under it)."""
     yol = item.data(0, PATH_ROLE)
     if yol:
         return [yol]
@@ -1315,11 +1315,11 @@ def _dosyalari(item: QTreeWidgetItem) -> List[str]:
 
 
 def _build_tree(agac: QTreeWidget, kayitlar) -> None:
-    """Dosya kayitlarini KLASOR AGACI olarak yerlestirir.
+    """Lays the file records out as a FOLDER TREE.
 
-    Tek dosyali ara klasorler BIRLESTIRILIR ("app/ui/" gibi): her seviye
-    icin ayri satir acmak, uc dosyalik bir degisikligi on satirlik bir
-    agaca cevirirdi.
+    Intermediate folders holding a single file are MERGED ("app/ui/", say):
+    opening a separate row per level would turn a three-file change into a
+    ten-row tree.
     """
     kokler: dict = {}
 
@@ -1350,14 +1350,14 @@ def _build_tree(agac: QTreeWidget, kayitlar) -> None:
         oge.setForeground(0, QBrush(QColor(colour)))
         oge.setToolTip(0, gf.path)
 
-    # Klasor satirinda kac dosya oldugunu yaz: kapaliyken de bilgi versin.
+    # Write how many files are in a folder row: it should inform when collapsed too.
     for dugum in kokler.values():
         sayi = len(_dosyalari(dugum))
         dugum.setText(0, "%s   (%d)" % (dugum.text(0), sayi))
 
 
 def _expanded_folders(agac: QTreeWidget) -> set:
-    """Su an ACIK olan klasor anahtarlari."""
+    """The folder keys that are currently EXPANDED."""
     acik = set()
 
     def gez(dugum):
@@ -1393,7 +1393,7 @@ def _current_path(lst: QTreeWidget) -> str:
 
 
 def _restore_path(lst: QTreeWidget, path: str) -> None:
-    """Yenilemeden sonra ayni dosyayi yeniden secer."""
+    """Reselects the same file after a refresh."""
     if not path:
         return
 
