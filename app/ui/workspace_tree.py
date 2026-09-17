@@ -172,11 +172,11 @@ class WorkspaceTree(QTreeWidget):
 
     def _info_row(self, *rows: str) -> None:
         """The explanatory rows shown instead of a tree (not clickable)."""
-        for metin in rows:
-            dugum = QTreeWidgetItem(self, [metin])
-            dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
-            dugum.setData(0, NODE_ROLE, "note")
-            dugum.setFlags(Qt.ItemFlag.ItemIsEnabled)
+        for text in rows:
+            node = QTreeWidgetItem(self, [text])
+            node.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
+            node.setData(0, NODE_ROLE, "note")
+            node.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
     @staticmethod
     def _structure_signature(model):
@@ -223,15 +223,15 @@ class WorkspaceTree(QTreeWidget):
         for item in self._all_items():
             if item.data(0, NODE_ROLE) != "model":
                 continue
-            yol = item.data(0, PATH_ROLE) or ""
-            if self._norm(yol) not in {self._norm(k) for k in self._open_paths}:
+            path = item.data(0, PATH_ROLE) or ""
+            if self._norm(path) not in {self._norm(k) for k in self._open_paths}:
                 continue
             if not item.data(0, LOADED_ROLE):
                 continue
             # Do not rebuild the subtree on a POSITION-only change (see
             # _structure_signature): dragging stuttered on large models.
             model = next((m for k, m in self._open_paths.items()
-                          if self._norm(k) == self._norm(yol)), None)
+                          if self._norm(k) == self._norm(path)), None)
             if model is not None:
                 imza = self._structure_signature(model)
                 if item.data(0, SIGNATURE_ROLE) == imza:
@@ -264,9 +264,9 @@ class WorkspaceTree(QTreeWidget):
         try:
             girdiler = sorted(os.listdir(path), key=str.lower)
         except OSError:
-            uyari = QTreeWidgetItem(parent, ["(folder cannot be read)"])
-            uyari.setForeground(0, QBrush(QColor(C.WARN)))
-            uyari.setData(0, NODE_ROLE, "note")
+            warning = QTreeWidgetItem(parent, ["(folder cannot be read)"])
+            warning.setForeground(0, QBrush(QColor(C.WARN)))
+            warning.setData(0, NODE_ROLE, "note")
             return
 
         klasorler = [a for a in girdiler if os.path.isdir(os.path.join(path, a))]
@@ -274,48 +274,48 @@ class WorkspaceTree(QTreeWidget):
                     if a.lower().endswith(MODEL_SUFFIXES)
                     and os.path.isfile(os.path.join(path, a))]
 
-        for ad in klasorler:
-            tam = os.path.join(path, ad)
-            dugum = QTreeWidgetItem(parent, ["📁  %s" % ad])
-            dugum.setData(0, NODE_ROLE, "dir")
-            dugum.setData(0, PATH_ROLE, tam)
-            dugum.setForeground(0, QBrush(QColor(C.TEXT)))
-            self._fill_dir(dugum, tam)
+        for name in klasorler:
+            tam = os.path.join(path, name)
+            node = QTreeWidgetItem(parent, ["📁  %s" % name])
+            node.setData(0, NODE_ROLE, "dir")
+            node.setData(0, PATH_ROLE, tam)
+            node.setForeground(0, QBrush(QColor(C.TEXT)))
+            self._fill_dir(node, tam)
 
-        for ad in files:
-            self._add_model_node(parent, os.path.join(path, ad), ad)
+        for name in files:
+            self._add_model_node(parent, os.path.join(path, name), name)
 
         if not klasorler and not files and parent.parent() is None:
             # An empty workspace must not be a DEAD END: the user is told how a file
             # gets there. The old text ("(no model files yet)") reported the state
             # but did not say what to do about it.
-            for metin in ("No models here yet.",
+            for text in ("No models here yet.",
                           "Press Ctrl+S to save the open diagram "
                           "into this workspace."):
-                empty = QTreeWidgetItem(parent, [metin])
+                empty = QTreeWidgetItem(parent, [text])
                 empty.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
                 empty.setData(0, NODE_ROLE, "note")
                 empty.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
-    def _add_model_node(self, parent: QTreeWidgetItem, tam: str, ad: str) -> None:
+    def _add_model_node(self, parent: QTreeWidgetItem, tam: str, name: str) -> None:
         acik = self._norm(tam) in {self._norm(k) for k in self._open_paths}
-        etiket = "%s  %s" % ("◆" if acik else "◇", ad)
-        dugum = QTreeWidgetItem(parent, [etiket])
-        dugum.setData(0, NODE_ROLE, "model")
-        dugum.setData(0, PATH_ROLE, tam)
-        dugum.setData(0, LOADED_ROLE, False)
-        dugum.setToolTip(0, tam + ("\n(open)" if acik else ""))
+        label = "%s  %s" % ("◆" if acik else "◇", name)
+        node = QTreeWidgetItem(parent, [label])
+        node.setData(0, NODE_ROLE, "model")
+        node.setData(0, PATH_ROLE, tam)
+        node.setData(0, LOADED_ROLE, False)
+        node.setToolTip(0, tam + ("\n(open)" if acik else ""))
         if acik:
             f = ui_font(9)
             f.setBold(True)
-            dugum.setFont(0, f)
-            dugum.setForeground(0, QBrush(QColor(C.ACCENT)))
+            node.setFont(0, f)
+            node.setForeground(0, QBrush(QColor(C.ACCENT)))
         else:
-            dugum.setForeground(0, QBrush(QColor(C.TEXT)))
+            node.setForeground(0, QBrush(QColor(C.TEXT)))
 
         # A placeholder child is added so the node looks expandable; the real
         # content is read when the node IS EXPANDED (see _on_expanded).
-        QTreeWidgetItem(dugum, ["…"])
+        QTreeWidgetItem(node, ["…"])
 
     # ---------------------------------------------------------- lazy loading #
 
@@ -325,25 +325,25 @@ class WorkspaceTree(QTreeWidget):
 
     def _load_model_node(self, item: QTreeWidgetItem, force: bool = False) -> None:
         """Reads the model file and builds its content as a subtree."""
-        yol = item.data(0, PATH_ROLE) or ""
+        path = item.data(0, PATH_ROLE) or ""
         item.takeChildren()
         item.setData(0, LOADED_ROLE, True)
 
         makine = None
         for open_path, model in self._open_paths.items():
-            if self._norm(open_path) == self._norm(yol):
+            if self._norm(open_path) == self._norm(path):
                 makine = model
                 break
 
         if makine is None:
             try:
-                with open(yol, "r", encoding="utf-8") as fh:
-                    metin = fh.read()
-                tur = detect_kind(metin)
-                if tur == KIND_STATE:
-                    makine = StateMachine.from_json(metin)
-                elif tur == KIND_CLASS:
-                    self._fill_class_summary(item, metin)
+                with open(path, "r", encoding="utf-8") as fh:
+                    text = fh.read()
+                kind = detect_kind(text)
+                if kind == KIND_STATE:
+                    makine = StateMachine.from_json(text)
+                elif kind == KIND_CLASS:
+                    self._fill_class_summary(item, text)
                     return
                 else:
                     self._note(item, "unrecognised model file", C.WARN)
@@ -359,14 +359,14 @@ class WorkspaceTree(QTreeWidget):
     def _fill_states(self, parent: QTreeWidgetItem, sm: StateMachine,
                      parent_id: Optional[str]) -> None:
         for st in sm.sorted_children(parent_id):
-            dugum = QTreeWidgetItem(
+            node = QTreeWidgetItem(
                 parent, ["%s  %s · %s" % (KIND_GLYPH[st.kind],
                                           KIND_LABEL[st.kind], st.name)])
-            dugum.setData(0, ID_ROLE, st.id)
-            dugum.setData(0, NODE_ROLE, "element")
-            dugum.setToolTip(0, "%s — %s" % (KIND_LABEL[st.kind], st.name))
+            node.setData(0, ID_ROLE, st.id)
+            node.setData(0, NODE_ROLE, "element")
+            node.setToolTip(0, "%s — %s" % (KIND_LABEL[st.kind], st.name))
             if st.kind.is_pseudo:
-                dugum.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
+                node.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
 
             # THE BEHAVIOURS (entry / exit / do) APPEAR IN THE TREE TOO.
             #
@@ -375,25 +375,25 @@ class WorkspaceTree(QTreeWidget):
             # behaviours was inconsistent. And the exit/do behaviour of a composite
             # state may not fit in its box -- the tree is then the only reliable
             # source.
-            for etiket, metin in (("entry /", st.entry),
+            for etiket, text in (("entry /", st.entry),
                                   ("exit  /", st.exit),
                                   ("do    /", st.do)):
-                if not metin.strip():
+                if not text.strip():
                     continue
-                self._member(dugum, st.id,
-                             "%s %s" % (etiket, " ".join(metin.split())),
+                self._member(node, st.id,
+                             "%s %s" % (etiket, " ".join(text.split())),
                              C.STATE_TEXT)
 
-            self._fill_states(dugum, sm, st.id)
+            self._fill_states(node, sm, st.id)
             for tr in sm.outgoing(st.id):
                 hedef = sm.states.get(tr.target)
                 etiket = tr.label() or "(completion)"
-                yaprak = QTreeWidgetItem(
-                    dugum, ["→ %s : %s" % (hedef.name if hedef else "?", etiket)])
-                yaprak.setData(0, ID_ROLE, tr.id)
-                yaprak.setData(0, NODE_ROLE, "element")
-                yaprak.setForeground(0, QBrush(QColor(C.TRANSITION)))
-                yaprak.setFont(0, mono_font(8))
+                leaf = QTreeWidgetItem(
+                    node, ["→ %s : %s" % (hedef.name if hedef else "?", etiket)])
+                leaf.setData(0, ID_ROLE, tr.id)
+                leaf.setData(0, NODE_ROLE, "element")
+                leaf.setForeground(0, QBrush(QColor(C.TRANSITION)))
+                leaf.setFont(0, mono_font(8))
 
     def _fill_class_model(self, parent: QTreeWidgetItem, cm) -> None:
         """Writes an open class model into the tree.
@@ -406,31 +406,31 @@ class WorkspaceTree(QTreeWidget):
         for cls in getattr(cm, "ordered_classes", lambda: [])():
             glyph = CLASS_GLYPH.get(cls.stereotype, "▭")
             label = CLASS_LABEL.get(cls.stereotype, "Class")
-            dugum = QTreeWidgetItem(parent, ["%s  %s · %s"
+            node = QTreeWidgetItem(parent, ["%s  %s · %s"
                                              % (glyph, label, cls.name)])
-            dugum.setData(0, ID_ROLE, cls.id)
-            dugum.setData(0, NODE_ROLE, "element")
-            dugum.setToolTip(0, "%s — %s" % (label, cls.name))
+            node.setData(0, ID_ROLE, cls.id)
+            node.setData(0, NODE_ROLE, "element")
+            node.setToolTip(0, "%s — %s" % (label, cls.name))
             for attr in cls.attributes:
-                self._member(dugum, cls.id, attr.label(), C.TEXT_DIM)
+                self._member(node, cls.id, attr.label(), C.TEXT_DIM)
             for op in cls.operations:
-                self._member(dugum, cls.id, op.label(), C.CLASS_TEXT)
+                self._member(node, cls.id, op.label(), C.CLASS_TEXT)
 
         for rel in getattr(cm, "ordered_relations", lambda: [])():
             src = cm.classes.get(rel.source)
             dst = cm.classes.get(rel.target)
             glyph = RELATION_GLYPH.get(rel.kind, "──")
             label = RELATION_LABEL.get(rel.kind, "Association")
-            yaprak = QTreeWidgetItem(
+            leaf = QTreeWidgetItem(
                 parent, ["%s  %s : %s → %s"
                          % (glyph, label,
                             src.name if src else "?",
                             dst.name if dst else "?")])
-            yaprak.setData(0, ID_ROLE, rel.id)
-            yaprak.setData(0, NODE_ROLE, "element")
-            yaprak.setForeground(0, QBrush(QColor(C.TRANSITION)))
-            yaprak.setFont(0, mono_font(8))
-            yaprak.setToolTip(0, label)
+            leaf.setData(0, ID_ROLE, rel.id)
+            leaf.setData(0, NODE_ROLE, "element")
+            leaf.setForeground(0, QBrush(QColor(C.TRANSITION)))
+            leaf.setFont(0, mono_font(8))
+            leaf.setToolTip(0, label)
 
     @staticmethod
     def _member(parent: QTreeWidgetItem, cid: str, text: str,
@@ -441,7 +441,7 @@ class WorkspaceTree(QTreeWidget):
         leaf.setFont(0, mono_font(8))
         leaf.setForeground(0, QBrush(QColor(color)))
 
-    def _fill_class_summary(self, parent: QTreeWidgetItem, metin: str) -> None:
+    def _fill_class_summary(self, parent: QTreeWidgetItem, text: str) -> None:
         """Reads a CLOSED class diagram from disk and writes it into the tree.
 
         It uses the SAME drawing path (_fill_class_model): writing a separate
@@ -449,7 +449,7 @@ class WorkspaceTree(QTreeWidget):
         two places, and the view would change when the user opened the file.
         """
         try:
-            cm = ClassModel.from_json(metin)
+            cm = ClassModel.from_json(text)
         except Exception:
             self._note(parent, "cannot be parsed", C.RED)
             return
@@ -482,8 +482,8 @@ class WorkspaceTree(QTreeWidget):
         if item is None:
             return
         item.setSelected(True)
-        yol = self._selected_model_path()
-        if yol is None:
+        path = self._selected_model_path()
+        if path is None:
             return
 
         menu = QMenu(self)
@@ -492,7 +492,7 @@ class WorkspaceTree(QTreeWidget):
         kaldir = menu.addAction("Remove from workspace…")
         selection = menu.exec(self.viewport().mapToGlobal(pos))
         if selection is open_:
-            self.model_activated.emit(yol)
+            self.model_activated.emit(path)
         elif selection is kaldir:
             self.remove_selected()
 
@@ -511,38 +511,38 @@ class WorkspaceTree(QTreeWidget):
         Deleting an open model leaves the user with a document that has no
         file, and that case is warned about separately.
         """
-        yol = self._selected_model_path()
-        if yol is None:
+        path = self._selected_model_path()
+        if path is None:
             return
 
-        acik = self._norm(yol) in {self._norm(k) for k in self._open_paths}
-        metin = "Delete this model file from the workspace?\n\n%s" % yol
+        acik = self._norm(path) in {self._norm(k) for k in self._open_paths}
+        text = "Delete this model file from the workspace?\n\n%s" % path
         if acik:
-            metin += ("\n\nIt is open in the editor and will be closed; "
+            text += ("\n\nIt is open in the editor and will be closed; "
                       "the canvas will be emptied.")
 
         answer = QMessageBox.warning(
-            self, "Remove model", metin,
+            self, "Remove model", text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return
 
         try:
-            os.remove(yol)
+            os.remove(path)
         except OSError as exc:
             QMessageBox.warning(self, "Could not remove",
-                                "%s\n\n%s" % (yol, exc))
+                                "%s\n\n%s" % (path, exc))
             return
 
-        self.model_removed.emit(yol)
+        self.model_removed.emit(path)
         self.rebuild()
 
     def _on_double_click(self, item: QTreeWidgetItem, _col: int) -> None:
         if item.data(0, NODE_ROLE) == "model":
-            yol = item.data(0, PATH_ROLE)
-            if yol:
-                self.model_activated.emit(yol)
+            path = item.data(0, PATH_ROLE)
+            if path:
+                self.model_activated.emit(path)
 
     def _on_selection(self) -> None:
         if self._suppress:
@@ -552,9 +552,9 @@ class WorkspaceTree(QTreeWidget):
             return
         selected = items[0]
         if selected.data(0, NODE_ROLE) == "model":
-            yol = selected.data(0, PATH_ROLE)
-            if yol:
-                self.model_selected.emit(yol)
+            path = selected.data(0, PATH_ROLE)
+            if path:
+                self.model_selected.emit(path)
             return
         eid = selected.data(0, ID_ROLE)
         if eid:

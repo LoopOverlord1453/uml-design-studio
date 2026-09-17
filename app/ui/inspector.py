@@ -222,9 +222,9 @@ class MiniCodeEdit(QPlainTextEdit):
         row = layout.documentSize().height() if layout is not None else 0.0
 
         needed = int(row + 0.999)
-        hedef = max(self._rows, min(self.MAX_ROWS, needed))
+        target = max(self._rows, min(self.MAX_ROWS, needed))
 
-        new = self.fontMetrics().lineSpacing() * hedef + self._chrome()
+        new = self.fontMetrics().lineSpacing() * target + self._chrome()
         if new != self.height():
             # setFixedHeight gives birth to a new resizeEvent; calling it only when
             # there IS a change is what closes the loop.
@@ -518,8 +518,8 @@ class Inspector(QScrollArea):
                 "14.2.3.4.7).")
             mevcut = (getattr(st, "submachine_ref", "") or "").strip()
             selection.addItem("(none)", "")
-            for yol in self._workspace_machines():
-                selection.addItem(yol, yol)
+            for path in self._workspace_machines():
+                selection.addItem(path, path)
             if mevcut and selection.findData(mevcut) < 0:
                 # The referenced file is gone; show it rather than removing it SILENTLY,
                 # so the user knows what is missing.
@@ -537,21 +537,21 @@ class Inspector(QScrollArea):
         # regions; a state with several regions is ORTHOGONAL and its regions are
         # active at the same time.
         if st.kind is StateKind.COMPOSITE:
-            bolge = NoWheelSpinBox()
-            bolge.setRange(1, 8)
-            bolge.setValue(max(1, int(getattr(st, "regions", 1) or 1)))
-            bolge.setAccessibleName("Region count")
-            bolge.setToolTip(
+            region = NoWheelSpinBox()
+            region.setRange(1, 8)
+            region.setValue(max(1, int(getattr(st, "regions", 1) or 1)))
+            region.setAccessibleName("Region count")
+            region.setToolTip(
                 "How many orthogonal regions this state owns. Two or more "
                 "regions run at the same time; each needs its own initial "
                 "pseudostate.")
             # Keyboard tracking is OFF: typing "12" into the box would first emit the
             # value 1, and every intermediate value would be a separate edit.
-            bolge.setKeyboardTracking(False)
-            bolge.valueChanged.connect(
+            region.setKeyboardTracking(False)
+            region.valueChanged.connect(
                 lambda v, _sid=sid: self._edit(self._set_regions(_sid, v),
                                                "Region count"))
-            form.addRow("Regions", bolge)
+            form.addRow("Regions", region)
 
         # BEHAVIOURS: only on states that can be STAYED IN.
         #
@@ -608,13 +608,13 @@ class Inspector(QScrollArea):
 
         self._loading = False
 
-    def _set_deferred(self, sid: str, metin: str):
+    def _set_deferred(self, sid: str, text: str):
         """Turns a comma-separated list into DEFERRED events."""
         names = []
-        for part in (metin or "").replace(";", ",").split(","):
-            ad = part.strip()
-            if ad and ad not in names:
-                names.append(ad)
+        for part in (text or "").replace(";", ",").split(","):
+            name = part.strip()
+            if name and name not in names:
+                names.append(name)
 
         def mutate(machine):
             st = machine.states.get(sid)
@@ -654,11 +654,11 @@ class Inspector(QScrollArea):
         except OSError:
             return []
         out = []
-        for ad in names:
-            if not ad.lower().endswith(".usm"):
+        for name in names:
+            if not name.lower().endswith(".usm"):
                 continue
             try:
-                out.append(ws.relative(os.path.join(root, ad)))
+                out.append(ws.relative(os.path.join(root, name)))
             except ValueError:
                 continue                        # a path that falls outside the root
         return out
@@ -670,7 +670,7 @@ class Inspector(QScrollArea):
                 st.submachine_ref = (ref or "").strip()
         return mutate
 
-    def _set_regions(self, sid: str, sayi: int):
+    def _set_regions(self, sid: str, count: int):
         """The operation that changes the region count of a composite state.
 
         SHRINKING IS NO LONGER LOSSY. The region number is reread from the BAND
@@ -689,7 +689,7 @@ class Inspector(QScrollArea):
             st = machine.states.get(sid)
             if st is None:
                 return
-            st.regions = max(1, int(sayi))
+            st.regions = max(1, int(count))
             last = st.regions - 1
             for c in machine.children(sid):
                 if int(getattr(c, "region", 0) or 0) > last:
@@ -767,7 +767,7 @@ class Inspector(QScrollArea):
         # invites the user to produce an error -- which is exactly what the wheel
         # accident did. The fields stay visible (the rule is instructive) but are
         # DISABLED and say why.
-        baslangic = src is not None and src.kind == StateKind.INITIAL
+        start = src is not None and src.kind == StateKind.INITIAL
 
         event = NoWheelComboBox()
         event.setEditable(True)
@@ -790,7 +790,7 @@ class Inspector(QScrollArea):
                                  "Guard"))
         form.addRow("[Guard]", guard)
 
-        if baslangic:
+        if start:
             engel = ("An initial transition cannot have an event or a guard "
                      "(UML 2.5.1 §14.5.6.7).")
             for w in (event, guard):

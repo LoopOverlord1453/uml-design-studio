@@ -84,15 +84,15 @@ def _karsilastir(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
     old = {d.get("id"): d for d in old_list if isinstance(d, dict)}
     new = {d.get("id"): d for d in new_list if isinstance(d, dict)}
 
-    satirlar: List[DiffRow] = []
+    rows: List[DiffRow] = []
 
     for kimlik, d in new.items():
         if kimlik not in old:
-            satirlar.append((section, "+", label_fn(d)))
+            rows.append((section, "+", label_fn(d)))
 
     for kimlik, d in old.items():
         if kimlik not in new:
-            satirlar.append((section, "-", label_fn(d)))
+            rows.append((section, "-", label_fn(d)))
 
     for kimlik, y in new.items():
         e = old.get(kimlik)
@@ -107,11 +107,11 @@ def _karsilastir(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
             # A name change is reported separately: since the id is the same
             # this is a rename, NOT a "remove + add".
             title = "%s  (renamed from '%s')" % (title, old_name)
-        satirlar.append((section, "~", title))
+        rows.append((section, "~", title))
         for row in degisen:
-            satirlar.append((section, " ", "    " + row))
+            rows.append((section, " ", "    " + row))
 
-    return satirlar
+    return rows
 
 
 def element_status(old_text: str, new_text: str) -> dict:
@@ -159,16 +159,16 @@ def state_machine_diff(old_text: str, new_text: str) -> List[DiffRow]:
         if isinstance(d, dict):
             states[d.get("id")] = d
 
-    satirlar: List[DiffRow] = []
-    satirlar += _karsilastir("States", old.get("states") or [],
+    rows: List[DiffRow] = []
+    rows += _karsilastir("States", old.get("states") or [],
                              new.get("states") or [], _state_label)
-    satirlar += _karsilastir(
+    rows += _karsilastir(
         "Transitions", old.get("transitions") or [],
         new.get("transitions") or [],
         lambda d: _transition_label(d, states))
 
-    satirlar += _makine_ayarlari(old, new)
-    return satirlar
+    rows += _makine_ayarlari(old, new)
+    return rows
 
 
 def _makine_ayarlari(old: dict, new: dict) -> List[DiffRow]:
@@ -202,12 +202,12 @@ def class_model_diff(old_text: str, new_text: str) -> List[DiffRow]:
         target = siniflar.get(d.get("target", ""), {}).get("name", "?")
         return "%s  %s  %s" % (source, d.get("kind", "association"), target)
 
-    satirlar: List[DiffRow] = []
-    satirlar += _karsilastir("Classes", old.get("classes") or [],
+    rows: List[DiffRow] = []
+    rows += _karsilastir("Classes", old.get("classes") or [],
                              new.get("classes") or [], class_label)
-    satirlar += _karsilastir("Relations", old.get("relations") or [],
+    rows += _karsilastir("Relations", old.get("relations") or [],
                              new.get("relations") or [], relation_label)
-    return satirlar
+    return rows
 
 
 def diff_for(path: str, old_text: str, new_text: str) -> Optional[List[DiffRow]]:

@@ -489,8 +489,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         point would be impossible when zoomed out and every click would count as
         grabbing one when zoomed in. Dividing by the scale keeps it fixed ON SCREEN.
         """
-        olcek = self.transform().m11() or 1.0
-        return self.BEND_GRAB_PX / abs(olcek)
+        scale = self.transform().m11() or 1.0
+        return self.BEND_GRAB_PX / abs(scale)
 
     def mouseMoveEvent(self, event) -> None:
         if self._panning:
@@ -670,8 +670,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 and self.tool is Tool.TRANSITION
                 and self._pending_source is not None):
             scene_pos = self.mapToScene(event.position().toPoint())
-            hedef = self._state_at(scene_pos)
-            if hedef is not None and hedef is not self._pending_source:
+            target = self._state_at(scene_pos)
+            if target is not None and target is not self._pending_source:
                 self._handle_transition_click(scene_pos)
                 event.accept()
                 return
@@ -682,13 +682,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # A very small rectangle = an accidental click; do not disturb the selection.
             if rect.width() > 3 and rect.height() > 3:
                 path_rect = self.mapToScene(rect).boundingRect()
-                secili = [i for i in self._scene.items(path_rect)
+                selected = [i for i in self._scene.items(path_rect)
                           if isinstance(i, StateItem)]
                 if not (event.modifiers() & Qt.KeyboardModifier.ShiftModifier):
                     self._scene.clearSelection()
-                for it in secili:
+                for it in selected:
                     it.setSelected(True)
-                self.status_message.emit("%d element(s) selected." % len(secili))
+                self.status_message.emit("%d element(s) selected." % len(selected))
             event.accept()
             return
 
@@ -762,10 +762,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             gorulen = set()
             while cur is not None and cur not in gorulen:
                 gorulen.add(cur)
-                adim = kaymalar.get(cur)
-                if adim is not None:
-                    dx += adim[0]
-                    dy += adim[1]
+                step = kaymalar.get(cur)
+                if step is not None:
+                    dx += step[0]
+                    dy += step[1]
                 st = sm.states.get(cur)
                 cur = st.parent if st is not None else None
             return (round(dx, 2), round(dy, 2))
@@ -785,7 +785,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
     @staticmethod
     def _region_for(ust: Optional[QGraphicsItem],
-                    local_top_edge: float, yukseklik: float) -> int:
+                    local_top_edge: float, height: float) -> int:
         """Computes WHICH BAND of `parent` was landed in, from LOCAL coordinates.
 
         The position is read from the local coordinate passed in, NOT from
@@ -796,7 +796,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         if not isinstance(ust, StateItem) or ust.region_count() <= 1:
             return 0
-        return ust.region_at(local_top_edge + yukseklik / 2.0)
+        return ust.region_at(local_top_edge + height / 2.0)
 
     def _fit_pasted_into(self, host: StateItem, ids: List[str],
                          scene_pos: QPointF) -> None:
@@ -821,17 +821,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
         sol = min(st.x for st in roots)
         ust = min(st.y for st in roots)
-        genislik = max(st.x + st.w for st in roots) - sol
-        yukseklik = max(st.y + st.h for st in roots) - ust
+        width = max(st.x + st.w for st in roots) - sol
+        height = max(st.y + st.h for st in roots) - ust
 
         field = host.content_rect()
         yerel = host.mapFromScene(scene_pos)
-        target_x = yerel.x() - genislik / 2.0
-        target_y = yerel.y() - yukseklik / 2.0
+        target_x = yerel.x() - width / 2.0
+        target_y = yerel.y() - height / 2.0
         target_x = min(max(target_x, field.left()),
-                      max(field.left(), field.right() - genislik))
+                      max(field.left(), field.right() - width))
         target_y = min(max(target_y, field.top()),
-                      max(field.top(), field.bottom() - yukseklik))
+                      max(field.top(), field.bottom() - height))
 
         dx = target_x - sol
         dy = target_y - ust

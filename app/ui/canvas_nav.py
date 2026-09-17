@@ -123,11 +123,11 @@ class CanvasNavigation:
         margin = self.AUTOSCROLL_MARGIN
         step = self.AUTOSCROLL_STEP
 
-        def axis(deger: float, low: float, high: float) -> float:
-            if deger < low + margin:
-                return -step * min(1.0, (low + margin - deger) / margin)
-            if deger > high - margin:
-                return step * min(1.0, (deger - (high - margin)) / margin)
+        def axis(value: float, low: float, high: float) -> float:
+            if value < low + margin:
+                return -step * min(1.0, (low + margin - value) / margin)
+            if value > high - margin:
+                return step * min(1.0, (value - (high - margin)) / margin)
             return 0.0
 
         return QPointF(axis(float(pos.x()), float(field.left()),
@@ -319,7 +319,7 @@ class CanvasNavigation:
             return (0.0, None)
         return (en_iyi[2], en_iyi[3])
 
-    def _align_cizgi(self, item, deger: float, box, komsular, axis: int):
+    def _align_cizgi(self, item, value: float, box, komsular, axis: int):
         """Produces the guide line in SCENE coordinates.
 
         The line is stretched to cover every box that SHARES the alignment, so
@@ -329,16 +329,16 @@ class CanvasNavigation:
         related = [box]
         for komsu in komsular:
             olcutler = self._align_olcutler(komsu[axis], komsu[axis + 2])
-            if any(abs(o - deger) < 0.5 for o in olcutler):
+            if any(abs(o - value) < 0.5 for o in olcutler):
                 related.append(komsu)
 
         other = 1 - axis
         bas = min(k[other] for k in related) - self.ALIGN_PAD
         last = max(k[other] + k[other + 2] for k in related) + self.ALIGN_PAD
         if axis == 0:
-            p1, p2 = QPointF(deger, bas), QPointF(deger, last)
+            p1, p2 = QPointF(value, bas), QPointF(value, last)
         else:
-            p1, p2 = QPointF(bas, deger), QPointF(last, deger)
+            p1, p2 = QPointF(bas, value), QPointF(last, value)
 
         # When the item is INSIDE a composite state its coordinates are relative
         # to that parent; the guide is drawn on the scene, so it must be converted.

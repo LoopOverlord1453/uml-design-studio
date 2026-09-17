@@ -325,7 +325,7 @@ class _PageRenderer(QThread):
         self._queue: List[Tuple[int, int, int]] = []
         self._dur = False
 
-    def request_page(self, page: int, genislik: int, yukseklik: int) -> List[int]:
+    def request_page(self, page: int, width: int, height: int) -> List[int]:
         """Queues a page.
 
         Returns the page numbers of the requests that were DROPPED. The caller
@@ -336,7 +336,7 @@ class _PageRenderer(QThread):
         self._kilit.lock()
         try:
             self._queue = [x for x in self._queue if x[0] != page]
-            self._queue.append((page, genislik, yukseklik))
+            self._queue.append((page, width, height))
             dusen: List[int] = []
             if len(self._queue) > self.QUEUE_LIMIT:
                 fazla = self._queue[:-self.QUEUE_LIMIT]
@@ -555,10 +555,10 @@ class ContinuousPdfView(QAbstractScrollArea):
         """Records the point being looked at, relative to the page, before a scale change."""
         deger = float(self.verticalScrollBar().value())
         page = self._page_at(deger)
-        yukseklik = self._h[page] if self._h else 1.0
-        if yukseklik <= 0.0:
+        height = self._h[page] if self._h else 1.0
+        if height <= 0.0:
             return (page, 0.0)
-        return (page, (deger - self._y[page]) / yukseklik)
+        return (page, (deger - self._y[page]) / height)
 
     def _capa_uygula(self, capa: Tuple[int, float]) -> None:
         page, oran = capa
@@ -812,14 +812,14 @@ class ContinuousPdfView(QAbstractScrollArea):
                     # tutucu olarak kalirdi.
                     self._pending.pop(dusen, None)
 
-    def _cizildi(self, page: int, genislik: int, image: QImage,
+    def _cizildi(self, page: int, width: int, image: QImage,
                  wpt: float, hpt: float) -> None:
         pending = self._pending.get(page)
-        if pending is not None and pending[0] == genislik:
+        if pending is not None and pending[0] == width:
             del self._pending[page]
         if image.isNull():
             return
-        self._onbellege_koy(page, genislik, image.height(), image)
+        self._onbellege_koy(page, width, image.height(), image)
 
         # When the real size differs from the estimate the layout is corrected.
         # Because every page in this document is the same size it normally never
@@ -835,7 +835,7 @@ class ContinuousPdfView(QAbstractScrollArea):
             self._capa_uygula(capa)
         self.viewport().update()
 
-    def _onbellege_koy(self, page: int, genislik: int, yukseklik: int,
+    def _onbellege_koy(self, page: int, width: int, height: int,
                        image: QImage) -> None:
         """Stores a render; pages IN THE REQUESTED RANGE are NEVER evicted.
 
@@ -852,15 +852,15 @@ class ContinuousPdfView(QAbstractScrollArea):
         but the excess is that range and is bounded; an endless loop was not.
         """
         self._onbellek.pop(page, None)
-        self._onbellek[page] = (genislik, yukseklik, image)
+        self._onbellek[page] = (width, height, image)
         first, sonu = self._request_range()
         total = sum(g.sizeInBytes() for _, _, g in self._onbellek.values())
-        for anahtar in list(self._onbellek):
+        for key in list(self._onbellek):
             if total <= self.ONBELLEK_BAYT:
                 break
-            if first <= anahtar <= sonu:
+            if first <= key <= sonu:
                 continue
-            total -= self._onbellek.pop(anahtar)[2].sizeInBytes()
+            total -= self._onbellek.pop(key)[2].sizeInBytes()
 
     def _delayed_request(self) -> None:
         """Scrolling stopped: now the pages really being looked at are requested."""
@@ -1145,9 +1145,9 @@ class SpecWindow(QMainWindow):
     def _page(self) -> int:
         return self.view.current_page()
 
-    def _spin_degisti(self, deger: int) -> None:
-        if deger - 1 != self.view.current_page():
-            self.view.goto(deger - 1)
+    def _spin_degisti(self, value: int) -> None:
+        if value - 1 != self.view.current_page():
+            self.view.goto(value - 1)
 
     def _page_changed(self, page: int) -> None:
         if self.spin.value() != page + 1:

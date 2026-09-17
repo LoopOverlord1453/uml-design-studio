@@ -102,8 +102,8 @@ def app_settings() -> QSettings:
     name, so what the test processes write never touches the user's settings.
     """
     kapsam = os.environ.get("UMLSTUDIO_SETTINGS_SCOPE", "").strip()
-    ad = "%s-%s" % (SETTINGS_APP, kapsam) if kapsam else SETTINGS_APP
-    return QSettings(SETTINGS_ORG, ad)
+    name = "%s-%s" % (SETTINGS_APP, kapsam) if kapsam else SETTINGS_APP
+    return QSettings(SETTINGS_ORG, name)
 SM_FILTER = "State machine (*.usm);;JSON (*.json);;All files (*)"
 CD_FILTER = "Class diagram (*.ucd);;JSON (*.json);;All files (*)"
 
@@ -516,20 +516,20 @@ class MainWindow(QMainWindow):
             #     action.
             self._git_panel_state = (self.code_panel_open(),
                                      self.a_sim_panel.isChecked())
-            for eylem, panel in ((self.a_code_panel, self.code_panel),
+            for action, panel in ((self.a_code_panel, self.code_panel),
                                  (self.a_sim_panel, self.sim_panel)):
-                if eylem.isChecked():
-                    eylem.blockSignals(True)
-                    eylem.setChecked(False)
-                    eylem.blockSignals(False)
+                if action.isChecked():
+                    action.blockSignals(True)
+                    action.setChecked(False)
+                    action.blockSignals(False)
                 panel.setVisible(False)
             return
 
-        onceki = self._git_panel_state
+        previous = self._git_panel_state
         self._git_panel_state = None
-        if onceki is None:
+        if previous is None:
             return
-        kod_acik, sim_acik = onceki
+        kod_acik, sim_acik = previous
         if kod_acik:
             self.a_code_panel.blockSignals(True)
             self.a_code_panel.setChecked(True)
@@ -1022,8 +1022,8 @@ class MainWindow(QMainWindow):
         _mnemonic(self.a_reset_layout, "Reset &Layout")
         v.addAction(self.a_reset_layout)
         v.addSeparator()
-        tema = v.addMenu("&Theme")
-        tema.addActions(list(self.theme_actions.values()))
+        theme = v.addMenu("&Theme")
+        theme.addActions(list(self.theme_actions.values()))
 
         # -- Tool ---------------------------------------------------------- #
         #
@@ -1430,9 +1430,9 @@ class MainWindow(QMainWindow):
         other = self.canvas if tuval is self.class_canvas else self.class_canvas
         other.set_diff_marks(None)
         tuval.set_diff_marks(marks)
-        toplam = (len(marks["added"]) + len(marks["removed"])
+        total = (len(marks["added"]) + len(marks["removed"])
                   + len(marks["changed"]))
-        if toplam == 0:
+        if total == 0:
             self.flash("%s — no changes (%s)."
                        % (os.path.basename(path), source))
         else:
@@ -1455,8 +1455,8 @@ class MainWindow(QMainWindow):
             goreli = os.path.relpath(path, repo.root).replace(os.sep, "/")
             if goreli.startswith(".."):
                 return None            # outside the repository
-            metin = repo.file_at("HEAD", goreli)
-            return metin or None
+            text = repo.file_at("HEAD", goreli)
+            return text or None
         except Exception:
             # The repository may be empty (no HEAD) or the file may never have been
             # committed; neither is AN ERROR, both mean "no diff".
@@ -1535,10 +1535,10 @@ class MainWindow(QMainWindow):
         from ..core.submachine import workspace_resolver
 
         acik = {}
-        yol = getattr(self.doc, "path", "") or ""
-        if yol and self.workspace is not None:
+        path = getattr(self.doc, "path", "") or ""
+        if path and self.workspace is not None:
             try:
-                acik[self.workspace.relative(yol)] = self.doc.machine
+                acik[self.workspace.relative(path)] = self.doc.machine
             except Exception:                  # noqa: BLE001
                 pass
         return workspace_resolver(self.workspace, acik)
@@ -1594,8 +1594,8 @@ class MainWindow(QMainWindow):
         odak = QApplication.focusWidget()
         if odak is None:
             return True
-        tuval = self.active_canvas()
-        return odak is tuval or tuval.isAncestorOf(odak)
+        canvas = self.active_canvas()
+        return odak is canvas or canvas.isAncestorOf(odak)
 
     def _delete_selection(self) -> None:
         if self.active_mode() == "git":
@@ -2168,31 +2168,31 @@ class MainWindow(QMainWindow):
         """
         gal = parent_menu.addMenu("&Examples")
         self._menus_examples = gal
-        for baslik, liste, kip in (("&State Machine", STATE_EXAMPLES, "state"),
+        for baslik, liste, mode in (("&State Machine", STATE_EXAMPLES, "state"),
                                    ("&Class Diagram", CLASS_EXAMPLES, "class")):
             submenu = gal.addMenu(baslik)
             for example in liste:
-                eylem = QAction(example.title, self)
+                action = QAction(example.title, self)
                 tooltip = "%s\n%s\nUML 2.5.1 §%s" % (
                     example.teaches, example.summary, example.reference)
-                eylem.setToolTip(tooltip)
-                eylem.setStatusTip("%s — %s" % (example.teaches, example.summary))
-                eylem.triggered.connect(
-                    lambda _c=False, o=example, k=kip: self.load_example(o, k))
-                submenu.addAction(eylem)
+                action.setToolTip(tooltip)
+                action.setStatusTip("%s — %s" % (example.teaches, example.summary))
+                action.triggered.connect(
+                    lambda _c=False, o=example, k=mode: self.load_example(o, k))
+                submenu.addAction(action)
             submenu.setToolTipsVisible(True)
         gal.setToolTipsVisible(True)
 
-    def load_example(self, example, kip: str) -> None:
+    def load_example(self, example, mode: str) -> None:
         """Loads an example from the gallery and switches to the right mode."""
-        belge = self.class_doc if kip == "class" else self.doc
+        belge = self.class_doc if mode == "class" else self.doc
         if not self._confirm_discard(belge):
             return
-        self.mode_tabs.setCurrentIndex(1 if kip == "class" else 0)
+        self.mode_tabs.setCurrentIndex(1 if mode == "class" else 0)
         belge.replace(example.build(), None)
-        if kip == "state":
+        if mode == "state":
             self.set_tool(Tool.SELECT)
-        tuval = self.class_canvas if kip == "class" else self.canvas
+        tuval = self.class_canvas if mode == "class" else self.canvas
         QTimer.singleShot(40, tuval.zoom_fit)
         self.flash("%s — %s" % (example.title, example.teaches))
 
@@ -2379,12 +2379,12 @@ class MainWindow(QMainWindow):
     # other
 
     def select_all(self) -> None:
-        metin = self._focused_text()
-        if metin is not None:
+        text = self._focused_text()
+        if text is not None:
             # When the user pressed Ctrl+A while in a TEXT field they want to select
             # the text. Because Qt cannot do that itself in a read-only code panel
             # (see _focused_text_field), it is done here.
-            metin.selectAll()
+            text.selectAll()
             return
         if self.active_mode() == "git":
             return          # the canvas is not visible
@@ -2432,11 +2432,11 @@ class MainWindow(QMainWindow):
         """Syncs the tick in the menu when the window state changes FROM OUTSIDE."""
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange:
-            eylem = getattr(self, "a_fullscreen", None)
-            if eylem is not None and eylem.isChecked() != self.isFullScreen():
-                eylem.blockSignals(True)
-                eylem.setChecked(self.isFullScreen())
-                eylem.blockSignals(False)
+            action = getattr(self, "a_fullscreen", None)
+            if action is not None and action.isChecked() != self.isFullScreen():
+                action.blockSignals(True)
+                action.setChecked(self.isFullScreen())
+                action.blockSignals(False)
 
     def keyPressEvent(self, event) -> None:
         """Esc leaves full screen (it uses the same path as F11)."""
@@ -2514,15 +2514,15 @@ class MainWindow(QMainWindow):
         unusable. The diagram pane -- the one all three modes sit in -- has to
         take a noticeable part of the total.
         """
-        toplam = sum(sizes)
-        if toplam <= 0:
+        total = sum(sizes)
+        if total <= 0:
             return False
         if any(v < 0 for v in sizes):
             return False
         index = self.main_splitter.indexOf(self.mode_tabs)
         if index < 0 or index >= len(sizes):
             return False
-        return (sizes[index] / float(toplam)) >= self.MIN_DIAGRAM_SHARE
+        return (sizes[index] / float(total)) >= self.MIN_DIAGRAM_SHARE
 
     @staticmethod
     def _restore_splitter_share(splitter, widget, ratio: float) -> None:
@@ -2568,10 +2568,10 @@ class MainWindow(QMainWindow):
         self.sim_panel.setVisible(False)
         self._clear_simulation()
 
-        toplam = max(self.main_splitter.width(), 900)
-        self.main_splitter.setSizes([int(toplam * 0.16),
-                                     int(toplam * 0.52),
-                                     int(toplam * 0.32)])
+        total = max(self.main_splitter.width(), 900)
+        self.main_splitter.setSizes([int(total * 0.16),
+                                     int(total * 0.52),
+                                     int(total * 0.32)])
         self.left_col.setSizes([330, 560])
         self.state_center.setSizes([150, 720, 120])
         self.flash("Layout reset.")
@@ -2625,11 +2625,11 @@ class MainWindow(QMainWindow):
         sizes = splitter.sizes()
         if index >= len(sizes) or sizes[index] > 0:
             return
-        toplam = sum(sizes) or splitter.width() or splitter.height()
-        if toplam <= 0:
+        total = sum(sizes) or splitter.width() or splitter.height()
+        if total <= 0:
             return
-        pay = max(1, int(toplam * ratio))
-        kalan = toplam - pay
+        share = max(1, int(total * ratio))
+        kalan = total - share
         digerler = [i for i in range(len(sizes)) if i != index]
         if not digerler:
             return
@@ -2640,7 +2640,7 @@ class MainWindow(QMainWindow):
                 sizes[i] = max(1, int(kalan * sizes[i] / old))
             else:
                 sizes[i] = max(1, kalan // len(digerler))
-        sizes[index] = pay
+        sizes[index] = share
         splitter.setSizes(sizes)
 
     def toggle_sim_panel(self, checked: bool) -> None:
@@ -2686,11 +2686,11 @@ class MainWindow(QMainWindow):
         self._spec_busy = True
         self.a_spec.setEnabled(False)
         try:
-            yol = ensure_spec_pdf(self)
+            path = ensure_spec_pdf(self)
         finally:
             self._spec_busy = False
             self.a_spec.setEnabled(True)
-        if not yol:
+        if not path:
             return
 
         # THE PREVIOUS WINDOW IS TORN DOWN PROPERLY.
@@ -2708,7 +2708,7 @@ class MainWindow(QMainWindow):
             except Exception:                  # noqa: BLE001
                 pass
         try:
-            pencere = SpecWindow(yol, None)
+            window = SpecWindow(path, None)
         except Exception as exc:               # noqa: BLE001
             QMessageBox.critical(
                 self, "UML 2.5.1 specification",
@@ -2716,9 +2716,9 @@ class MainWindow(QMainWindow):
                 + chr(10) * 2 + str(exc))
             self.flash_error("The specification viewer could not start.")
             return
-        self._spec_window = pencere
-        pencere.show()
-        pencere.raise_()
+        self._spec_window = window
+        window.show()
+        window.raise_()
         self.flash("UML 2.5.1 specification opened in a separate window.")
 
     def show_license(self) -> None:
@@ -2801,9 +2801,9 @@ class MainWindow(QMainWindow):
         sizes = self.settings.value("splitter")
         if sizes:
             try:
-                degerler = [int(v) for v in sizes]
+                values = [int(v) for v in sizes]
             except (TypeError, ValueError):
-                degerler = []
+                values = []
             # THE ITEM COUNT HAS TO MATCH. The left column was added to the main
             # splitter later; a 2-item setting left over from an earlier version,
             # applied to a splitter with 3 children, leaves the remaining child at 0
@@ -2816,9 +2816,9 @@ class MainWindow(QMainWindow):
             # does not fix the RATIO: the canvas would be squeezed into 320 px while
             # the code panel took 1344. A corrupt record is not PARTIALLY repaired, it
             # is discarded entirely.
-            if len(degerler) == self.main_splitter.count() \
-                    and self._sizes_usable(degerler):
-                self.main_splitter.setSizes(degerler)
+            if len(values) == self.main_splitter.count() \
+                    and self._sizes_usable(values):
+                self.main_splitter.setSizes(values)
         # The saved share may be 0 (the user dragged the splitter all the way and
         # left). A panel ticked "open" but invisible makes the button look broken;
         # bring the panel back into view.
@@ -2862,18 +2862,18 @@ class MainWindow(QMainWindow):
         # THE GRID SETTINGS PERSIST. When the user switched "Snap to Grid" off and
         # reopened the application, the setting coming back on gave the impression
         # that the button did not work.
-        for eylem, anahtar in ((self.a_snap, "snap_to_grid"),
+        for action, key in ((self.a_snap, "snap_to_grid"),
                                (self.a_align, "align_guides"),
                                (self.a_grid, "show_grid")):
-            record = self.settings.value(anahtar)
+            record = self.settings.value(key)
             if record is not None:
                 acik = record in (True, "true", "True", 1, "1")
-                eylem.setChecked(acik)
-                eylem.triggered.emit(acik)
+                action.setChecked(acik)
+                action.triggered.emit(acik)
 
-        tema = self.settings.value("theme", "dark")
-        if tema != active_theme():
-            self.set_theme(tema)
+        theme = self.settings.value("theme", "dark")
+        if theme != active_theme():
+            self.set_theme(theme)
         self.theme_actions[active_theme()].setChecked(True)
 
         lang = self.settings.value("language", "c")

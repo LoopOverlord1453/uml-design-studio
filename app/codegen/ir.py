@@ -169,14 +169,14 @@ _ANAHTAR = {
 _CAGRI = re.compile(r"(?<![\w.>:])([A-Za-z_]\w*)\s*\(")
 
 
-def _argument_count(metin: str, opening: int) -> int:
+def _argument_count(text: str, opening: int) -> int:
     """Counts the arguments by top-level commas, starting at the `(`."""
     derinlik = 0
     count = 0
     gorulen = False
     i = opening
-    while i < len(metin):
-        ch = metin[i]
+    while i < len(text):
+        ch = text[i]
         if ch in "([{":
             derinlik += 1
         elif ch in ")]}":
@@ -191,7 +191,7 @@ def _argument_count(metin: str, opening: int) -> int:
     return count
 
 
-def _dizgileri_bosalt(metin: str) -> str:
+def _dizgileri_bosalt(text: str) -> str:
     """Blanks out the INSIDE of string and character literals.
 
     Scanned by hand rather than with a regex: a pattern that handles escape
@@ -201,7 +201,7 @@ def _dizgileri_bosalt(metin: str) -> str:
     out = []
     tirnak = ""
     kacis = False
-    for ch in metin:
+    for ch in text:
         if tirnak:
             out.append(" " if ch != tirnak or kacis else ch)
             if kacis:
@@ -219,15 +219,15 @@ def _dizgileri_bosalt(metin: str) -> str:
     return "".join(out)
 
 
-def _cagrilar(metin: str):
+def _cagrilar(text: str):
     """The (name, argument_count) calls found in the text."""
     # Parentheses inside a string would break the argument count.
-    temiz = _dizgileri_bosalt(metin)
+    temiz = _dizgileri_bosalt(text)
     for m in _CAGRI.finditer(temiz):
-        ad = m.group(1)
-        if ad in _ANAHTAR:
+        name = m.group(1)
+        if name in _ANAHTAR:
             continue
-        yield ad, _argument_count(temiz, m.end() - 1)
+        yield name, _argument_count(temiz, m.end() - 1)
 
 
 @dataclass
@@ -338,24 +338,24 @@ class Ir:
         """
         found: Dict[str, RequiredSymbol] = {}
 
-        def tara(metin: str, nerede: str, guard: bool) -> None:
-            for ad, argc in _cagrilar(metin):
-                record = found.get(ad)
+        def tara(text: str, nerede: str, guard: bool) -> None:
+            for name, argc in _cagrilar(text):
+                record = found.get(name)
                 if record is None:
-                    record = RequiredSymbol(name=ad, argc=argc)
-                    found[ad] = record
+                    record = RequiredSymbol(name=name, argc=argc)
+                    found[name] = record
                 record.argc = max(record.argc, argc)
                 record.in_guard = record.in_guard or guard
                 if nerede not in record.sites:
                     record.sites.append(nerede)
 
         for st in self.states:
-            for body, etiket in ((st.entry, "entry"), (st.exit, "exit"),
+            for body, label in ((st.entry, "entry"), (st.exit, "exit"),
                                   (st.do, "do")):
                 if body.strip():
-                    tara(body, "%s / %s" % (st.name, etiket), False)
-        for eylem in self.actions:
-            tara(eylem, "transition effect", False)
+                    tara(body, "%s / %s" % (st.name, label), False)
+        for action in self.actions:
+            tara(action, "transition effect", False)
         for kosul in self.guards:
             tara(kosul, "guard", True)
         return sorted(found.values(), key=lambda r: r.name)
@@ -391,10 +391,10 @@ class Ir:
             gecikme = time_event_delay(self.events[t.event])
             if gecikme is None:
                 continue
-            anahtar = (t.source, t.event)
-            if anahtar in gorulen:
+            key = (t.source, t.event)
+            if key in gorulen:
                 continue
-            gorulen.add(anahtar)
+            gorulen.add(key)
             out.append((t.source, t.event, gecikme))
         return sorted(out)
 
@@ -796,9 +796,9 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 "A fork segment of '%s' could not be resolved."
                 % sm.states[fork_id].name)
 
-        def _region_order(hedef: str) -> int:
+        def _region_order(target: str) -> int:
             """The region the target falls into, under `owner`."""
-            cur = hedef
+            cur = target
             step = 0
             while cur is not None and step <= len(sm.states) + 1:
                 st_ = sm.states.get(cur)

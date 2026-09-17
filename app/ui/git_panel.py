@@ -214,14 +214,14 @@ class CommitGraphView(QAbstractScrollArea):
         metrics = QFontMetricsF(ui_font(8))
         en_genis = 0.0
         for commit in self._commits:
-            genislik = 0.0
+            width = 0.0
             for ref in commit.refs[:4]:
-                metin = ref
+                text = ref
                 for prefix in ("HEAD -> ", "tag: "):
-                    if metin.startswith(prefix):
-                        metin = metin[len(prefix):]
-                genislik += metrics.horizontalAdvance(metin) + 12.0 + 5.0
-            en_genis = max(en_genis, genislik)
+                    if text.startswith(prefix):
+                        text = text[len(prefix):]
+                width += metrics.horizontalAdvance(text) + 12.0 + 5.0
+            en_genis = max(en_genis, width)
         return min(en_genis, 240.0)
 
     def _update_scroll(self) -> None:
@@ -455,19 +455,19 @@ class CommitGraphView(QAbstractScrollArea):
     @staticmethod
     def _commit_tooltip(commit) -> str:
         """The circle tooltip: subject, body, author, date, sha and branches."""
-        satirlar = [commit.subject]
+        rows = [commit.subject]
         body = (getattr(commit, "body", "") or "").strip()
         if body:
-            satirlar.append("")
-            satirlar.append(body)
-        satirlar.append("")
-        satirlar.append("%s · %s" % (commit.author, commit.when))
-        satirlar.append("commit %s" % commit.sha)
+            rows.append("")
+            rows.append(body)
+        rows.append("")
+        rows.append("%s · %s" % (commit.author, commit.when))
+        rows.append("commit %s" % commit.sha)
         if commit.refs:
-            satirlar.append("refs: %s" % ", ".join(commit.refs))
+            rows.append("refs: %s" % ", ".join(commit.refs))
         if len(commit.parents) > 1:
-            satirlar.append("merge of %d parents" % len(commit.parents))
-        return "\n".join(satirlar)
+            rows.append("merge of %d parents" % len(commit.parents))
+        return "\n".join(rows)
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -624,10 +624,10 @@ class GitPanel(QWidget):
             fn = getattr(child_widget, "retheme", None)
             if callable(fn) and child_widget is not self:
                 fn()
-        yenile = getattr(self, "refresh", None)
-        if callable(yenile):
+        refresh = getattr(self, "refresh", None)
+        if callable(refresh):
             try:
-                yenile()
+                refresh()
             except Exception:
                 # Refreshing asks for outside data (the git repository); a theme
                 # change therefore MUST NOT fail.
@@ -967,10 +967,10 @@ class GitPanel(QWidget):
         out: List[str] = []
         gorulen = set()
         for it in lst.selectedItems():
-            for yol in _dosyalari(it):
-                if yol not in gorulen:
-                    gorulen.add(yol)
-                    out.append(yol)
+            for path in _dosyalari(it):
+                if path not in gorulen:
+                    gorulen.add(path)
+                    out.append(path)
         return out
 
     # diffs
@@ -982,13 +982,13 @@ class GitPanel(QWidget):
         path = item.data(0, PATH_ROLE)
         if not path:
             # A FOLDER node: it has no single diff; a summary is written.
-            dosyalar = _dosyalari(item)
+            files = _dosyalari(item)
             self.diff_header.setText(
                 "DIFF — %s/   %d file(s)"
-                % (item.data(0, FOLDER_ROLE) or "", len(dosyalar)))
+                % (item.data(0, FOLDER_ROLE) or "", len(files)))
             self.diff.show_diff(
                 "", "Folder selected — %d changed file(s). Pick one to see "
-                    "its diff, or use Stage All." % len(dosyalar))
+                    "its diff, or use Stage All." % len(files))
             return
         untracked = bool(item.data(0, UNTRACKED_ROLE))
         self._mode = "worktree"
@@ -1089,21 +1089,21 @@ class GitPanel(QWidget):
         model_yollari = [f.path for f in files
                          if f.path.lower().endswith((".usm", ".ucd"))]
         if model_yollari and len(model_yollari) == len(files):
-            parcalar, ta, td, tm = [], 0, 0, 0
+            parts, ta, td, tm = [], 0, 0, 0
             for yol in model_yollari:
                 result = self._model_diff_text(yol, sha=sha)
                 if result is None:
-                    parcalar = []
+                    parts = []
                     break
                 metin, a, d, m = result
-                parcalar.append("### %s\n%s" % (yol, metin or "  (no model changes)"))
+                parts.append("### %s\n%s" % (yol, metin or "  (no model changes)"))
                 ta, td, tm = ta + a, td + d, tm + m
-            if parcalar:
+            if parts:
                 self.diff_header.setText(
                     "DIFF — %s  %s   %d model  +%d −%d ~%d"
                     % (commit.short if commit else sha[:8], subject,
                        len(model_yollari), ta, td, tm))
-                self.diff.show_diff("\n\n".join(parcalar), "This commit is empty.")
+                self.diff.show_diff("\n\n".join(parts), "This commit is empty.")
                 return
 
         self.diff_header.setText("DIFF — %s  %s   %d file(s)  +%d −%d"
@@ -1305,9 +1305,9 @@ def _header(title: str) -> QLabel:
 
 def _dosyalari(item: QTreeWidgetItem) -> List[str]:
     """The FILE paths of the node (and of everything under it)."""
-    yol = item.data(0, PATH_ROLE)
-    if yol:
-        return [yol]
+    path = item.data(0, PATH_ROLE)
+    if path:
+        return [path]
     out: List[str] = []
     for i in range(item.childCount()):
         out += _dosyalari(item.child(i))
@@ -1323,25 +1323,25 @@ def _build_tree(tree: QTreeWidget, kayitlar) -> None:
     """
     roots: dict = {}
 
-    def folder(parcalar) -> QTreeWidgetItem:
-        anahtar = "/".join(parcalar)
-        if anahtar in roots:
-            return roots[anahtar]
-        if len(parcalar) == 1:
-            node = QTreeWidgetItem(tree, [parcalar[0] + "/"])
+    def folder(parts) -> QTreeWidgetItem:
+        key = "/".join(parts)
+        if key in roots:
+            return roots[key]
+        if len(parts) == 1:
+            node = QTreeWidgetItem(tree, [parts[0] + "/"])
         else:
-            node = QTreeWidgetItem(folder(parcalar[:-1]), [parcalar[-1] + "/"])
-        node.setData(0, FOLDER_ROLE, anahtar)
+            node = QTreeWidgetItem(folder(parts[:-1]), [parts[-1] + "/"])
+        node.setData(0, FOLDER_ROLE, key)
         node.setForeground(0, QBrush(QColor(C.TEXT_DIM)))
         node.setExpanded(True)
-        roots[anahtar] = node
+        roots[key] = node
         return node
 
     for gf, colour in kayitlar:
-        parcalar = gf.path.split("/")
-        ad = parcalar[-1]
-        parent_node = folder(parcalar[:-1]) if len(parcalar) > 1 else tree
-        metin = "%s  %s" % (gf.label(), ad)
+        parts = gf.path.split("/")
+        name = parts[-1]
+        parent_node = folder(parts[:-1]) if len(parts) > 1 else tree
+        metin = "%s  %s" % (gf.label(), name)
         if gf.orig_path:
             metin += "   ← %s" % gf.orig_path
         oge = QTreeWidgetItem(parent_node, [metin])
@@ -1363,9 +1363,9 @@ def _expanded_folders(tree: QTreeWidget) -> set:
     def gez(node):
         for i in range(node.childCount()):
             cocuk = node.child(i)
-            anahtar = cocuk.data(0, FOLDER_ROLE)
-            if anahtar and cocuk.isExpanded():
-                acik.add(anahtar)
+            key = cocuk.data(0, FOLDER_ROLE)
+            if key and cocuk.isExpanded():
+                acik.add(key)
             gez(cocuk)
 
     gez(tree.invisibleRootItem())
@@ -1379,9 +1379,9 @@ def _restore_expanded(tree: QTreeWidget, acik: set) -> None:
     def gez(node):
         for i in range(node.childCount()):
             cocuk = node.child(i)
-            anahtar = cocuk.data(0, FOLDER_ROLE)
-            if anahtar:
-                cocuk.setExpanded(anahtar in acik)
+            key = cocuk.data(0, FOLDER_ROLE)
+            if key:
+                cocuk.setExpanded(key in acik)
             gez(cocuk)
 
     gez(tree.invisibleRootItem())

@@ -130,14 +130,14 @@ class GhostItem(QGraphicsItem):
     @guarded_paint
     def paint(self, painter: QPainter, option, widget=None) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        renk = QColor(C.GIT_DEL)
-        zemin = QColor(renk)
+        color = QColor(C.GIT_DEL)
+        zemin = QColor(color)
         zemin.setAlpha(26)
         painter.setBrush(QBrush(zemin))
-        painter.setPen(QPen(renk, 1.6, Qt.PenStyle.DashLine))
+        painter.setPen(QPen(color, 1.6, Qt.PenStyle.DashLine))
         painter.drawRoundedRect(QRectF(0.0, 0.0, self._w, self._h), 9.0, 9.0)
         painter.setFont(self._font)
-        painter.setPen(QPen(renk))
+        painter.setPen(QPen(color))
         painter.drawText(QRectF(0.0, self._h + 1.0, self._w, 16.0),
                          int(Qt.AlignmentFlag.AlignHCenter),
                          "− %s" % self._name)
@@ -214,7 +214,7 @@ class StateItem(QGraphicsObject):
         # application does not package JetBrains Mono) a substate overflowed the
         # parent.
         if self.kind is StateKind.COMPOSITE:
-            sag = alt = 0.0
+            right = bottom = 0.0
             try:
                 children = list(self.childItems())
             except RuntimeError:
@@ -223,15 +223,15 @@ class StateItem(QGraphicsObject):
                 # in the model. (rect() used to read only Python fields, so this case
                 # worked silently.)
                 children = []
-            for cocuk in children:
-                if not isinstance(cocuk, StateItem):
+            for child in children:
+                if not isinstance(child, StateItem):
                     continue
-                r = cocuk.rect()
-                sag = max(sag, cocuk.pos().x() + r.width())
-                alt = max(alt, cocuk.pos().y() + r.height())
-            if sag > 0.0:
-                en = max(en, sag + 12.0)
-                boy = max(boy, alt + 12.0)
+                r = child.rect()
+                right = max(right, child.pos().x() + r.width())
+                bottom = max(bottom, child.pos().y() + r.height())
+            if right > 0.0:
+                en = max(en, right + 12.0)
+                boy = max(boy, bottom + 12.0)
         return (max(MIN_W, en), max(MIN_H, boy))
 
     def rect(self) -> QRectF:
@@ -392,22 +392,22 @@ class StateItem(QGraphicsObject):
         are used to (horizontal bands separated by a dashed line).
         """
         field = self.content_rect()
-        sayi = self.region_count()
-        if sayi <= 1:
+        count = self.region_count()
+        if count <= 1:
             return field
-        index = max(0, min(index, sayi - 1))
-        yukseklik = field.height() / float(sayi)
+        index = max(0, min(index, count - 1))
+        yukseklik = field.height() / float(count)
         return QRectF(field.left(), field.top() + index * yukseklik,
                       field.width(), yukseklik)
 
     def region_at(self, y: float) -> int:
         """The region the local `y` coordinate falls into."""
         field = self.content_rect()
-        sayi = self.region_count()
-        if sayi <= 1 or field.height() <= 0.0:
+        count = self.region_count()
+        if count <= 1 or field.height() <= 0.0:
             return 0
         oran = (y - field.top()) / field.height()
-        return max(0, min(int(oran * sayi), sayi - 1))
+        return max(0, min(int(oran * count), count - 1))
 
     def is_resizable(self) -> bool:
         return self.kind in (StateKind.SIMPLE, StateKind.COMPOSITE)
@@ -654,9 +654,9 @@ class StateItem(QGraphicsObject):
         specification.
         """
         r = self.rect()
-        renk = QColor(C.TEXT_BRIGHT) if not selected else border
+        color = QColor(C.TEXT_BRIGHT) if not selected else border
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(renk))
+        p.setBrush(QBrush(color))
         p.drawRect(r)
         self._paint_pseudo_name(p)
 
@@ -670,13 +670,13 @@ class StateItem(QGraphicsObject):
         ayrilir.
         """
         r = self.rect()
-        renk = border if selected else QColor(C.STATE_BORDER)
-        p.setPen(QPen(renk, 2.0))
+        color = border if selected else QColor(C.STATE_BORDER)
+        p.setPen(QPen(color, 2.0))
         p.setBrush(QBrush(QColor(C.CANVAS_BG)))
         p.drawEllipse(r)
         if self.kind is StateKind.EXIT_POINT:
             inner = r.adjusted(4.0, 4.0, -4.0, -4.0)
-            p.setPen(QPen(renk, 1.8, Qt.PenStyle.SolidLine,
+            p.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine,
                           Qt.PenCapStyle.RoundCap))
             p.drawLine(inner.topLeft(), inner.bottomRight())
             p.drawLine(inner.topRight(), inner.bottomLeft())

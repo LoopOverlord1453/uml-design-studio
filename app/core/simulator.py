@@ -212,19 +212,19 @@ class Simulator:
     def _enter_one(self, index: int) -> None:
         """Activates a single state (it DOES NOT TOUCH its sub-regions)."""
         self._exec_entry(index)
-        bolge = self._region_of(index)
-        if bolge != REGION_NONE:
-            self.active[bolge] = index
+        region = self._region_of(index)
+        if region != REGION_NONE:
+            self.active[region] = index
             # THE STATE WAS ENTERED: the completion event of this region is born.
-            self.completion_pending[bolge] = True
+            self.completion_pending[region] = True
 
     def _exit_one(self, index: int) -> None:
         """Closes a single state (its sub-regions must already be emptied)."""
         self._exec_exit(index)
-        bolge = self._region_of(index)
-        if bolge != REGION_NONE and self.active[bolge] == index:
-            self.active[bolge] = NONE
-            self.completion_pending[bolge] = False
+        region = self._region_of(index)
+        if region != REGION_NONE and self.active[region] == index:
+            self.active[region] = NONE
+            self.completion_pending[region] = False
 
     def _activate_below(self, index: int) -> None:
         """Activates the INSIDE of an entered state with the defaults.
@@ -244,12 +244,12 @@ class Simulator:
                 continue
             stack[-1][1] = k + 1
             reg = self.ir.regions[st.first_region + k]
-            hedef = reg.initial_state
-            if hedef == NONE:
+            target = reg.initial_state
+            if target == NONE:
                 continue
             self._exec_action(reg.initial_action)
-            self._enter_one(hedef)
-            stack.append([hedef, 0])
+            self._enter_one(target)
+            stack.append([target, 0])
 
     def _deepest_active_below(self, index: int) -> int:
         """The DEEPEST active state under `index` (NONE if there is none).
@@ -257,11 +257,11 @@ class Simulator:
         Regions are scanned in DESCENDING order: exit is the reverse of entry.
         """
         found = NONE
-        dugum = index
+        node = index
         step = 0
         while step < MAX_WALK_STEPS:
             step += 1
-            st = self.ir.states[dugum]
+            st = self.ir.states[node]
             next_ = NONE
             for k in range(st.region_count - 1, -1, -1):
                 aday = self.active[st.first_region + k]
@@ -271,7 +271,7 @@ class Simulator:
             if next_ == NONE:
                 return found
             found = next_
-            dugum = next_
+            node = next_
         return found
 
     def _exit_below(self, index: int) -> None:
@@ -279,10 +279,10 @@ class Simulator:
         step = 0
         while step < MAX_WALK_STEPS:
             step += 1
-            hedef = self._deepest_active_below(index)
-            if hedef == NONE:
+            target = self._deepest_active_below(index)
+            if target == NONE:
                 return
-            self._exit_one(hedef)
+            self._exit_one(target)
 
     def _enter_path(self, target: int, top: int) -> None:
         """Enters the states between `top` and `target`, outside in.
@@ -421,9 +421,9 @@ class Simulator:
             # It clears the flag OF ITS OWN REGION ONLY. Clearing a machine-wide
             # flag would also destroy the pending completion event of another region.
             # olayini da yok ederdi.
-            bolge = self._region_of(tran.source)
-            if bolge != REGION_NONE:
-                self.completion_pending[bolge] = False
+            region = self._region_of(tran.source)
+            if region != REGION_NONE:
+                self.completion_pending[region] = False
             self._exec_action(tran.action)
             return
 
@@ -453,8 +453,8 @@ class Simulator:
                and step <= MAX_WALK_STEPS):
             child_node = self._parent(child_node)
             step += 1
-        bolge = self._region_of(child_node)
-        s = self.active[bolge] if bolge != REGION_NONE else NONE
+        region = self._region_of(child_node)
+        s = self.active[region] if region != REGION_NONE else NONE
         step = 0
         while s != top and s != NONE and step <= MAX_WALK_STEPS:
             step += 1
@@ -492,9 +492,9 @@ class Simulator:
 
     def _join_ready(self, tran) -> bool:
         """Are all the sources of the join active right now?"""
-        for kaynak in tran.join_sources:
-            bolge = self._region_of(kaynak)
-            if bolge == REGION_NONE or self.active[bolge] != kaynak:
+        for source in tran.join_sources:
+            region = self._region_of(source)
+            if region == REGION_NONE or self.active[region] != source:
                 return False
         return True
 
@@ -507,16 +507,16 @@ class Simulator:
         entering an orthogonal state starts ALL of its regions.
         """
         kapsanan = set()
-        for hedef in hedefler:
-            child_node = hedef
+        for target in hedefler:
+            child_node = target
             step = 0
             while (self._parent(child_node) != sahip and self._parent(child_node) != NONE
                    and step <= MAX_WALK_STEPS):
                 child_node = self._parent(child_node)
                 step += 1
             kapsanan.add(self._region_of(child_node))
-            self._enter_path(hedef, sahip)
-            self._activate_below(hedef)
+            self._enter_path(target, sahip)
+            self._activate_below(target)
         for r in self.ir.regions_of(sahip):
             if r in kapsanan:
                 continue
@@ -571,10 +571,10 @@ class Simulator:
         for r in range(self.ir.region_count):
             if self.active[r] == NONE:
                 continue
-            kaynak, tran = self._select(r, event_index)
+            source, tran = self._select(r, event_index)
             if tran is None:
                 continue
-            secimler.append((r, kaynak, tran))
+            secimler.append((r, source, tran))
 
         if not secimler:
             return False
@@ -582,20 +582,20 @@ class Simulator:
         # If two regions picked the same transition it is processed ONCE.
         benzersiz = []
         gorulen = set()
-        for r, kaynak, tran in secimler:
+        for r, source, tran in secimler:
             if tran.index in gorulen:
                 continue
             gorulen.add(tran.index)
-            benzersiz.append((r, kaynak, tran))
+            benzersiz.append((r, source, tran))
 
         # When the source of one choice is a PROPER ANCESTOR of another choice's
         # source, the outer one is dropped: priority goes to the deeper one.
         kalan = []
-        for r, kaynak, tran in benzersiz:
-            if any(self._is_ancestor(kaynak, other_one)
-                   for _r2, other_one, _t2 in benzersiz if other_one != kaynak):
+        for r, source, tran in benzersiz:
+            if any(self._is_ancestor(source, other_one)
+                   for _r2, other_one, _t2 in benzersiz if other_one != source):
                 continue
-            kalan.append((r, kaynak, tran))
+            kalan.append((r, source, tran))
 
         islendi = False
         for r, _source, tran in kalan:
@@ -637,12 +637,12 @@ class Simulator:
         sinir = MAX_RTC_STEPS * max(1, self.ir.region_count)
         steps = 0
         while not self.terminated:
-            bolge = REGION_NONE
+            region = REGION_NONE
             for r in range(self.ir.region_count):
                 if self.completion_pending[r]:
-                    bolge = r
+                    region = r
                     break
-            if bolge == REGION_NONE:
+            if region == REGION_NONE:
                 return
             if steps >= sinir:
                 # REPORT RATHER THAN BREAKING SILENTLY. The previous version left the
@@ -654,9 +654,9 @@ class Simulator:
                            "model has a cycle of completion transitions"
                            % sinir)
                 return
-            self.completion_pending[bolge] = False
-            if self.active[bolge] != NONE:
-                _source, tran = self._select(bolge, COMPLETION)
+            self.completion_pending[region] = False
+            if self.active[region] != NONE:
+                _source, tran = self._select(region, COMPLETION)
                 if tran is not None:
                     self._take(tran)
             steps += 1

@@ -174,35 +174,35 @@ def _expanded_name_problems(sm, duz):
                 "which is not a valid C identifier." % st.name,
                 sorumlu))
             continue
-        anahtar = screaming_snake(st.name)
-        previous = gorulen.get(anahtar)
+        key = screaming_snake(st.name)
+        previous = gorulen.get(key)
         if previous is not None:
             # Of the two sides of the collision, mark the one that DOES NOT COME
             # FROM AN EXPANSION: that is what the user will fix (either the name of
             # the inner state or the name of the submachine state qualifying it).
-            hedef = sorumlu if sorumlu is not None else previous[1]
+            target = sorumlu if sorumlu is not None else previous[1]
             if previous[0] != st.name:
                 sorunlar.append((
                     "V164",
                     "Expanding the submachines produces two states, '%s' and "
                     "'%s', that generate the same constant '%s'. Rename one "
                     "of them or the submachine state that qualifies it."
-                    % (previous[0], st.name, anahtar),
-                    hedef))
+                    % (previous[0], st.name, key),
+                    target))
             else:
                 sorunlar.append((
                     "V164",
                     "Expanding the submachines produces two states both named "
                     "'%s', which generate the same constant '%s'. Rename the "
                     "submachine state that qualifies one of them."
-                    % (st.name, anahtar),
-                    hedef))
+                    % (st.name, key),
+                    target))
         else:
-            gorulen[anahtar] = (st.name, sorumlu)
+            gorulen[key] = (st.name, sorumlu)
     return sorunlar
 
 
-def _region_split(sm, dugum, idler, ne: str):
+def _region_split(sm, node, idler, ne: str):
     """Are the given vertices in DIFFERENT regions of the SAME orthogonal state?
 
     UML 2.5.1, 14.5.6.7 (printed p.350-351): transitions leaving a fork
@@ -219,16 +219,16 @@ def _region_split(sm, dugum, idler, ne: str):
         if common is None:
             break
     if common is None or not sm.is_orthogonal(common):
-        return "The segments of '%s' must %s." % (dugum.name, ne)
+        return "The segments of '%s' must %s." % (node.name, ne)
     regions = []
     for x in idler:
         b = _region_index(sm, x, common)
         if b is None:
-            return "The segments of '%s' must %s." % (dugum.name, ne)
+            return "The segments of '%s' must %s." % (node.name, ne)
         regions.append(b)
     if len(set(regions)) != len(regions):
         return ("Two segments of '%s' use the SAME region of '%s'; they must "
-                "%s." % (dugum.name, sm.states[common].name, ne))
+                "%s." % (node.name, sm.states[common].name, ne))
     return None
 
 
@@ -778,12 +778,12 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         # The codes are given as plain text, not through a VARIABLE: the
                         # reference test looks for the `err("Vxxx"` pattern in the source and
                         # a code passed in a variable looks like a "dead entry".
-                        for kod, mesaj, hedef in _expanded_name_problems(
+                        for kod, message, hedef in _expanded_name_problems(
                                 sm, genis):
                             if kod == "V164":
-                                err("V164", mesaj, hedef)
+                                err("V164", message, hedef)
                             else:
-                                err("V165", mesaj, hedef)
+                                err("V165", message, hedef)
 
         # connection points
         if s.kind.is_connection_point:

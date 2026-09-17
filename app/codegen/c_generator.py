@@ -92,8 +92,8 @@ def align_enum(rows, gap: int = 1) -> List[str]:
     name_w = max((len(a) for a, _d, _y in rows), default=0)
     value_w = max((len(d) for _a, d, _y in rows), default=0)
     out = []
-    for ad, value, yorum in rows:
-        left = "%-*s %-*s" % (name_w, ad, value_w, value)
+    for name, value, yorum in rows:
+        left = "%-*s %-*s" % (name_w, name, value_w, value)
         out.append((left + " " * gap + yorum).rstrip() if yorum else left.rstrip())
     return out
 
@@ -152,14 +152,14 @@ def blank_before_close(lines: List[str]) -> List[str]:
     return out
 
 
-def _single_line(metin: str) -> str:
+def _single_line(text: str) -> str:
     """Reduces a user note to a SINGLE-LINE comment.
 
     The note field may be written over several lines, while `///<` and
     `/**< ... */` are single-line. Dropping the raw text in would break the
     comment -- and the code after it. `c_comment` also defuses a comment close.
     """
-    return c_comment(" ".join((metin or "").split()))
+    return c_comment(" ".join((text or "").split()))
 
 
 def allman(lines: List[str]) -> List[str]:
@@ -464,10 +464,10 @@ class CGenerator:
             measures.append(
                 ("%s_DEFER_POOL_SIZE" % self.P, "(16U)",
                  "Retained deferred event occurrences; a full pool is reported."))
-        width = max(len(ad) for ad, _d, _a in measures)
-        for ad, value, aciklama in measures:
-            L += ["/** @brief %s */" % aciklama]
-            L += ["#define %-*s %s" % (width, ad, value)]
+        width = max(len(name) for name, _d, _a in measures)
+        for name, value, description in measures:
+            L += ["/** @brief %s */" % description]
+            L += ["#define %-*s %s" % (width, name, value)]
         L += [""]
 
         L += ["/* --------------------------------------------------------------- states -- */"]
@@ -478,7 +478,7 @@ class CGenerator:
         L += ["typedef enum", "{"]
         # Columns are computed PER BLOCK (see align_rows): fixed "%-38s" padding
         # shifted the line as soon as a name grew.
-        satirlar = []
+        rows = []
         for st in ir.states:
             kind_txt = {KIND_SIMPLE: "simple", KIND_COMPOSITE: "composite",
                         KIND_FINAL: "final", KIND_CHOICE: "choice/junction",
@@ -492,15 +492,15 @@ class CGenerator:
             # "why this state exists" stayed on the diagram and never reached the
             # embedded engineer reading the code. The class diagram already emits its
             # notes this way.
-            aciklama = "%s, depth %d" % (kind_txt, st.depth)
+            description = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
-                aciklama = "%s -- %s" % (aciklama, _single_line(st.note))
-            satirlar.append(
+                description = "%s -- %s" % (description, _single_line(st.note))
+            rows.append(
                 ("    %s" % self.state_enum(st), "= %uU," % st.index,
-                 "/**< %s */" % aciklama))
-        satirlar.append(("    %s_STATE_NONE" % self.P, "= 255U",
+                 "/**< %s */" % description))
+        rows.append(("    %s_STATE_NONE" % self.P, "= 255U",
                          "/**< invalid / no state */"))
-        L += align_enum(satirlar)
+        L += align_enum(rows)
         # A BLANK LINE before the close: the body and "} type;" were stuck
         # together.
         L += ["", "} %s;" % self.type_state(), ""]
@@ -508,13 +508,13 @@ class CGenerator:
         L += ["/* --------------------------------------------------------------- events -- */"]
         L += ["/**", " * @brief Identifiers of the events accepted by the machine.", " */"]
         L += ["typedef enum", "{"]
-        satirlar = []
+        rows = []
         for i, ev in enumerate(ir.events):
             note = "/**< internal: completion event */" if i == 0 else ""
-            satirlar.append(("    %s" % self.event_enum(ev),
+            rows.append(("    %s" % self.event_enum(ev),
                              "= %uU," % i, note))
-        satirlar.append(("    %s_EVENT_INVALID" % self.P, "= 255U", ""))
-        L += align_enum(satirlar)
+        rows.append(("    %s_EVENT_INVALID" % self.P, "= 255U", ""))
+        L += align_enum(rows)
         L += ["", "} %s;" % self.type_event(), ""]
 
         L += ["/* ------------------------------------------------------------- instance -- */"]
@@ -553,8 +553,8 @@ class CGenerator:
                             "history[%s_REGION_COUNT];" % self.P,
                             "/**< last active substate PER REGION */"))
         tip_g = max(len(t) for t, _a, _y in fields)
-        L += align_rows([("    %-*s %s" % (tip_g, tip, ad), yorum)
-                         for tip, ad, yorum in fields])
+        L += align_rows([("    %-*s %s" % (tip_g, tip, name), yorum)
+                         for tip, name, yorum in fields])
         # A BLANK LINE before the close: the body and "} type;" were stuck
         # together.
         L += ["", "} %s;" % self.type_obj(), ""]
@@ -1048,7 +1048,7 @@ class CGenerator:
         p = self.p
         obj = self.type_obj()
         L: List[str] = []
-        for label, kanca, aciklama in (
+        for label, kanca, description in (
                 ("start", "%s_timer_start" % p, "starts"),
                 ("cancel", "%s_timer_cancel" % p, "cancels")):
             L += ["/* --------------------------------------------------- timer %s -- */"

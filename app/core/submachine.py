@@ -170,7 +170,7 @@ def _substitute(hedef: StateMachine, outer_id: str, inner: StateMachine) -> None
     _merge_includes(hedef, inner)
 
 
-def _merge_includes(hedef: StateMachine, inner: StateMachine) -> None:
+def _merge_includes(target: StateMachine, inner: StateMachine) -> None:
     """APPENDS the include lines of the inner machine to the outer one.
 
     The entry / exit / do texts and guard expressions of the inner machine are
@@ -185,7 +185,7 @@ def _merge_includes(hedef: StateMachine, inner: StateMachine) -> None:
     The same line is never written twice and the ORDER is preserved: the lines of
     the outer machine first, then the new ones from the inner machine.
     """
-    rows = (hedef.user_includes or "").splitlines()
+    rows = (target.user_includes or "").splitlines()
     gorulen = {ln.strip() for ln in rows if ln.strip()}
     added = []
     for ln in (inner.user_includes or "").splitlines():
@@ -194,7 +194,7 @@ def _merge_includes(hedef: StateMachine, inner: StateMachine) -> None:
             gorulen.add(key)
             added.append(ln)
     if added:
-        hedef.user_includes = "\n".join(rows + added).strip("\n")
+        target.user_includes = "\n".join(rows + added).strip("\n")
 
 
 def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None

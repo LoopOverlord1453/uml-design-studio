@@ -426,9 +426,9 @@ class StateMachine:
         # DEFERRED event types go into the table too: even when no transition
         # is triggered by one, the machine must KNOW it and hold it in the pool.
         for st in self.states.values():
-            for ad in (st.deferred or []):
-                if str(ad).strip():
-                    evs.add(str(ad).strip())
+            for name in (st.deferred or []):
+                if str(name).strip():
+                    evs.add(str(name).strip())
         return sorted(evs)
 
     def ordered_states(self) -> List[State]:

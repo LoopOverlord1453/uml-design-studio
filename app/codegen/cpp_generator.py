@@ -237,11 +237,11 @@ class CppGenerator:
                         KIND_HIST_SHALLOW: "shallow history",
                         KIND_HIST_DEEP: "deep history"}[st.kind]
             # The user's NOTE goes into the code as well (see the C generator).
-            aciklama = "%s, depth %d" % (kind_txt, st.depth)
+            description = "%s, depth %d" % (kind_txt, st.depth)
             if st.note:
-                aciklama = "%s -- %s" % (aciklama, _single_line(st.note))
+                description = "%s -- %s" % (description, _single_line(st.note))
             rows.append(("        %s" % st.name, "= %uU," % st.index,
-                             "///< %s" % aciklama))
+                             "///< %s" % description))
         rows.append(("        None", "= 255U", "///< invalid"))
         L += align_enum(rows)
         L += ["", "    };", ""]
@@ -419,8 +419,8 @@ class CppGenerator:
                 ("    void          drainDeferred() noexcept;",
                  "Replays retained occurrences that are no longer deferred."),
             ]
-        for bildirim, aciklama in gizli:
-            L += doc(["@brief %s" % aciklama], "    ")
+        for bildirim, description in gizli:
+            L += doc(["@brief %s" % description], "    ")
             L += [bildirim, ""]
 
         L += [section("instance state", "    ")]

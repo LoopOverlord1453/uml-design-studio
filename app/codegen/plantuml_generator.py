@@ -273,15 +273,15 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
     def head_row(s: State, pad: str, acik: bool) -> str:
         """Builds the `state X` / `state "Name" as X` line."""
         if alias[s.id] == s.name:
-            metin = "%sstate %s" % (pad, s.name)
+            text = "%sstate %s" % (pad, s.name)
         else:
-            metin = '%sstate "%s" as %s' % (pad, _esc(s.name), alias[s.id])
+            text = '%sstate "%s" as %s' % (pad, _esc(s.name), alias[s.id])
         stereo = _STEREOTIP.get(s.kind, "")
         if stereo:
-            metin += " " + stereo
+            text += " " + stereo
         if acik:
-            metin += " {"
-        return metin
+            text += " {"
+        return text
 
     def draw_order(parent: Optional[str],
                      region: Optional[int] = None) -> List[State]:

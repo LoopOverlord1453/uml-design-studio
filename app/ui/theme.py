@@ -378,10 +378,10 @@ def load_bundled_fonts() -> List[str]:
     if not os.path.isdir(root):
         return _loaded_families
 
-    for ad in sorted(os.listdir(root)):
-        if not ad.lower().endswith((".ttf", ".otf")):
+    for name in sorted(os.listdir(root)):
+        if not name.lower().endswith((".ttf", ".otf")):
             continue
-        fid = QFontDatabase.addApplicationFont(os.path.join(root, ad))
+        fid = QFontDatabase.addApplicationFont(os.path.join(root, name))
         if fid < 0:
             continue
         for aile in QFontDatabase.applicationFontFamilies(fid):

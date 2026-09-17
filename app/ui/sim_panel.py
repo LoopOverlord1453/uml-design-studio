@@ -74,12 +74,12 @@ def _clear_table(table: QTableWidget) -> None:
     event loop does not collect them. Because rebuild() is called on every model
     change these accumulate, and their signal connections survive as well.
     """
-    for satir in range(table.rowCount()):
+    for row in range(table.rowCount()):
         for column in range(table.columnCount()):
-            w = table.cellWidget(satir, column)
+            w = table.cellWidget(row, column)
             if w is None:
                 continue
-            table.removeCellWidget(satir, column)
+            table.removeCellWidget(row, column)
             try:
                 w.setParent(None)
                 w.deleteLater()
@@ -435,32 +435,32 @@ class SimulatorPanel(QWidget):
         """The names every guard reads, in first-seen order."""
         out: List[str] = []
         for expr in self._guards:
-            for ad in guard_expr.identifiers(expr):
-                if ad not in out:
-                    out.append(ad)
+            for name in guard_expr.identifiers(expr):
+                if name not in out:
+                    out.append(name)
         return out
 
     def _rebuild_variables(self) -> None:
-        adlar = self._guard_variables()
+        names = self._guard_variables()
         _clear_table(self.var_table)
-        self.var_table.setRowCount(len(adlar))
-        for satir, ad in enumerate(adlar):
-            oge = QTableWidgetItem(ad)
+        self.var_table.setRowCount(len(names))
+        for row, name in enumerate(names):
+            oge = QTableWidgetItem(name)
             oge.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.var_table.setItem(satir, 0, oge)
+            self.var_table.setItem(row, 0, oge)
 
-            box = QLineEdit(self._var_text.get(ad, ""))
+            box = QLineEdit(self._var_text.get(name, ""))
             box.setFont(mono_font(8))
             box.setPlaceholderText("0")
             box.setToolTip("A number (12, 0x0C, 1.5) or true / false")
             box.textChanged.connect(
-                lambda text, a=ad: self._set_variable(a, text))
-            self.var_table.setCellWidget(satir, 1, box)
+                lambda text, a=name: self._set_variable(a, text))
+            self.var_table.setCellWidget(row, 1, box)
             # On a rebuild, turn the previous text back into a value.
-            self._set_variable(ad, box.text(), refresh=False)
-        self.var_table.setVisible(bool(adlar))
-        self.lbl_var_empty.setVisible(not adlar)
-        if not adlar:
+            self._set_variable(name, box.text(), refresh=False)
+        self.var_table.setVisible(bool(names))
+        self.lbl_var_empty.setVisible(not names)
+        if not names:
             self.lbl_var_empty.setText(
                 "(no guard reads a plain variable — every condition is a "
                 "call, so set it by hand on the Guards tab)"
@@ -478,11 +478,11 @@ class SimulatorPanel(QWidget):
             self._refresh_guard_values()
 
     def _paint_variable_row(self, name: str, ok: bool, filled: bool) -> None:
-        for satir in range(self.var_table.rowCount()):
-            oge = self.var_table.item(satir, 0)
+        for row in range(self.var_table.rowCount()):
+            oge = self.var_table.item(row, 0)
             if oge is None or oge.text() != name:
                 continue
-            box = self.var_table.cellWidget(satir, 1)
+            box = self.var_table.cellWidget(row, 1)
             if box is None:
                 return
             if filled and not ok:
@@ -499,11 +499,11 @@ class SimulatorPanel(QWidget):
     def _rebuild_guards(self, guard_error: str = "") -> None:
         _clear_table(self.guard_table)
         self.guard_table.setRowCount(len(self._guards))
-        for satir, expr in enumerate(self._guards):
+        for row, expr in enumerate(self._guards):
             oge = QTableWidgetItem(expr)
             oge.setFlags(Qt.ItemFlag.ItemIsEnabled)
             oge.setToolTip(expr)
-            self.guard_table.setItem(satir, 0, oge)
+            self.guard_table.setItem(row, 0, oge)
 
             selection = QComboBox()
             selection.addItems(list(_MODES))
@@ -511,11 +511,11 @@ class SimulatorPanel(QWidget):
             selection.setCurrentText(self._guard_mode.get(expr, "auto"))
             selection.currentTextChanged.connect(
                 lambda mode, e=expr: self._set_guard_mode(e, mode))
-            self.guard_table.setCellWidget(satir, 1, selection)
+            self.guard_table.setCellWidget(row, 1, selection)
 
             value = QTableWidgetItem("")
             value.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.guard_table.setItem(satir, 2, value)
+            self.guard_table.setItem(row, 2, value)
 
         self.guard_table.setVisible(bool(self._guards))
         if guard_error:
@@ -555,27 +555,27 @@ class SimulatorPanel(QWidget):
         return result, "variables"
 
     def _refresh_guard_values(self) -> None:
-        for satir, expr in enumerate(self._guards):
-            oge = self.guard_table.item(satir, 2)
+        for row, expr in enumerate(self._guards):
+            oge = self.guard_table.item(row, 2)
             if oge is None:
                 continue
             value, source = self._resolve_guard(expr)
-            etiket = "true" if value else "false"
+            label = "true" if value else "false"
             if source == "unresolved":
-                etiket += "  ?"
+                label += "  ?"
                 oge.setToolTip(
                     "This condition cannot be computed from variables "
                     "(it is a call or uses a pointer). Force it with the "
                     "Mode column.")
-                renk = C.WARN
+                color = C.WARN
             elif source == "manual":
                 oge.setToolTip("Forced by hand in the Mode column.")
-                renk = C.TEXT_BRIGHT
+                color = C.TEXT_BRIGHT
             else:
                 oge.setToolTip("Computed from the Variables tab.")
-                renk = C.GREEN if value else C.ORANGE
-            oge.setText(etiket)
-            oge.setForeground(_brush(renk))
+                color = C.GREEN if value else C.ORANGE
+            oge.setText(label)
+            oge.setForeground(_brush(color))
 
     # actions
 
@@ -680,21 +680,21 @@ class SimulatorPanel(QWidget):
                         "else": "the default branch",
                         "unresolved": "not computable — assumed true"}.get(
                             source, source)
-            renk = C.GREEN if result == "true" else C.ORANGE
+            color = C.GREEN if result == "true" else C.ORANGE
             if source == "unresolved":
-                renk = C.WARN
+                color = C.WARN
             self._append("    ? %s  ⇒  %s   (%s)"
-                         % (" ".join(expr.split()), result, description), renk)
+                         % (" ".join(expr.split()), result, description), color)
             return
         if kind == "error":
             self._append("    !! %s" % detail, C.RED)
             return
-        metin = {"E": "    → entry   %s", "X": "    ← exit    %s",
+        text = {"E": "    → entry   %s", "X": "    ← exit    %s",
                  "D": "    ● do      %s", "A": "    » effect  %s",
                  "code": "              %s"}.get(kind, "    %s")
-        renk = {"E": C.GREEN, "X": C.ORANGE, "A": C.BLUE,
+        color = {"E": C.GREEN, "X": C.ORANGE, "A": C.BLUE,
                 "D": C.PURPLE}.get(kind, C.TEXT_DIM)
-        self._append(metin % " ".join(detail.split()), renk)
+        self._append(text % " ".join(detail.split()), color)
 
     def _append(self, text: str, color: str) -> None:
         self.trace.appendHtml(
@@ -709,9 +709,9 @@ class SimulatorPanel(QWidget):
         chain = self.sim.active_chain()
         sm = self.doc.machine
         names = [sm.states[i].name for i in reversed(chain) if i in sm.states]
-        metin = " ▸ ".join(names) if names else self.sim.state_name
-        self.lbl_state.setText(metin)
-        self._append("    = %s" % metin, C.SIM_ACTIVE)
+        text = " ▸ ".join(names) if names else self.sim.state_name
+        self.lbl_state.setText(text)
+        self._append("    = %s" % text, C.SIM_ACTIVE)
         if self.sim.is_terminated():
             self._append("    ■ machine terminated (final / terminate) — "
                          "further events are ignored", C.TEXT_DIM)
