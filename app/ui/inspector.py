@@ -1,4 +1,4 @@
-"""Secili elemanin ozelliklerini duzenleyen panel."""
+"""The panel that edits the properties of the selected element."""
 
 from __future__ import annotations
 
@@ -39,16 +39,16 @@ TKIND_LABELS = [
     ("local", TransitionKind.LOCAL),
 ]
 
-#: Sozde-durum turlerinin CIZIM OLCUSU. Tuvaldeki palet varsayilanlariyla
-#: (canvas._NEW_STATE_DEFAULTS) ayni olmalidir: ayni sekil, nasil
-#: yaratildigina gore farkli buyuklukte cizilmemelidir.
+#: The DRAWING SIZE of the pseudostate kinds. It must match the palette
+#: defaults on the canvas (canvas._NEW_STATE_DEFAULTS): the same shape must
+#: not be drawn at different sizes depending on how it was created.
 #:
-#: FORK, JOIN ve baglanti noktalari burada YOKTU. Eksiklik gorunurden
-#: fazlasini bozuyordu: 170x84 bir basit durum fork'a cevrilince asagidaki
-#: "cok kucukse buyut" dali da calismiyor (olcu zaten buyuk) ve ekranda
-#: cubuk yerine KOCA BIR KUTU kaliyordu. Bu sozde-durumlar yeniden
-#: boyutlandirilamadigi icin (bkz. StateItem.is_resizable) kullanicinin
-#: geri donusu de yoktu -- sekli duzeltmenin tek yolu ogeyi silip yeniden
+#: FORK, JOIN and the connection points WERE MISSING here. The gap broke more
+#: than looks: turning a 170x84 simple state into a fork also skipped the
+#: "enlarge if too small" branch below (the size was already large) and left A
+#: HUGE BOX on screen instead of a bar. Because these pseudostates cannot be
+#: resized (see StateItem.is_resizable) the user had no way back either -- the
+#: only way to fix the shape was to delete the element and draw it again.
 #: cizmekti.
 PSEUDO_SIZES = {
     StateKind.INITIAL: (24.0, 24.0),
@@ -64,8 +64,8 @@ PSEUDO_SIZES = {
     StateKind.EXIT_POINT: (18.0, 18.0),
 }
 
-#: GERCEK durum turlerinin, kucuk bir sozde-durumdan donuldugunde
-#: verilecek olcusu.
+#: The size given to the REAL state kinds when coming back from a small
+#: pseudostate.
 REAL_SIZES = {
     StateKind.COMPOSITE: (320.0, 200.0),
     StateKind.SUBMACHINE: (220.0, 96.0),
@@ -74,21 +74,21 @@ REAL_SIZES = {
 
 
 class _TekerleksizKarisim:
-    """Odakli DEGILKEN fare tekerlegini yok sayar.
+    """Ignores the mouse wheel while NOT focused.
 
-    GERCEK BIR VERI KAYBI KUSURUYDU. Qt'de bir QComboBox / QSpinBox,
-    imlec uzerindeyse tekerlek olayini yakalar ve DEGERINI DEGISTIRIR --
-    tiklanmamis, odaklanmamis olsa bile. Kullanici PROPERTIES panelini
-    kaydirirken imlec "Event" kutusunun uzerinden gecince kutu sessizce
-    ilk olaya ("BUTTON") atliyor, odak kaybinda da modele yaziliyordu.
+    THIS WAS A REAL DATA-LOSS DEFECT. In Qt a QComboBox / QSpinBox catches the
+    wheel event whenever the cursor is over it and CHANGES ITS VALUE -- even
+    when it has not been clicked or focused. While scrolling the PROPERTIES
+    panel, the cursor passing over the "Event" box made it jump silently to
+    the first event ("BUTTON"), and on focus loss that was written to the model.
 
-    Sonuc: baslangic (initial) gecisine olay eklenmis oluyor ve
-    "V034 - An initial transition cannot have an event." hatasi, kullanici
-    hicbir sey yazmadan Problems panelinde beliriyordu. Tam olarak
-    olculdu: tek bir tekerlek centigi '' -> 'BUTTON'.
+    The result: an event ended up on the initial transition and the error
+    "V034 - An initial transition cannot have an event." appeared in the
+    Problems panel without the user typing anything. We measured it exactly:
+    a single wheel notch went '' -> 'BUTTON'.
 
-    Odaklanmamis widget tekerlegi YOK SAYAR ve olayi ustteki kaydirma
-    alanina birakir; boylece panel beklenen sekilde kayar.
+    An unfocused widget IGNORES the wheel and leaves the event to the scroll
+    area above it, so the panel scrolls as expected.
     """
 
     def wheelEvent(self, event) -> None:
@@ -111,7 +111,7 @@ class NoWheelDoubleSpinBox(_TekerleksizKarisim, QDoubleSpinBox):
 
 
 class MiniCodeEdit(QPlainTextEdit):
-    """Kucuk, sozdizimi renklendirmeli tek/iki satirlik kod alani."""
+    """A small one- or two-line code field with syntax highlighting."""
 
     committed = pyqtSignal(str)
 
@@ -121,17 +121,17 @@ class MiniCodeEdit(QPlainTextEdit):
         self.setFont(mono_font(9))
         self.setPlaceholderText(placeholder)
 
-        # Satir sonu isaretini KESFEDILEBILIR yap. Isaret butun metin
-        # alanlarinda gecerli; cagiran daha ozel bir ipucu koyarsa
-        # (ornegin "baslangic gecisinde guard olamaz") o kazanir.
+        # Make the line-break marker DISCOVERABLE. The marker is valid in every
+        # text field; when the caller sets a more specific hint (such as "an
+        # initial transition cannot have a guard"), that one wins.
         self.setToolTip("Type %s to break the line on the diagram."
                         % LINE_BREAK_MARKER)
 
-        # DUZ METIN SARILIR, KOD SARILMAZ.
+        # PLAIN TEXT WRAPS, CODE DOES NOT.
         #
-        # Aciklama alani duz yazidir; sarmak dogal olani. Guard / eylem /
-        # include alanlari KOD tasir ve satir sonu anlamlidir, orada
-        # sarmak satiri yaniltici gosterir -- yatay kaydirma dogrusu.
+        # The description field is prose; wrapping is the natural thing. The guard /
+        # effect / include fields carry CODE where the line break is meaningful, and
+        # wrapping there misrepresents the line -- horizontal scrolling is right.
         self._wraps = not highlight
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth
                              if self._wraps
@@ -144,10 +144,10 @@ class MiniCodeEdit(QPlainTextEdit):
         self._rows = max(1, rows)
         self._apply_height()
 
-        # Zamanlayici BU WIDGET'IN COCUGU. Panel, secim degisince formu
-        # yikar; sahipsiz bir `QTimer.singleShot` silinmis C++ nesnesi
-        # uzerinde atesler ve sureci segfault ile dusururdu. Cocuk timer
-        # widget'la birlikte yok olur.
+        # The timer is A CHILD OF THIS WIDGET. The panel tears the form down when
+        # the selection changes; an ownerless `QTimer.singleShot` would fire on a
+        # deleted C++ object and drop the process with a segfault. A child timer
+        # dies together with the widget.
         self._fit_timer = QTimer(self)
         self._fit_timer.setSingleShot(True)
         self._fit_timer.setInterval(0)
@@ -163,60 +163,60 @@ class MiniCodeEdit(QPlainTextEdit):
         self.setPalette(pal)
         self._value = ""
 
-    #: Kutu en fazla bu kadar satira buyur; sonrasinda kaydirilir.
+    #: The box grows to at most this many rows; after that it scrolls.
     MAX_ROWS = 8
 
     def _chrome(self) -> int:
-        """Metin disindaki dikey giderler (cerceve, kenar, kaydirma cubugu).
+        """The vertical costs beyond the text (frame, margin, scroll bar).
 
-        Eski hesap ``lineSpacing * rows + 8`` idi ve uc gideri saymiyordu:
-        cerceve kalinligi, belge kenar boslugu ve -- en onemlisi --
-        **yatay kaydirma cubugu**. `NoWrap` ile uzun bir satir cubugu
-        getirir ve cubuk SABIT yuksekligin ICINDEN ~14 px goturur; son
-        satir tam da bu yuzden ortadan kesiliyordu.
+        The old calculation was ``lineSpacing * rows + 8`` and it counted none
+        of three costs: the frame width, the document margin and -- most
+        importantly -- the **horizontal scroll bar**. With `NoWrap` a long line
+        brings up the bar, and the bar takes about 14 px FROM INSIDE the fixed
+        height; that is exactly why the last line was cut in half.
         """
-        # +6: belge duzeninin yuvarlama payi. 4 px'te icerik bir-iki
-        # piksel tasiyor ve gereksiz bir kaydirma cubugu beliriyordu.
+        # +6: the rounding margin of the document layout. At 4 px the content
+        # overflowed by a pixel or two and an unnecessary scroll bar appeared.
         gider = 2 * self.frameWidth() + 2 * int(self.document().documentMargin()) + 6
         if not self._wraps:
             gider += self.horizontalScrollBar().sizeHint().height()
         return gider
 
     def _apply_height(self, satir: Optional[int] = None) -> None:
-        """Kutuyu `satir` (verilmezse `_rows`) satiri TAM gosterecek boyutlar."""
+        """The size that shows `rows` (or `_rows`) lines IN FULL."""
         n = self._rows if satir is None else satir
         n = max(self._rows, min(self.MAX_ROWS, n))
         self.setFixedHeight(self.fontMetrics().lineSpacing() * n + self._chrome())
 
     def _schedule_fit(self) -> None:
-        """Olcumu, Qt yerlesimi bitirdikten SONRAYA birakir.
+        """Defers the measurement until AFTER Qt has finished laying out.
 
-        `documentSizeChanged` widget daha yerlesmeden, genisligi
-        bilinmezken gelir ve her seferinde "1 satir" bildirir; o anda
-        olcmek aciklama kutusunu iki satirda cakili birakiyordu.
-        Sifir gecikmeli zamanlayici, olay dongusu bir tur dondukten --
-        yani viewport genisligi ve sarma hesabi kesinlestikten -- sonra
-        calisir. Tek-atimlik timer'i yeniden baslatmak, ardarda gelen
-        sinyalleri kendiliginden TEK olcume indirir.
+        `documentSizeChanged` arrives before the widget is laid out, while its
+        width is still unknown, and reports "1 line" every time; measuring then
+        left the description box nailed at two lines. A zero-delay timer runs
+        after the event loop has turned once -- that is, after the viewport
+        width and the wrapping calculation are settled. Restarting the
+        single-shot timer also collapses a burst of signals into ONE
+        measurement by itself.
         """
         self._fit_timer.start()
 
     def _on_doc_size(self, _boyut) -> None:
-        """`documentSizeChanged` -> olcumu ertele (gelen boyut bayat)."""
+        """`documentSizeChanged` -> defer the measurement (the size is stale)."""
         self._schedule_fit()
 
     def fit_to_content(self) -> None:
-        """Kutuyu ICERIGE gore buyutur (en fazla ::MAX_ROWS satir).
+        """Grows the box to fit ITS CONTENT (at most ::MAX_ROWS lines).
 
-        Sabit iki satir, aciklama gibi alanlarda metnin bir kismini
-        gorunmez birakiyordu: kullanici yazdigi cumleyi okumak icin
-        kaydirmak zorundaydi.
+        A fixed two lines left part of the text invisible in fields such as the
+        description: the user had to scroll to read the sentence they had just
+        written.
 
-        DIKKAT: `QPlainTextDocumentLayout.documentSize()` bir istisnadir.
-        Genisligi piksel, YUKSEKLIGI ise SATIR SAYISI olarak verir (duz
-        metin duzeni sadelestirilmis bir duzendir). Pikselmis gibi satir
-        yuksekligine bolmek 6 satirlik bir aciklamayi 0.4 -> 1 satira
-        indiriyor, kutu hic buyumuyordu.
+        CAREFUL: `QPlainTextDocumentLayout.documentSize()` is an exception. It
+        gives the width in pixels but the HEIGHT AS A LINE COUNT (the plain
+        text layout is a simplified one). Dividing it by the line height as if
+        it were pixels turned a six-line description into 0.4 -> 1 line and the
+        box never grew.
         """
         duzen = self.document().documentLayout()
         satir = duzen.documentSize().height() if duzen is not None else 0.0
@@ -226,13 +226,13 @@ class MiniCodeEdit(QPlainTextEdit):
 
         yeni = self.fontMetrics().lineSpacing() * hedef + self._chrome()
         if yeni != self.height():
-            # setFixedHeight yeni bir resizeEvent dogurur; yalnizca
-            # DEGISIKLIK varken cagirmak dongunun kapanmasini saglar.
+            # setFixedHeight gives birth to a new resizeEvent; calling it only when
+            # there IS a change is what closes the loop.
             self.setFixedHeight(yeni)
 
     def resizeEvent(self, event) -> None:
-        # Genislik degisince SARILAN metnin satir sayisi da degisir;
-        # panel daraldiginda kutu buyumezse alt satirlar gizlenirdi.
+        # When the width changes so does the line count of WRAPPED text; if the box
+        # did not grow as the panel narrowed, the lower lines would be hidden.
         super().resizeEvent(event)
         if self._wraps:
             self._schedule_fit()
@@ -241,9 +241,9 @@ class MiniCodeEdit(QPlainTextEdit):
         self._value = text
         if self.toPlainText() != text:
             self.setPlainText(text)
-        # Yukseklik documentSizeChanged sinyaliyle ayarlanir (bkz.
-        # fit_to_content); burada cagirmak yerlesme oncesi olacagi icin
-        # yanlis satir sayisi verir.
+        # The height is set by the documentSizeChanged signal (see
+        # fit_to_content); calling it here would happen before layout and give the
+        # wrong line count.
 
     def focusOutEvent(self, event) -> None:
         super().focusOutEvent(event)
@@ -257,7 +257,7 @@ class MiniCodeEdit(QPlainTextEdit):
 
 
 class Inspector(QScrollArea):
-    """Secime gore degisen ozellik formu."""
+    """A property form that changes with the selection."""
 
     message = pyqtSignal(str)
 
@@ -271,7 +271,7 @@ class Inspector(QScrollArea):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self._host = QWidget()
         self._layout = QVBoxLayout(self._host)
-        # Kullanici paneli "cok buyuk" buldu; bosluklar kisildi.
+        # The user found the panel "too big"; the spacings were tightened.
         self._layout.setContentsMargins(8, 6, 8, 6)
         self._layout.setSpacing(6)
         self.setWidget(self._host)
@@ -298,43 +298,43 @@ class Inspector(QScrollArea):
         self._layout.addStretch(1)
 
     def retheme(self) -> None:
-        """Formu yeniden kurar: satir-ici renkler kurulumda okunuyor."""
+        """Rebuilds the form: the inline colours are read at set-up."""
         self.show_selection(self._ids)
 
     def selected_ids(self) -> List[str]:
-        """Formun su an gosterdigi eleman id'leri."""
+        """The element ids the form is showing right now."""
         return list(self._ids)
 
     def refresh(self) -> None:
-        """Model disaridan degistiginde formu tazeler.
+        """Refreshes the form when the model is changed from outside.
 
-        Kullanici bir metin alanina YAZIYORSA dokunulmaz; aksi halde
-        yazilan sey tusa basildikca sifirlanirdi.
+        If the user IS TYPING in a text field it is left alone; otherwise what
+        they type would be reset on every keystroke.
 
-        AMA yalnizca metin alanlari icin. Eskiden panel ICINDEKI HERHANGI
-        bir bilesen odakliysa tazeleme tumden atlaniyordu ve en cok da
-        "Kind" kutusu bunu tetikliyordu: tur degistiren kullanicinin odagi
-        zaten o kutudadir. Form eski turun satirlariyla ayakta kaliyordu
-        -- bir basit durum junction'a cevrildikten sonra "Defers" ve
-        davranis kutulari ekranda duruyor, birine dokunmak UML'de
-        sozde-durumda BULUNAMAYACAK bir alani modele yaziyordu
-        (14.5.9.6: bunlar State ozellikleridir).
+        BUT only for text fields. The refresh used to be skipped entirely
+        whenever ANY widget INSIDE the panel had focus, and the "Kind" box
+        triggered that most of all: a user changing the kind already has focus
+        in that box. The form stayed up with the rows of the old kind -- after
+        a simple state was turned into a junction, the "Defers" and behaviour
+        boxes were still on screen, and touching one of them wrote a field into
+        the model that CANNOT EXIST on a pseudostate in UML (14.5.9.6: those
+        are State properties).
 
-        DONDURME KUTUSU DA KORUNUR, acilir kutu korunmaz. Ayrim, formun
-        yeniden kurulmasinin o bilesende NE BOZDUGUNA dayanir:
+        THE SPIN BOX IS PRESERVED TOO, the combo box is not. The distinction
+        rests on WHAT rebuilding the form BREAKS in that widget:
 
-        * "Kind" acilir kutusu formu ZATEN degistirmelidir -- turle
-          birlikte hangi satirlarin var olacagi degisir. Korunsaydi
-          sozde-duruma cevrilen bir durumda "Defers" ve davranis kutulari
+        * The "Kind" combo box MUST change the form -- which rows exist changes
+          with the kind. Preserved, a state turned into a pseudostate would
+          keep its "Defers" and behaviour boxes on screen.
           ekranda kalirdi.
-        * Dondurme kutusu ise formu degistirmez, ama yeniden kurulmak onu
-          YOK EDER: kullanici yukari okuna her bastiginda bilesen silinip
-          yeniden yaratiliyor, odak kayboluyor ve klavye izleme kapali
-          oldugu icin yarim yazilmis deger de atiliyordu.
+        * A spin box does not change the form, but rebuilding DESTROYS it:
+          every press of the up arrow deleted and recreated the widget, focus
+          was lost, and because keyboard tracking is off a half-typed value was
+          discarded as well.
 
-        NOT: `QApplication.focusWidget()` bir QSpinBox odaklandiginda
-        KUTUNUN KENDISINI dondurur, icindeki QLineEdit'i degil; bu yuzden
-        QAbstractSpinBox acikca listelenir.
+        NOTE: `QApplication.focusWidget()` returns THE BOX ITSELF when a
+        QSpinBox has focus, not the QLineEdit inside it; that is why
+        QAbstractSpinBox is listed explicitly.
         """
         from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,
                                      QLineEdit, QPlainTextEdit, QTextEdit)
@@ -344,21 +344,21 @@ class Inspector(QScrollArea):
             return
         self.show_selection(self._ids)
 
-    # -------------------------------------------------------------- yardimci #
+    # --------------------------------------------------------------- helpers #
 
     def _clear(self) -> None:
-        """Formu bosaltir.
+        """Empties the form.
 
-        deleteLater() TEK BASINA YETMEZ: silmeyi bir sonraki olay dongusune
-        erteler, oysa bilesen o ana kadar hala panelin cocugudur ve
-        yerlesimden cikarildigi icin son (ya da hic yerlesmemisse varsayilan
-        640x480) geometrisiyle panelin UZERINE cizilmeye devam eder.
-        Kullanici secimi hizlica degistirdiginde -- ya da bir alanin
-        editingFinished sinyali modeli degistirip refresh() cagirdiginda --
-        olay dongusu araya girmez ve ust uste binmis birden fazla "hayalet"
-        form gorunur. Once ayirip sonra silmek gerekir; silmeyi yine de
-        ertelemek sart, cunku bu kod silinen bilesenin kendi sinyalinin
-        icinden cagrilabilir.
+        deleteLater() ALONE IS NOT ENOUGH: it defers the deletion to the next
+        event loop, while until then the widget is still a child of the panel
+        and, removed from the layout, keeps painting OVER the panel with its
+        last (or, if never laid out, the default 640x480) geometry. When the
+        user changes the selection quickly -- or when the editingFinished signal
+        of a field changes the model and calls refresh() -- the event loop does
+        not get a turn and several overlapping "ghost" forms appear. They must
+        be detached first and deleted after; the deletion still has to be
+        deferred, because this code can be called from inside the deleted
+        widget's own signal.
         """
         while self._layout.count():
             item = self._layout.takeAt(0)
@@ -376,15 +376,15 @@ class Inspector(QScrollArea):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight
                                | Qt.AlignmentFlag.AlignVCenter)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        # ETIKET HER ZAMAN ALANIN USTUNDE.
+        # THE LABEL IS ALWAYS ABOVE THE FIELD.
         #
-        # Iki sutunlu duzende "Extra includes" gibi uzun bir etiket yaninda
-        # alana ~94 px kaliyordu ve icerik ("blinky_ctx_t",
-        # '#include "blinky_ctx.h"') kirpiliyordu -- kullanici yazdigi seyi
-        # goremiyordu. WrapLongRows denendi: Qt satiri "sigiyor" saydigi
-        # icin hic tetiklenmedi. Ozellikler paneli dogasi geregi DAR
-        # oldugundan tek sutun dogru olan: alan panelin TAM genisligini
-        # alir ve hicbir genislikte kirpilmaz.
+        # In a two-column layout, a long label such as "Extra includes" left about
+        # 94 px for the field and the content ("blinky_ctx_t",
+        # '#include "blinky_ctx.h"') was clipped -- the user could not see what they
+        # had typed. WrapLongRows was tried: Qt considered the row to "fit" so it
+        # never triggered. Because a properties panel is NARROW by nature, a single
+        # column is the right answer: the field takes the FULL width of the panel and
+        # is clipped at no width at all.
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft
                                | Qt.AlignmentFlag.AlignVCenter)
@@ -404,7 +404,7 @@ class Inspector(QScrollArea):
         if self.doc.edit(label, mutator):
             self.message.emit(label)
 
-    # --------------------------------------------------------------- makine  #
+    # -------------------------------------------------------------- machine  #
 
     def _build_machine(self) -> None:
         sm = self.doc.machine
@@ -450,7 +450,7 @@ class Inspector(QScrollArea):
 
         self._loading = False
 
-    # ---------------------------------------------------------------- durum  #
+    # ---------------------------------------------------------------- state  #
 
     def _build_state(self, sid: str) -> None:
         sm = self.doc.machine
@@ -485,10 +485,10 @@ class Inspector(QScrollArea):
         lbl.setStyleSheet("color: %s;" % C.TEXT_DIM)
         form.addRow("Parent state", lbl)
 
-        # ERTELENEN OLAYLAR -- yalnizca gercek durumlarda.
+        # DEFERRED EVENTS -- only on real states.
         #
-        # UML 2.5.1, 14.5.9.6: deferrableTrigger bir DURUM ozelligidir.
-        # Virgulle ayrilmis liste; bos birakmak "hicbiri" demektir.
+        # UML 2.5.1, 14.5.9.6: deferrableTrigger is a STATE property. A
+        # comma-separated list; leaving it empty means "none".
         if st.kind.is_real_state:
             ertelenen = QLineEdit(", ".join(st.deferred or []))
             ertelenen.setObjectName("state_deferred")
@@ -504,11 +504,11 @@ class Inspector(QScrollArea):
                     self._set_deferred(_sid, _f.text()), "Deferred events"))
             form.addRow("Defers", ertelenen)
 
-        # ALTMAKINE REFERANSI -- yalnizca altmakine durumlarinda.
+        # SUBMACHINE REFERENCE -- only on submachine states.
         #
-        # Calisma alanindaki .usm dosyalari LISTELENIR. Serbest metin
-        # kutusu olsaydi kullanici yolu yanlis yazabilir ve hatayi ancak
-        # kod uretiminde gorurdu; ustelik yol calisma alanina GOREDIR.
+        # The .usm files in the workspace are LISTED. With a free text box the user
+        # could mistype the path and would only see the error during code
+        # generation; and the path is RELATIVE to the workspace.
         if st.kind is StateKind.SUBMACHINE:
             secim = NoWheelComboBox()
             secim.setAccessibleName("Referenced machine")
@@ -521,8 +521,8 @@ class Inspector(QScrollArea):
             for yol in self._workspace_machines():
                 secim.addItem(yol, yol)
             if mevcut and secim.findData(mevcut) < 0:
-                # Referans edilen dosya artik yok; SESSIZCE silmek yerine
-                # goster ki kullanici neyin kayip oldugunu bilsin.
+                # The referenced file is gone; show it rather than removing it SILENTLY,
+                # so the user knows what is missing.
                 secim.addItem("%s  (missing)" % mevcut, mevcut)
             secim.setCurrentIndex(max(0, secim.findData(mevcut)))
             secim.activated.connect(
@@ -531,11 +531,11 @@ class Inspector(QScrollArea):
                     "Submachine reference"))
             form.addRow("Machine", secim)
 
-        # BOLGE SAYISI -- yalnizca bilesik durumlarda.
+        # REGION COUNT -- only on composite states.
         #
-        # UML 2.5.1, 14.2.3.2 (basili s.307): bir bilesik durum bir ya da
-        # daha cok bolge sahibidir; birden cok bolgesi olan durum
-        # ORTOGONALDIR ve bolgeleri es zamanli etkindir.
+        # UML 2.5.1, 14.2.3.2 (printed p.307): a composite state owns one or more
+        # regions; a state with several regions is ORTHOGONAL and its regions are
+        # active at the same time.
         if st.kind is StateKind.COMPOSITE:
             bolge = NoWheelSpinBox()
             bolge.setRange(1, 8)
@@ -545,24 +545,24 @@ class Inspector(QScrollArea):
                 "How many orthogonal regions this state owns. Two or more "
                 "regions run at the same time; each needs its own initial "
                 "pseudostate.")
-            # Klavye izleme KAPALI: kutuya "12" yazmak once 1 degerini
-            # yayinlar ve aradaki her deger ayri bir duzenleme olurdu.
+            # Keyboard tracking is OFF: typing "12" into the box would first emit the
+            # value 1, and every intermediate value would be a separate edit.
             bolge.setKeyboardTracking(False)
             bolge.valueChanged.connect(
                 lambda v, _sid=sid: self._edit(self._set_regions(_sid, v),
                                                "Region count"))
             form.addRow("Regions", bolge)
 
-        # DAVRANISLAR: yalnizca ICINDE KALINABILEN durumlarda.
+        # BEHAVIOURS: only on states that can be STAYED IN.
         #
-        # `is_real_state` FINAL'i de iceriyor cunku KOD URETIMI icin final
-        # de bir durumdur. Ama UML'de (14.2.3.4) bir FinalState entry /
-        # exit / doActivity TASIYAMAZ -- form yine de uc kutu aciyordu.
-        # Kullanici: "toollarin ozelliklerine gore properties tamami
-        # gozukmuyor"; ogenin turune ait OLMAYAN alanlar da gosteriliyordu.
-        # FINAL'de alanlar, ICLERINDE ZATEN BIR SEY VARSA gosterilir.
-        # Aksi halde eski bir dosyadan gelen davranis V069 hatasi uretir
-        # ama kullanicinin onu SILECEGI hicbir yer kalmazdi.
+        # `is_real_state` includes FINAL because for CODE GENERATION a final state is
+        # a state too. But in UML (14.2.3.4) a FinalState CANNOT CARRY entry / exit /
+        # doActivity -- and the form still opened three boxes. The user: "the
+        # properties do not show up according to the tool"; fields that did NOT belong
+        # to the kind of the element were being shown as well. On a FINAL state the
+        # fields are shown only IF THEY ALREADY CONTAIN SOMETHING. Otherwise a
+        # behaviour coming from an old file produces a V069 error with nowhere for the
+        # user to DELETE it.
         final_dolu = (st.kind == StateKind.FINAL
                       and (st.entry.strip() or st.exit.strip()
                            or st.do.strip()))
@@ -577,9 +577,9 @@ class Inspector(QScrollArea):
             for attr, caption, ph in (("entry", "entry /", "when the state becomes active"),
                                       ("exit", "exit /", "when the state is exited"),
                                       ("do", "do /", "on every <prefix>_do() call")):
-                # Tek satirla baslar, ICERIGE gore buyur (fit_to_content).
-                # Sabit iki satir, uc kutuda 39 px fazladan yer kapliyor ve
-                # form panele sigmiyordu.
+                # Starts at one line and grows WITH THE CONTENT (fit_to_content). A fixed
+                # two lines took 39 px extra across three boxes and the form did not fit
+                # in the panel.
                 ed = MiniCodeEdit(1, ph)
                 ed.set_value(getattr(st, attr))
                 ed.committed.connect(
@@ -591,14 +591,14 @@ class Inspector(QScrollArea):
                        "so printf(\"…%s\") is left alone."
                        % (LINE_BREAK_MARKER, LINE_BREAK_MARKER))
 
-        # GEOMETRI ALANLARI (X / Y / Width / Height) KALDIRILDI.
+        # THE GEOMETRY FIELDS (X / Y / Width / Height) WERE REMOVED.
         #
-        # Kullanici: "properties'de sacma ozellikleri yazma, x y eksenindeki
-        # bilgileri ben ne yapayim, ya da genislik yukseklik gibi". Hakli:
-        # kutuyu tuvalde surukleyerek ve kenarindan cekerek konumlandirmak
-        # hem daha hizli hem de gordugun seyi verir. Dort sayi kutusu
-        # panelin en degerli yerini -- davranislarin hemen altini --
-        # kapliyordu. Konum/boyut MODELDE duruyor, yalnizca formdan cikti.
+        # The user: "do not write silly properties in the panel, what am I to do
+        # with the x and y axis information, or the width and height". Fair: placing
+        # the box by dragging it on the canvas and pulling its edge is both faster
+        # and gives you what you see. Four spin boxes occupied the most valuable
+        # part of the panel -- right under the behaviours. The position/size stay IN
+        # THE MODEL; they only left the form.
         note_grubu = self._group("Note")
         note = QLineEdit(st.note)
         note.editingFinished.connect(
@@ -609,7 +609,7 @@ class Inspector(QScrollArea):
         self._loading = False
 
     def _set_deferred(self, sid: str, metin: str):
-        """Virgulle ayrilmis listeyi ERTELENEN olaylara cevirir."""
+        """Turns a comma-separated list into DEFERRED events."""
         adlar = []
         for parca in (metin or "").replace(";", ",").split(","):
             ad = parca.strip()
@@ -623,23 +623,23 @@ class Inspector(QScrollArea):
         return mutate
 
     def _workspace_machines(self):
-        """Calisma alanindaki durum makinesi dosyalari (goreli yollar).
+        """The state machine files in the workspace (relative paths).
 
-        `Workspace.model_path` bir OZELLIKTIR, islev degil. Burada
-        `ws.model_path()` diye cagriliyordu: her seferinde
-        `TypeError: 'str' object is not callable` firlatiyor, hemen
-        altindaki genis `except Exception` onu yutuyor ve islev BOS LISTE
-        donduruyordu.
+        `Workspace.model_path` is a PROPERTY, not a function. It was being
+        called here as `ws.model_path()`: it threw
+        `TypeError: 'str' object is not callable` every time, the broad
+        `except Exception` right below swallowed it, and the function returned
+        AN EMPTY LIST.
 
-        Sonucu kucuk degildi: "Machine" acilir kutusu HER calisma
-        alaninda, HER ZAMAN bos kaliyordu. Kullanici bir altmakine durumu
-        cizebiliyor ama onu bir makineye BAGLAYAMIYORDU -- yani
-        altmakine ozelliginin tamami arayuzden erisilemezdi. Kusuru
-        gizleyen sey de o genis `except`ti: bir programlama hatasini
-        "hicbir makine bulunamadi" gibi makul bir sonuca cevirdi.
+        The consequence was not small: the "Machine" combo box was ALWAYS empty,
+        in EVERY workspace. The user could draw a submachine state but could
+        NOT BIND it to a machine -- so the whole submachine feature was
+        unreachable from the interface. What hid the defect was that broad
+        `except`: it turned a programming error into a plausible-looking
+        "no machine was found".
 
-        Bu yuzden burada artik YALNIZCA dosya sistemi hatalari yutulur;
-        baska bir istisna yukari cikar ve gorunur olur.
+        So only file system errors are swallowed here now; any other exception
+        travels up and becomes visible.
         """
         import os
         pencere = self.window()
@@ -660,7 +660,7 @@ class Inspector(QScrollArea):
             try:
                 out.append(ws.relative(os.path.join(kok, ad)))
             except ValueError:
-                continue                        # kok disinda kalan yol
+                continue                        # a path that falls outside the root
         return out
 
     def _set_submachine(self, sid: str, ref: str):
@@ -671,18 +671,18 @@ class Inspector(QScrollArea):
         return mutate
 
     def _set_regions(self, sid: str, sayi: int):
-        """Bilesik durumun bolge sayisini degistiren islem.
+        """The operation that changes the region count of a composite state.
 
-        KUCULTMEK ARTIK KAYIPLI DEGILDIR. Bolge numarasi, ogenin
-        cizildigi SERITTEN her yeniden cizimde yeniden okunur
-        (DiagramCanvas._sync_regions_from_drawing) ve ogelerin
-        koordinati bu islemde degismez. Uc bolgeden bire inip yeniden
-        uce cikmak, eski dagilimi aynen geri getirir: bilgi zaten
-        `region` alaninda degil, KONUMDA duruyordu.
+        SHRINKING IS NO LONGER LOSSY. The region number is reread from the BAND
+        the element is drawn in on every redraw
+        (DiagramCanvas._sync_regions_from_drawing) and the coordinates of the
+        elements do not change in this operation. Going from three regions down
+        to one and back to three restores the old distribution exactly: the
+        information was never in the `region` field but IN THE POSITION.
 
-        Buradaki kelepceleme, tuval bir sonraki kez cizilene kadar
-        modelin gecerli kalmasi icindir; eski ya da elle duzenlenmis bir
-        dosya olmayan bir bolgeyi gosteriyorsa da onu toparlar
+        The clamping here is so the model stays valid until the canvas is drawn
+        next; and if an old or hand-edited file points at a region that does not
+        exist, it tidies that up too (the validator also reports it with V103).
         (dogrulayici ayrica V103 ile bildirir).
         """
         def mutate(machine):
@@ -718,11 +718,11 @@ class Inspector(QScrollArea):
             target.kind = new_kind
             if new_kind in PSEUDO_SIZES:
                 target.w, target.h = PSEUDO_SIZES[new_kind]
-                # Sozde-durumun DAVRANISI OLMAZ. UML 2.5.1, 14.5.9.6:
-                # entry/exit/doActivity ve ertelenen tetikleyiciler State
-                # ozellikleridir, Pseudostate degil. Ertelenen olaylar
-                # eskiden HIC temizlenmiyordu: bir basit durumu junction'a
-                # cevirmek, uretilen `deferred[]` tablosunda hicbir
+                # A PSEUDOSTATE HAS NO BEHAVIOUR. UML 2.5.1, 14.5.9.6: entry/exit/
+                # doActivity and the deferred triggers are State properties, not
+                # Pseudostate ones. The deferred events used never to be cleared: turning
+                # a simple state into a junction left a record in the generated
+                # `deferred[]` table that no diagram element accounted for.
                 # diyagram ogesinin anlatmadigi bir kayit birakiyordu.
                 target.entry = ""
                 target.exit = ""
@@ -732,9 +732,9 @@ class Inspector(QScrollArea):
                 target.w, target.h = REAL_SIZES.get(new_kind,
                                                     REAL_SIZES[StateKind.SIMPLE])
             if new_kind is not StateKind.SUBMACHINE:
-                # Alt makine adi yalnizca SUBMACHINE turunde anlamlidir;
-                # kalirsa dogrulama ve duzlestirme olmayan bir belgeyi
-                # aramaya devam eder.
+                # The submachine name is meaningful only on the SUBMACHINE kind; left in
+                # place, validation and flattening keep looking for a document that does
+                # not exist.
                 target.submachine_ref = ""
 
         self._edit(mutate, "State kind")
@@ -745,7 +745,7 @@ class Inspector(QScrollArea):
             field.setFocus()
             field.selectAll()
 
-    # ---------------------------------------------------------------- gecis  #
+    # ----------------------------------------------------------- transition  #
 
     def _build_transition(self, tid: str) -> None:
         sm = self.doc.machine
@@ -757,16 +757,16 @@ class Inspector(QScrollArea):
         src = sm.states.get(tr.source)
         dst = sm.states.get(tr.target)
         route = QLabel("%s  →  %s" % (src.name if src else "?", dst.name if dst else "?"))
-        # STATE_TITLE tuvaldeki renkli baslik seridi icindir (iki temada da
-        # beyaz); acik temada panel zemininde okunmazdi.
+        # STATE_TITLE is for the coloured title strip on the canvas (white in both
+        # themes); it was unreadable on the panel background in the light theme.
         route.setStyleSheet("color: %s; font-weight: 700;" % C.TEXT_BRIGHT)
         form.addRow("Route", route)
 
-        # BASLANGIC GECISI olay da koruma da TASIYAMAZ (UML 2.5.1
-        # §14.5.6.7; dogrulayicida V034 / V035). Alanlari yazilabilir
-        # birakmak kullaniciyi ancak hata uretmeye davet eder -- nitekim
-        # tekerlek kazasiyla tam da bu oldu. Alanlar gorunur kalir
-        # (kural ogreticidir) ama KAPALIDIR ve nedenini soyler.
+        # AN INITIAL TRANSITION CAN CARRY NEITHER an event NOR a guard (UML 2.5.1
+        # §14.5.6.7; V034 / V035 in the validator). Leaving the fields writable only
+        # invites the user to produce an error -- which is exactly what the wheel
+        # accident did. The fields stay visible (the rule is instructive) but are
+        # DISABLED and say why.
         baslangic = src is not None and src.kind == StateKind.INITIAL
 
         event = NoWheelComboBox()
@@ -837,7 +837,7 @@ class Inspector(QScrollArea):
 
         self._loading = False
 
-    # ------------------------------------------------------------- coklu secim
+    # ------------------------------------------------------ multiple selection
 
     def _build_multi(self, n_states: int, n_trans: int) -> None:
         form = self._group("Multiple selection")
