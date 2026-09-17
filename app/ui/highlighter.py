@@ -1,22 +1,22 @@
-"""C / C++ kod paneli renklendiricisi.
+"""Syntax highlighter for the C / C++ code panel.
 
-SADE OLMASI BILINCLIDIR
------------------------
-Panel eskiden Visual Studio klasik semasini taklit ediyordu: anahtar
-kelimeler mavi, tipler camgobegi, dizeler kirmizi, makrolar mor... Bu sema
-arayuz temasindan bagimsiz olarak beyaz zemin varsayiyordu ve koyu temada
-kod paneli goz alici bir beyaz lekeye donusuyordu.
+BEING PLAIN IS DELIBERATE
+-------------------------
+The panel used to imitate the classic Visual Studio scheme: keywords blue,
+types cyan, strings red, macros purple... That scheme assumed a white
+background regardless of the interface theme, and in the dark theme the code
+panel turned into a glaring white patch.
 
-Simdi tek bir kural var: **yalnizca yorumlar yesildir**, kodun geri kalani
-duz metin rengindedir. Renkler etkin temadan gelir (bkz. theme.C.CODE_*).
-
-DIZELER YINE DE TARANIR
------------------------
-Renklendirilmeseler bile dize ve karakter sabitlerinin sinirlarini bilmek
-ZORUNLUDUR: aksi halde ``"http://example"`` ya da ``"/*"`` iceren bir dize
-yanlislikla yorum baslatir ve satirin geri kalani -- hatta dosyanin geri
-kalani -- yesile boyanirdi. Uretilen MCU sablonlari derleme komutunu bir
-yorum icinde tasidigi icin bu kose durum gercekten olusur.
+Now there is a single rule: **only comments are green**, the rest of the code
+is in the plain text colour. The colours come from the active theme
+(see theme.C.CODE_*).
+STRINGS ARE STILL SCANNED
+-------------------------
+Even though they are not coloured, knowing the boundaries of string and
+character literals is MANDATORY: otherwise a string containing
+``"http://example"`` or ``"/*"`` would start a comment by accident and the
+rest of the line -- or even of the file -- would turn green. The generated MCU
+templates carry a compile command inside a comment, so this corner case is real.
 """
 
 from __future__ import annotations
@@ -35,10 +35,10 @@ def _fmt(color: str) -> QTextCharFormat:
     return f
 
 
-#: Dize / karakter sabiti baslangici (kacis dizileri dahil).
+#: The start of a string / character literal (escape sequences included).
 _RE_LITERAL = re.compile(r'"(?:[^"\\\n]|\\.)*"?' + r"|'(?:[^'\\\n]|\\.)*'?")
 
-#: Denetim akisi ve bildirim anahtar kelimeleri (C99 + C++11 kesisimi).
+#: Control-flow and declaration keywords (the C99 + C++11 intersection).
 _KEYWORDS = (
     "alignas alignof and and_eq asm auto bitand bitor bool break case catch "
     "class compl const consteval constexpr const_cast continue decltype "
@@ -50,9 +50,9 @@ _KEYWORDS = (
     "typedef typeid typename union using virtual volatile while xor xor_eq"
 ).split()
 
-#: Tip adlari ayri bir renk alir: gomulu kodda genislikli tipler
-#: (uint8_t, int16_t ...) kodun yarisini olusturur ve anahtar
-#: kelimelerden ayri okunmalari yapiyi hizli taratir.
+#: Type names get a separate colour: in embedded code the sized types
+#: (uint8_t, int16_t ...) make up half the code, and reading them apart
+#: from keywords makes the structure quick to scan.
 _TYPES = (
     "char double float int long short signed unsigned void size_t ssize_t "
     "ptrdiff_t intptr_t uintptr_t wchar_t char16_t char32_t "
@@ -63,28 +63,28 @@ _TYPES = (
 _RE_KEYWORD = re.compile(r"\b(?:%s)\b" % "|".join(_KEYWORDS))
 _RE_TYPE = re.compile(r"\b(?:%s)\b" % "|".join(_TYPES))
 
-#: Sayi sabitleri: ondalik, onaltilik, kayan nokta ve sonekler (U, UL, f).
+#: Numeric literals: decimal, hex, floating point and suffixes (U, UL, f).
 _RE_NUMBER = re.compile(
     r"\b(?:0[xX][0-9a-fA-F]+|\d+\.?\d*(?:[eE][+-]?\d+)?)"
     r"(?:[uUlLfF]+)?\b")
 
-#: Onislemci satiri: satirin basindaki '#' ve hemen ardindaki sozcuk.
+#: A preprocessor line: the '#' at the start and the word right after it.
 _RE_PREPROC = re.compile(r"^\s*#\s*\w+")
 
-#: Islev cagrisi / tanimi: '(' ile biten tanimlayici.
+#: A function call / definition: an identifier followed by '('.
 _RE_FUNCTION = re.compile(r"\b([A-Za-z_]\w*)\s*(?=\()")
 
 
 class CppHighlighter(QSyntaxHighlighter):
-    """Hem C hem C++ icin; yalnizca yorumlari boyar."""
+    """For both C and C++; it colours comments only."""
 
-    #: Onceki satir kapanmamis bir ``/* ... */`` icinde bitti.
+    #: The previous line ended inside an unclosed ``/* ... */``.
     IN_COMMENT = 1
 
     def __init__(self, document) -> None:
         super().__init__(document)
-        # Renkler KURULUMDA okunur; tema degisiminde CodeEditor.retheme()
-        # renklendiriciyi yeniden kurar (bkz. code_editor.py).
+        # The colours are read AT SET-UP; on a theme change CodeEditor.retheme()
+        # rebuilds the highlighter (see code_editor.py).
         self.f_comment = _fmt(C.CODE_COMMENT)
         self.f_keyword = _fmt(C.CODE_KEYWORD)
         self.f_type = _fmt(C.CODE_TYPE)
@@ -96,10 +96,10 @@ class CppHighlighter(QSyntaxHighlighter):
     # ------------------------------------------------------------------ API #
 
     def highlightBlock(self, text: str) -> None:
-        # SIRA ONEMLI. Once kod boyanir, sonra dizeler, en son yorumlar --
-        # her adim oncekinin uzerine yazar. Ters sirada `// return x;`
-        # icindeki `return` anahtar kelime rengiyle yesil yorumun ustune
-        # binerdi; yorum icinde sozdizimi YOKTUR.
+        # THE ORDER MATTERS. Code first, then strings, comments last -- each step
+        # paints over the previous one. In the reverse order the `return` inside
+        # `// return x;` would sit on top of the green comment in the keyword
+        # colour; there is NO syntax inside a comment.
         self._paint_code(text)
 
         spans: List[Tuple[int, int]] = []
@@ -124,9 +124,9 @@ class CppHighlighter(QSyntaxHighlighter):
                 break
             kind, start, length = nxt
             if kind == "literal":
-                # Dize BOYANIR ve uzerinden ATLANIR: icindeki // ya da /*
-                # yorum baslatmamalidir (uretilen MCU sablonlari derleme
-                # komutunu bir dizede tasir).
+                # A string IS PAINTED and SKIPPED OVER: a // or /* inside it must not
+                # start a comment (the generated MCU templates carry a compile command
+                # inside a string).
                 literals.append((start, length))
                 pos = start + length
             elif kind == "line":
@@ -145,13 +145,13 @@ class CppHighlighter(QSyntaxHighlighter):
             if length > 0:
                 self.setFormat(start, length, self.f_comment)
 
-    # ------------------------------------------------------------ yardimci #
+    # ------------------------------------------------------------- helpers #
 
     def _paint_code(self, text: str) -> None:
-        """Satirin TAMAMINI kod varsayarak boyar.
+        """Colours the WHOLE line as if it were code.
 
-        Dize ve yorum bolgeleri cagiran tarafta UZERINE YAZILIR; burada
-        onlari ayirt etmeye calismak ayni taramayi iki kez yapmak olurdu.
+        String and comment regions are OVERWRITTEN by the caller; trying to
+        tell them apart here would mean doing the same scan twice.
         """
         onislemci = _RE_PREPROC.match(text)
         if onislemci is not None:
@@ -161,9 +161,9 @@ class CppHighlighter(QSyntaxHighlighter):
         for m in _RE_FUNCTION.finditer(text):
             self.setFormat(m.start(1), m.end(1) - m.start(1), self.f_function)
 
-        # Anahtar kelime ve tipler islev adlarindan SONRA gelir: `if (` ve
-        # `sizeof (` parantezle bittigi icin islev sanilir, dogru renk
-        # anahtar kelime rengidir.
+        # Keywords and types come AFTER the function names: `if (` and
+        # `sizeof (` end with a parenthesis and look like functions, but the
+        # right colour is the keyword colour.
         for m in _RE_TYPE.finditer(text):
             self.setFormat(m.start(), m.end() - m.start(), self.f_type)
         for m in _RE_KEYWORD.finditer(text):
@@ -173,14 +173,14 @@ class CppHighlighter(QSyntaxHighlighter):
 
     @staticmethod
     def _next_token(text: str, pos: int) -> Optional[Tuple[str, int, int]]:
-        """Konumdan sonraki ILK ilgin belirteci bulur.
+        """Finds the FIRST interesting token after the position.
 
-        Doner: ("literal" | "line" | "block", baslangic, uzunluk).
-        Uzunluk yalnizca "literal" icin anlamlidir.
+        Returns: ("literal" | "line" | "block", start, length).
+        The length is meaningful for "literal" only.
 
-        En erken eslesme kazanir; bu yuzden ucu de aranip karsilastirilir.
-        Sadece sirayla aramak ``x = "a"; // not`` gibi bir satirda yorumu
-        dizeden once bulurdu.
+        The earliest match wins, so all three are searched and compared.
+        Searching them in order would find the comment before the string on a
+        line such as ``x = "a"; // note``.
         """
         line = text.find("//", pos)
         block = text.find("/*", pos)

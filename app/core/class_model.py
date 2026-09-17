@@ -1,14 +1,14 @@
-"""Veri modeli: UML sinif diyagrami.
+"""Data model: the UML class diagram.
 
-Bu modul yalnizca *veri* tutar; Qt'ye bagimliligi yoktur.
+This module holds *data* only; it does not depend on Qt.
 
-Semantik dayanak: UML 2.5.1, Bolum 9 (Classification) ve Bolum 11
-(StructuredClassifiers). Desteklenen oğeler:
+Semantic basis: UML 2.5.1, clause 9 (Classification) and clause 11
+(StructuredClassifiers). Supported elements:
   * Class / Abstract Class / <<interface>>
-  * Attribute (gorunurluk, tip, varsayilan deger, statik, coklugu)
-  * Operation (gorunurluk, parametreler, donus tipi, soyut, statik, const)
+  * Attribute (visibility, type, default value, static, multiplicity)
+  * Operation (visibility, parameters, return type, abstract, static, const)
   * Association / Aggregation / Composition / Generalization /
-    Realization / Dependency (uc coklugu ve rol adlariyla)
+    Realization / Dependency (with end multiplicities and role names)
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ def new_id(prefix: str) -> str:
 
 
 class Stereotype(str, Enum):
-    """Sinifin UML kaliplari."""
+    """The UML stereotypes of a class."""
 
     CLASS = "class"
-    ABSTRACT = "abstract"      # italik ad
+    ABSTRACT = "abstract"      # italic name
     INTERFACE = "interface"    # <<interface>>
 
 
@@ -42,19 +42,19 @@ class Visibility(str, Enum):
 
 
 class RelationKind(str, Enum):
-    """UML iliski turleri (cizim ucundaki isaretle birlikte)."""
+    """UML relationship kinds (with the marker at the drawing end)."""
 
-    ASSOCIATION = "association"        # duz cizgi + acik ok
-    AGGREGATION = "aggregation"        # ici bos elmas (paylasilan butun-parca)
-    COMPOSITION = "composition"        # dolu elmas (sahiplenen butun-parca)
-    GENERALIZATION = "generalization"  # ici bos ucgen (kalitim)
-    REALIZATION = "realization"        # kesikli cizgi + ici bos ucgen
-    DEPENDENCY = "dependency"          # kesikli cizgi + acik ok
+    ASSOCIATION = "association"        # plain line + open arrow
+    AGGREGATION = "aggregation"        # hollow diamond (shared whole-part)
+    COMPOSITION = "composition"        # filled diamond (owning whole-part)
+    GENERALIZATION = "generalization"  # hollow triangle (inheritance)
+    REALIZATION = "realization"        # dashed line + hollow triangle
+    DEPENDENCY = "dependency"          # dashed line + open arrow
 
 
 @dataclass
 class Attribute:
-    """Sinif niteliyi:  gorunurluk ad : tip = varsayilan"""
+    """A class attribute:  visibility name : type = default"""
 
     name: str = "attr"
     type: str = "int32_t"
@@ -80,16 +80,16 @@ class Parameter:
 
 @dataclass
 class Operation:
-    """Sinif islemi:  gorunurluk ad(parametreler) : donus"""
+    """A class operation:  visibility name(parameters) : return"""
 
     name: str = "operation"
     return_type: str = "void"
     visibility: str = Visibility.PUBLIC.value
     params: List[Parameter] = field(default_factory=list)
     static: bool = False
-    abstract: bool = False      # C++: saf sanal; C: vtable girisi
+    abstract: bool = False      # C++: pure virtual; C: a vtable entry
     const: bool = False
-    body: str = ""              # istege bagli govde (C/C++ deyimleri)
+    body: str = ""              # optional body (C/C++ statements)
 
     def label(self) -> str:
         args = ", ".join("%s : %s" % (p.name, p.type) for p in self.params)
@@ -149,18 +149,18 @@ class UmlClass:
 
 @dataclass
 class Relation:
-    """Iki sinif arasindaki iliski. source -> target yonu:
-       Generalization/Realization : source, target'tan turer.
-       Aggregation/Composition    : source BUTUN, target PARCA'dir.
-       Association/Dependency     : source, target'i kullanir."""
+    """A relationship between two classes. The source -> target direction:
+       Generalization/Realization : source derives from target.
+       Aggregation/Composition    : source is the WHOLE, target the PART.
+       Association/Dependency     : source uses target."""
 
     id: str = field(default_factory=lambda: new_id("r"))
     source: str = ""
     target: str = ""
     kind: RelationKind = RelationKind.ASSOCIATION
     label: str = ""
-    source_mult: str = ""       # kaynak uctaki cokluk (or. "1")
-    target_mult: str = ""       # hedef uctaki cokluk (or. "0..*")
+    source_mult: str = ""       # multiplicity at the source end (e.g. "1")
+    target_mult: str = ""       # multiplicity at the target end (e.g. "0..*")
     source_role: str = ""
     target_role: str = ""
 
@@ -179,16 +179,16 @@ class Relation:
 
 @dataclass
 class ClassModel:
-    """Tum sinif diyagramini temsil eden dokuman."""
+    """The document representing the whole class diagram."""
 
     name: str = "Design"
-    prefix: str = "design"      # C sembol on eki / C++ ad uzayi
+    prefix: str = "design"      # C symbol prefix / C++ namespace
     description: str = ""
     user_includes: str = ""
     classes: Dict[str, UmlClass] = field(default_factory=dict)
     relations: Dict[str, Relation] = field(default_factory=dict)
 
-    # -- erisim yardimcilari ------------------------------------------------ #
+    # -- accessors # -------------------------------------------------------- #
 
     def add_class(self, c: UmlClass) -> UmlClass:
         self.classes[c.id] = c
@@ -218,7 +218,7 @@ class ClassModel:
                                      order.get(r.target, 1 << 30), r.id))
 
     def parents_of(self, cid: str) -> List[UmlClass]:
-        """Generalization/Realization ile turedigi siniflar."""
+        """The classes it derives from via Generalization/Realization."""
         out: List[UmlClass] = []
         for r in self.ordered_relations():
             if r.source == cid and r.kind in (RelationKind.GENERALIZATION,
@@ -229,7 +229,7 @@ class ClassModel:
         return out
 
     def generalization_parent(self, cid: str) -> Optional[UmlClass]:
-        """Tek kalitim varsayimiyla ilk generalization ebeveyni."""
+        """The first generalization parent, assuming single inheritance."""
         for r in self.ordered_relations():
             if r.source == cid and r.kind is RelationKind.GENERALIZATION:
                 return self.classes.get(r.target)
@@ -245,7 +245,7 @@ class ClassModel:
         return out
 
     def owned_parts(self, cid: str) -> List[Relation]:
-        """Bu sinifin BUTUN oldugu aggregation/composition iliskileri."""
+        """The aggregation/composition relationships where this class is WHOLE."""
         return [r for r in self.ordered_relations()
                 if r.source == cid and r.kind in (RelationKind.AGGREGATION,
                                                   RelationKind.COMPOSITION)]
@@ -255,11 +255,11 @@ class ClassModel:
                 if r.source == cid and r.kind is RelationKind.ASSOCIATION]
 
     def value_part_deps(self, cid: str) -> List[UmlClass]:
-        """DEGER (by-value) olarak gomulen siniflar; tam tip tanimlari uretilen
-        kodda bu siniftan ONCE gelmek zorundadir:
-          * Composition parcasi (soyut/arayuz degilse deger uyesidir),
-          * diyagramdaki bir sinifi gosterici olmadan tip olarak kullanan
-            nitelikler.
+        """Classes embedded BY VALUE; their full type definitions must come
+        BEFORE this class in the generated code:
+          * a composition part (a value member unless abstract/interface),
+          * attributes that use a class from the diagram as a type without
+            going through a pointer.
         """
         c = self.classes.get(cid)
         if c is None:
@@ -283,8 +283,8 @@ class ClassModel:
         return out
 
     def topo_sorted(self) -> List[UmlClass]:
-        """Bagimlilik sirasina gore: once temel siniflar/arayuzler ve deger
-        olarak gomulen parcalar (uretilen basliklarin derlenebilmesi icin)."""
+        """In dependency order: base classes/interfaces and the parts embedded
+        by value first (so the generated headers compile)."""
         visited: Dict[str, int] = {}
         out: List[UmlClass] = []
 
@@ -292,7 +292,7 @@ class ClassModel:
             state = visited.get(c.id, 0)
             if state == 2:
                 return
-            if state == 1:      # dongu - dogrulayici hata verir; yine de kir
+            if state == 1:      # a cycle - the validator reports it; break anyway
                 return
             visited[c.id] = 1
             for p in self.parents_of(c.id) + self.value_part_deps(c.id):
@@ -304,7 +304,7 @@ class ClassModel:
             visit(c)
         return out
 
-    # -- serilestirme -------------------------------------------------------- #
+    # -- serialisation # ----------------------------------------------------- #
 
     def to_dict(self) -> dict:
         return {
@@ -342,7 +342,7 @@ class ClassModel:
         return ClassModel.from_dict(json.loads(text))
 
     def assign_from(self, other: "ClassModel") -> None:
-        """Ayni nesneyi koruyarak icerigi degistirir (undo/yukleme icin)."""
+        """Replaces the content while keeping the same object (undo/load)."""
         self.name = other.name
         self.prefix = other.prefix
         self.description = other.description

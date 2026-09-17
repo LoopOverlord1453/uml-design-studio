@@ -1,4 +1,4 @@
-"""Sag panel: uretilen kaynak dosyalar, dil secimi ve disa aktarma."""
+"""The right panel: generated source files, language choice and export."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ LANGUAGES = [
 
 
 class CodePanel(QWidget):
-    """Uretilen kodu gosteren, salt-okunur sekmeli panel."""
+    """A read-only tabbed panel that shows the generated code."""
 
     language_changed = pyqtSignal(str)
     export_requested = pyqtSignal()
@@ -31,13 +31,13 @@ class CodePanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._editors: Dict[str, CodeEditor] = {}
-        self._shown: Dict[str, str] = {}      # son gosterilen icerik (normalize)
+        self._shown: Dict[str, str] = {}      # the content last shown (normalised)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # -------------------------------------------------------------- baslik
+        # -------------------------------------------------------------- header
         bar = QFrame()
         bar.setObjectName("codeBar")
         self._bar = bar
@@ -59,10 +59,10 @@ class CodePanel(QWidget):
         self.language = QComboBox()
         for text, key in LANGUAGES:
             self.language.addItem(text, key)
-        # SABIT GENISLIK DEGIL: sabit 140 px, baslik seridinin asgari
-        # genisligini panelin tamamina dayatiyordu (555 px). Panel o
-        # sinirin altina inemedigi icin "dar oldugunda gizle" mantigi hic
-        # devreye girmiyor, bunun yerine metinler kirpiliyordu.
+        # NOT A FIXED WIDTH: a fixed 140 px forced the minimum width of the
+        # header strip onto the whole panel (555 px). Because the panel could
+        # not go below that bound, the "hide when narrow" logic never kicked in
+        # and the texts were clipped instead.
         self.language.setMinimumWidth(92)
         self.language.setMaximumWidth(150)
         self.language.setSizePolicy(QSizePolicy.Policy.Expanding,
@@ -89,26 +89,26 @@ class CodePanel(QWidget):
         export_btn.clicked.connect(self.export_requested.emit)
         row.addWidget(export_btn)
 
-        # BASLIK SERIDI HICBIR ZAMAN KIRPILMAZ.
+        # THE HEADER STRIP IS NEVER CLIPPED.
         #
-        # Serit sabit genislikli ogelerden olusur; panel daraldiginda Qt
-        # hepsini sikistiriyor ve metinler kirpiliyordu ("GENERA' C (C99)
-        # files |opy| por"). Kirpilmis bir dugme kullanilamaz.
+        # The strip is made of fixed-width items; as the panel narrowed Qt
+        # squeezed them all and the texts were clipped ("GENERA' C (C99)
+        # files |opy| por"). A clipped button cannot be used.
         #
-        # "Dar olunca gizle" denendi ve ISE YARAMADI: panel zaten seridin
-        # asgari genisliginin altina inemedigi icin esik hic tetiklenmiyordu
-        # -- gizleme karari, gizlemenin MUMKUN KILDIGI genislige bagliydi.
-        # Bunun yerine seridin gercekte ihtiyac duydugu genislik panelin
-        # ASGARISI yapilir. Kullanici daha fazla yer isterse paneli F9 ile
-        # tamamen gizleyebilir; yarim gorunen bir panel kimseye yaramaz.
+        # "Hide when narrow" was tried and DID NOT WORK: because the panel could
+        # not already go below the minimum width of the strip, the threshold was
+        # never reached -- the decision to hide depended on the width that hiding
+        # would have MADE POSSIBLE. Instead, the width the strip really needs
+        # becomes the MINIMUM of the panel. If the user wants more room they can
+        # hide the panel entirely with F9; a half-visible panel helps nobody.
         self._optional = []
-        #: Baslik seridinde KISALAMAYAN ogeler.
+        #: The items in the header strip that CANNOT SHRINK.
         self._header_buttons = [copy_btn, export_btn]
 
         bar.setMinimumWidth(0)
         layout.addWidget(bar)
 
-        # -------------------------------------------------------------- uyari
+        # ------------------------------------------------------------ warning
         self.banner = QLabel()
         self.banner.setWordWrap(True)
         self.banner.setFont(ui_font(9))
@@ -116,7 +116,7 @@ class CodePanel(QWidget):
         self.banner.hide()
         layout.addWidget(self.banner)
 
-        # ------------------------------------------------------------ sekmeler
+        # ---------------------------------------------------------------- tabs
         self._apply_static_styles()
         self._fit_header()
 
@@ -125,10 +125,10 @@ class CodePanel(QWidget):
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         layout.addWidget(self.tabs, 1)
 
-        # ------------------------------------------------------- arama (Ctrl+F)
-        # SALT ARAMA: uretilen dosyalar modelden turetildigi icin panelde
-        # duzenlemeye izin verilmez (bkz. find_bar.py). Cubuk yalnizca
-        # imleci tasir ve eslemeleri vurgular.
+        # ------------------------------------------------------ search (Ctrl+F)
+        # SEARCH ONLY: because the generated files are derived from the model, no
+        # editing is allowed in the panel (see find_bar.py). The bar only moves
+        # the cursor and highlights the matches.
         self.find = FindBar(self)
         layout.addWidget(self.find)
         self.tabs.currentChanged.connect(
@@ -148,17 +148,17 @@ class CodePanel(QWidget):
         self._fit_header()
 
     def _fit_header(self) -> None:
-        """Panelin asgari genisligini baslik seridine gore ayarlar.
+        """Sets the minimum width of the panel from the header strip.
 
-        Yalnizca ZORUNLU ogeler sayilir: dil secimi ve iki dugme. Baslik
-        ("GENERATED CODE") ve durum ("3 files · 929 lines") BILGIdir ve
-        kisalabilir; onlari da asgariye katmak paneli 777 px'e zorluyor,
-        tuvale yer birakmiyordu.
+        Only the MANDATORY items count: the language choice and the two
+        buttons. The title ("GENERATED CODE") and the status ("3 files · 929
+        lines") are INFORMATION and may shrink; counting them into the minimum
+        forced the panel to 777 px and left no room for the canvas.
 
-        Sabit bir sayi yazilamaz: yazi tipi buyudugunde (arayuz olcekleme,
-        farkli DPI) serit de buyur ve panel yine kirpardi.
+        A fixed number cannot be written: when the font grows (interface
+        scaling, a different DPI) the strip grows and the panel clips again.
         """
-        kenar = 10 + 10 + 8 * 4          # kenar bosluklari + ogeler arasi
+        kenar = 10 + 10 + 8 * 4          # margins + spacing between items
         gerekli = kenar + self.language.minimumWidth()
         for dugme in self._header_buttons:
             gerekli += dugme.sizeHint().width()
@@ -166,7 +166,7 @@ class CodePanel(QWidget):
             self.setMinimumWidth(gerekli)
 
     def retheme(self) -> None:
-        """Tema degisiminde satir-ici stilleri ve editorleri yeniden kurar."""
+        """Rebuilds the inline styles and the editors on a theme change."""
         self._apply_static_styles()
         for editor in self._editors.values():
             fn = getattr(editor, "retheme", None)
@@ -175,19 +175,19 @@ class CodePanel(QWidget):
         self.find.retheme()
 
     def _apply_static_styles(self) -> None:
-        """Kurulumda okunan renkleri yeniden uygular (bkz. retheme)."""
+        """Reapplies the colours read at set-up (see retheme)."""
         self._bar.setStyleSheet(
             "#codeBar { background: %s; border-bottom: 1px solid %s; }"
             % (C.PANEL_DARK, C.BORDER))
         self._title.setStyleSheet("color: %s;" % C.TEXT_DIM)
 
     def current_editor(self):
-        """Etkin sekmedeki editor; sekme yoksa None."""
+        """The editor in the active tab; None when there is no tab."""
         w = self.tabs.currentWidget()
         return w if isinstance(w, CodeEditor) else None
 
     def show_find(self) -> None:
-        """Ctrl+F: arama cubugunu acar ve etkin editore baglar."""
+        """Ctrl+F: opens the search bar and binds it to the active editor."""
         self.find.show_bar(self.current_editor())
 
     def current_language(self) -> str:
@@ -208,12 +208,12 @@ class CodePanel(QWidget):
         return name, editor.toPlainText() if isinstance(editor, CodeEditor) else ""
 
     def set_files(self, files: Dict[str, str]) -> None:
-        """Sekmeleri gunceller; etkin sekme mumkunse korunur."""
+        """Refreshes the tabs; the active tab is kept when possible."""
         current = self.tabs.tabText(self.tabs.currentIndex()) \
             if self.tabs.currentIndex() >= 0 else ""
         names: List[str] = list(files.keys())
 
-        # Fazla sekmeleri kaldir
+        # Remove the extra tabs
         for i in reversed(range(self.tabs.count())):
             if self.tabs.tabText(i) not in names:
                 widget = self.tabs.widget(i)
@@ -229,8 +229,8 @@ class CodePanel(QWidget):
                 editor.setObjectName(name)
                 self._editors[name] = editor
                 self.tabs.insertTab(pos, editor, name)
-            # Uretim damgasi her seferinde degistigi icin icerigi damga haric
-            # karsilastiriyoruz; degismemisse yeniden renklendirmeye gerek yok.
+            # Because the generation stamp changes every time, the content is
+            # compared without it; unchanged content needs no re-highlighting.
             key = _without_stamp(files[name])
             if self._shown.get(name) != key:
                 self._shown[name] = key
@@ -247,9 +247,9 @@ class CodePanel(QWidget):
         self.status.setStyleSheet("color: %s;" % C.GREEN)
 
     def show_blocked(self, message: str) -> None:
-        # Zemin renkleri TEMADAN gelir. Eskiden koyu tema degerleri sabitti
-        # ve acik temada koyu kahverengi bant uzerinde koyu kirmizi yaziyla
-        # okunmuyordu.
+        # The background colours come FROM THE THEME. The dark theme values used
+        # to be hard-coded, and in the light theme dark red text on a dark brown
+        # band was unreadable.
         self.banner.setText("⛔  %s" % message)
         self.banner.setStyleSheet(
             "background: %s; color: %s; border-bottom: 1px solid %s;"
@@ -266,11 +266,11 @@ class CodePanel(QWidget):
         self.banner.show()
 
     def set_stale(self, stale: bool) -> None:
-        """Gosterilen kodun MODELDEN ESKI oldugunu bildirir.
+        """Reports that the code shown is OLDER THAN THE MODEL.
 
-        Kod artik her degisiklikte kendiliginden uretilmedigi icin panelin
-        ekrandaki kaynagin guncel OLMADIGINI acikca soylemesi gerekir;
-        aksi halde kullanici bayat kodu dogru sanip disa aktarabilirdi.
+        Because the code is no longer generated on every change, the panel has
+        to say plainly that the source on screen is NOT up to date; otherwise
+        the user could export stale code believing it correct.
         """
         if not stale:
             if self.banner.text().startswith("↻"):
@@ -300,7 +300,7 @@ _STAMP_PREFIXES = (" * Tarih", "// Tarih")
 
 
 def _without_stamp(text: str) -> str:
-    """Uretim tarihi satirini atarak icerigi karsilastirilabilir hale getirir."""
+    """Makes the content comparable by dropping the generation-date line."""
     return "\n".join(ln for ln in text.splitlines()
                      if not ln.startswith(_STAMP_PREFIXES))
 

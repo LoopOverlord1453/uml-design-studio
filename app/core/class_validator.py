@@ -1,7 +1,7 @@
-"""Sinif diyagrami dogrulayicisi.
+"""The class diagram validator.
 
-Kod uretmeden ONCE calisir; bir tek ERROR varsa kod uretimi durdurulur.
-Kod kimlikleri C001... bicimindedir (durum makinesi V*** kodlariyla karismaz).
+Runs BEFORE any code is generated; a single ERROR stops code generation.
+The codes have the form C001... (they cannot be confused with the state
 """
 
 from __future__ import annotations
@@ -36,14 +36,14 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
     def warn(code, msg, eid=None):
         issues.append(Issue("warning", code, msg, eid))
 
-    # ---------------------------------------------------------------- genel #
+    # -------------------------------------------------------------- general #
     if not _valid_ident(cm.prefix):
         err("C001", "Symbol prefix '%s' is not a valid C identifier." % cm.prefix)
     if not cm.classes:
         err("C002", "Diagram is empty: at least one class is required.")
         return issues
 
-    # ---------------------------------------------------------- adlandirma #
+    # -------------------------------------------------------------- naming #
     seen: Dict[str, str] = {}
     seen_snake: Dict[str, str] = {}
     for c in cm.ordered_classes():
@@ -53,8 +53,8 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
         if key in seen:
             err("C011", "The class name '%s' is used more than once." % c.name, c.id)
         seen[key] = c.id
-        # C ureteci tip ve islev adlarini snake(ad) ile turetir: 'MyClass' ile
-        # 'my_class' ayni 'my_class_t' tipini uretir ve baslik derlenmez.
+        # The C generator derives type and function names with snake(name): 'MyClass'
+        # and 'my_class' produce the same 'my_class_t' and the header will not compile.
         skey = _snake(c.name)
         if skey in seen_snake and seen_snake[skey] != c.name:
             err("C037", "The class names '%s' and '%s' produce the same '%s_t' "
@@ -107,7 +107,7 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                              "UML, interfaces define only operations/constants."
                      % c.name, c.id)
 
-    # ------------------------------------------------------------ iliskiler #
+    # -------------------------------------------------------- relationships #
     gen_count: Dict[str, int] = {}
     seen_edges: Set = set()
     for r in cm.ordered_relations():
@@ -130,8 +130,8 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
 
         if r.kind is RelationKind.GENERALIZATION:
             gen_count[r.source] = gen_count.get(r.source, 0) + 1
-            # UML 2.5.1: arayuzler baska arayuzlerden Generalization ile
-            # turetilebilir; yalnizca SINIF -> arayuz kalitimi yasaktir.
+            # UML 2.5.1: interfaces may derive from other interfaces through
+            # Generalization; only CLASS -> interface inheritance is forbidden.
             if tgt.is_interface and not src.is_interface:
                 err("C032", "'%s' cannot inherit from <<interface>> '%s'; use "
                             "Realization instead." % (src.name, tgt.name), r.id)
@@ -140,9 +140,9 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                             "interface ('%s' is not an interface)."
                     % (src.name, tgt.name), r.id)
         if r.kind is RelationKind.REALIZATION and not tgt.is_interface:
-            # UML 2.5.1: InterfaceRealization'in saglayicisi bir Interface
-            # olmak zorundadir. Uretec de arayuzu islev tablosu olarak yazar;
-            # hedef arayuz degilse '<sinif>_as_<hedef>' derlenmez.
+            # UML 2.5.1: the supplier of an InterfaceRealization has to be an Interface.
+            # The generator also writes an interface as a function table; if the target
+            # is not an interface, '<class>_as_<target>' does not compile.
             err("C033", "Class '%s' has the realization target '%s', which is not "
                         "an <<interface>>; use Generalization for inheritance."
                 % (src.name, tgt.name), r.id)
@@ -162,10 +162,10 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                          "embedded in the C output (single inheritance)."
                  % cm.classes[cid].name, cid)
 
-    # ------------------------------------------ uretilen DOSYA KAPSAMI adlari #
-    # C ureteci her sinif icin '<snake(sinif)>_*' bicimli dosya kapsamli
-    # semboller yazar: kurucu, islemler, STATIK nitelikler ve arayuz
-    # adaptorleri. Hepsi ayni ad uzayindadir; cakisirlarsa .c derlenmez.
+    # --------------------------------------------- generated FILE SCOPE names #
+    # The C generator writes file-scope symbols of the form '<snake(class)>_*'
+    # for every class: the constructor, the operations, STATIC attributes and
+    # the interface adapters. All share one namespace; a clash breaks the .c.
     for c in cm.ordered_classes():
         prefix = _snake(c.name)
         file_scope: Dict[str, str] = {"%s_init" % prefix: "the generated constructor"}
@@ -189,19 +189,19 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
             claim_symbol("%s_as_%s" % (prefix, _snake(iface.name)),
                          "the '%s' interface adapter" % iface.name, c.id)
 
-    # -------------------------------------------- uretilen uye adi cakismalari #
+    # ------------------------------------------- generated member name clashes #
     for c in cm.ordered_classes():
         base = cm.generalization_parent(c.id)
-        # Statik nitelikler struct'a girmez (dosya kapsamindadir), bu yuzden
-        # gomulu 'base' uyesiyle yalnizca ORNEK nitelikleri cakisir.
+        # Static attributes do not go into the struct (they are file-scope), so
+        # only INSTANCE attributes can clash with the embedded 'base' member.
         if base is not None and not base.is_interface \
                 and any(a.name == "base" and not a.static for a in c.attributes):
             err("C061", "The 'base' attribute in class '%s' clashes with the "
                         "embedded 'base' member generated for inheritance; "
                         "choose another name." % c.name, c.id)
 
-        # C ve C++ ureteclerinin turettigi uye adlari ayni ad uzayina duser;
-        # cakisan adlar derlenmeyen kod uretir.
+        # The member names derived by the C and C++ generators fall into the same
+        # namespace; clashing names produce code that does not compile.
         c_names: Dict[str, str] = {}
         cpp_names: Dict[str, str] = {}
         reported: Set = set()
@@ -242,10 +242,10 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                 _claim(c_names, cname + "_count", what, r.id)
                 _claim(cpp_names, cppname + "_count", what, r.id)
 
-    # ------------------------------- kalitilan islemlerin imza uyumlulugu ---- #
-    # Uretecler islemleri ADA gore eslestirir: C++'ta 'override', C'de arayuz
-    # thunk'i. Imza farkliysa C++ 'override' derlenmez, C thunk'i islevi eksik
-    # argumanla cagirir. UML'de de ozellestiren islemin imzasi uyumlu olmalidir.
+    # -------------------- signature compatibility of inherited operations ---- #
+    # The generators match operations BY NAME: 'override' in C++, an interface
+    # thunk in C. With a different signature the C++ 'override' fails and the C
+    # thunk calls the function with the wrong arguments. In UML too, a
     def _sig(op) -> tuple:
         return (tuple(p.type.strip() for p in op.params),
                 (op.return_type or "void").strip(),
@@ -272,9 +272,9 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                         % (c.name, mine.name, parent.name, po.name), c.id)
             stack.extend(p.id for p in cm.parents_of(pid))
 
-    # ------------------- ayni kalitim zincirinden iki arayuzu gerceklestirme #
-    # C++'ta 'public Base, public Derived' cift taban nesnesi yaratir ve
-    # donusumler belirsizlesir; C'de gereksiz cift islev tablosu olusur.
+    # ------------------- realizing two interfaces from one inheritance chain #
+    # In C++ 'public Base, public Derived' creates a double base object and the
+    # conversions become ambiguous; in C it produces a needless second vtable.
     for c in cm.ordered_classes():
         realized_ids = {i.id: i for i in cm.realized_interfaces(c.id)}
         for iface in realized_ids.values():
@@ -295,7 +295,7 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                     stack.extend(p.id for p in cm.parents_of(pid)
                                  if p.is_interface)
 
-    # ------------------------------------------- deger-uye (by-value) donguleri #
+    # ------------------------------------------- value-member (by-value) cycles #
     v_visiting: Set[str] = set()
     v_done: Set[str] = set()
 
@@ -319,7 +319,7 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
                         "a pointer (aggregation/association)." % c.name, c.id)
             break
 
-    # ----------------------------------------------------- kalitim donguleri #
+    # ---------------------------------------------------- inheritance cycles #
     visiting: Set[str] = set()
     done: Set[str] = set()
 
@@ -341,7 +341,7 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
             err("C040", "Class '%s' has a cycle in its inheritance chain." % c.name, c.id)
             break
 
-    # -------------------------------------------- soyut islem gerceklestirme #
+    # ---------------------------------------- abstract operation realization #
     for c in cm.ordered_classes():
         if c.is_abstract or c.is_interface:
             continue
@@ -357,7 +357,7 @@ def validate_classes(cm: ClassModel) -> List[Issue]:
 
 
 def _unimplemented_ops(cm: ClassModel, cid: str) -> List:
-    """Ust arayuz/soyut siniflardan gelen ama yerelde bulunmayan soyut islemler."""
+    """Abstract operations inherited from parents but not found locally."""
     c = cm.classes[cid]
     local = {o.name for o in c.operations}
     out = []
