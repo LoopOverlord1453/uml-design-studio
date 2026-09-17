@@ -1,23 +1,49 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller packaging recipe.
+"""PyInstaller packaging recipe -- one spec, three platforms.
 
-It works outside Windows too: the version resource and the .ico icon are
-Windows-only features, so they are skipped silently when the file is
-missing or the platform is not Windows (otherwise PyInstaller stops with
-"version resource not found").
+Run it through the build script rather than by hand:
 
-    .venv\\Scripts\\python.exe -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
+    build.bat        (Windows)
+    ./build.sh       (Linux / macOS)
 
-Output: dist/UML-Design-Studio.exe  (one file, no console, GPL text embedded)
+PyInstaller is a CROSS-PLATFORM tool but NOT a cross-COMPILER: it bundles the
+interpreter and the Qt libraries of the machine it runs on. A Windows .exe has
+to be built on Windows, a Linux binary on Linux, a macOS app on macOS. There is
+no flag that changes this.
+
+What each platform produces:
+
+    Windows   dist/UML-Design-Studio.exe        one file, no console window,
+                                                .ico icon + version resource
+    Linux     dist/UML-Design-Studio            one ELF file, already executable
+    macOS     dist/UML Design Studio.app        a real app bundle, so a
+                                                double-click opens no Terminal
+              dist/UML-Design-Studio            the plain binary, for a terminal
+
+`console=False` is what keeps the black window away on Windows; on macOS the
+same job is done by the .app bundle, which is why BUNDLE is added below.
+
+The version resource and the .ico are Windows-only ideas, so they are skipped
+elsewhere -- otherwise PyInstaller stops with "version resource not found".
 """
 
 import os
 import sys
 
 _IS_WIN = sys.platform.startswith("win")
+_IS_MAC = sys.platform == "darwin"
+
 # The version resource and the .ico are meaningful ONLY on Windows; both optional.
 _version_file = "version_info.txt" if (_IS_WIN and os.path.exists("version_info.txt")) else None
-_icon_file = "docs/app.ico" if (_IS_WIN and os.path.exists("docs/app.ico")) else None
+
+# Every platform wants its own icon format: .ico on Windows, .icns on macOS.
+# A missing icon is not an error -- the app simply gets the default one.
+if _IS_WIN and os.path.exists("docs/app.ico"):
+    _icon_file = "docs/app.ico"
+elif _IS_MAC and os.path.exists("docs/app.icns"):
+    _icon_file = "docs/app.icns"
+else:
+    _icon_file = None
 
 a = Analysis(
     ["main.py"],
@@ -83,3 +109,23 @@ exe = EXE(
     icon=_icon_file,
     version=_version_file,
 )
+
+# On macOS a bare Unix binary opens a Terminal window when double-clicked;
+# only a .app bundle launches as a normal application. This is the macOS
+# counterpart of `console=False` on Windows.
+if _IS_MAC:
+    app = BUNDLE(                                          # noqa: F821 - PyInstaller
+        exe,
+        name="UML Design Studio.app",
+        icon=_icon_file,
+        bundle_identifier="com.kubilaykozleme.umldesignstudio",
+        info_plist={
+            "CFBundleDisplayName": "UML Design Studio",
+            "CFBundleShortVersionString": "2.0.0",
+            "CFBundleVersion": "2.0.0",
+            "NSHumanReadableCopyright": "(c) 2026 Kubilay Kozleme - GNU GPL v3",
+            # Retina: without this the whole interface is drawn at half
+            # resolution and every label looks blurred.
+            "NSHighResolutionCapable": True,
+        },
+    )

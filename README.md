@@ -238,21 +238,61 @@ a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
    .venv/bin/python main.py
    ```
 
-### Building a standalone executable
+## Building a standalone executable
+
+Run the build script on the system you want the executable for:
 
 ```bash
-# Windows
-.venv\Scripts\python.exe -m pip install pyinstaller
-.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
-
-# Linux / macOS
-.venv/bin/python -m pip install pyinstaller
-.venv/bin/python -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
+build.bat        # Windows -- double-clicking it works too
+./build.sh       # Linux / macOS  (chmod +x build.sh the first time)
 ```
 
-The result lands in `dist/`. The spec is single-file and windowed; the GPL text
-and the sample diagram are embedded. The Windows version resource and the `.ico`
-icon are applied only on Windows and skipped elsewhere.
+It installs PyInstaller into the same `.venv`, packages the application and
+prints where the result landed. The output is one self-contained file that runs
+on a machine with **no Python and no PyQt6 installed** — the interpreter, Qt, the
+GPL text and the sample diagram all travel inside it.
+
+### One build per platform
+
+PyInstaller is cross-platform but **not a cross-compiler**: it bundles the
+interpreter and the Qt libraries *of the machine it runs on*. There is no flag
+that builds a Windows `.exe` from Linux. To ship all three, run the script once
+on each system.
+
+| You build on | You get | Notes |
+|---|---|---|
+| **Windows** | `dist\UML-Design-Studio.exe` | One file, ~36 MB. Opens **no console window** — it is linked as a GUI binary — and carries the `.ico` icon plus the version resource Explorer shows under *Properties → Details*. |
+| **Linux** | `dist/UML-Design-Studio` | One ELF file, already executable. No extension; run it as `./UML-Design-Studio`. The version resource and `.ico` are Windows-only ideas and are skipped. |
+| **macOS** | `dist/UML Design Studio.app` | A real application bundle, so a double-click opens **no Terminal**. `dist/UML-Design-Studio`, the plain binary next to it, is for running from a terminal. |
+
+### Two platform details worth knowing
+
+**macOS quarantine.** A bundle you built yourself is unsigned, so Gatekeeper
+refuses the first launch. Right-click the app and choose *Open* once, or clear
+the flag:
+
+```bash
+xattr -dr com.apple.quarantine "dist/UML Design Studio.app"
+```
+
+**macOS icon.** The icon format differs per platform: Windows wants `.ico`,
+macOS wants `.icns`. `tools/make_icon.py` draws the `.ico`; if you place a
+`docs/app.icns` next to it, the spec picks it up automatically. Without one the
+bundle simply gets the default icon — it is not an error.
+
+### Where the console window went
+
+A Qt application should never leave a black terminal behind it, and on each
+system that is arranged differently:
+
+* **Windows** — the packaged `.exe` is built with `console=False`, and `run.bat`
+  starts the app through `pythonw.exe` (the windowed interpreter) and then exits,
+  so no window is left over.
+* **macOS** — a bare Unix binary opens a Terminal when double-clicked; only the
+  `.app` bundle launches as a normal application, which is why the spec adds one.
+* **Linux** — a binary started from a file manager has no terminal to begin with.
+  Started from a shell it uses that shell, which is what you asked for by typing
+  the command.
 
 ---
 
@@ -358,7 +398,9 @@ and the workspace/git layer against real temporary repositories. Steps that need
 
 ```
 main.py                 entry point
-run.bat / run.sh        launchers (Windows / Linux + macOS)
+run.bat / run.sh        launchers      (Windows / Linux + macOS)
+build.bat / build.sh    build scripts  (Windows / Linux + macOS)
+UML-Design-Studio.spec  one PyInstaller recipe, branching per platform
 app/core/               model, validation, simulation, workspace, git   (no Qt)
 app/codegen/            C / C++ / PlantUML generators
 app/ui/                 canvas, panels, dialogs, theme
