@@ -1,4 +1,4 @@
-"""Diyagram tuvali: sahne kurulumu, arac kipleri, yakinlastirma, kaydirma."""
+"""The diagram canvas: scene set-up, tool modes, zooming, panning."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ from .document import Document
 from .theme import C
 
 
-#: Yapistirilan parcanin orijinalden kaymasi (px). Ust uste binerse
-#: kullanici kopyanin olustugunu goremez.
+#: How far a pasted fragment is offset from the original (px). Landing on
+#: top of it, the user could not see that a copy had been made.
 PASTE_OFFSET = 30.0
 
 
@@ -54,11 +54,11 @@ _NEW_STATE_DEFAULTS = {
     Tool.SHALLOW_HISTORY: (StateKind.SHALLOW_HISTORY, "History", 32.0, 32.0),
     Tool.DEEP_HISTORY: (StateKind.DEEP_HISTORY, "DeepHistory", 32.0, 32.0),
     Tool.TERMINATE: (StateKind.TERMINATE, "Terminate", 30.0, 30.0),
-    # Fork ve join UML'de KALIN BIR CUBUK olarak cizilir; varsayilan olcu
-    # dikey bir cubuktur (bolgeler yatay seritler oldugu icin).
+    # A fork and a join are drawn in UML as A THICK BAR; the default size is a
+    # vertical bar (because the regions are horizontal bands).
     Tool.FORK: (StateKind.FORK, "Fork", 10.0, 90.0),
     Tool.JOIN: (StateKind.JOIN, "Join", 10.0, 90.0),
-    # Baglanti noktalari bilesik durumun SINIRINDA durur; kucuk daireler.
+    # The connection points sit ON THE BORDER of a composite state; small circles.
     Tool.ENTRY_POINT: (StateKind.ENTRY_POINT, "EntryPoint", 18.0, 18.0),
     Tool.EXIT_POINT: (StateKind.EXIT_POINT, "ExitPoint", 18.0, 18.0),
     Tool.SUBMACHINE: (StateKind.SUBMACHINE, "Submachine", 220.0, 96.0),
@@ -66,16 +66,16 @@ _NEW_STATE_DEFAULTS = {
 
 
 class DiagramCanvas(CanvasNavigation, QGraphicsView):
-    """Model ile grafik sahne arasindaki koprü."""
+    """The bridge between the model and the graphics scene."""
 
-    #: Sol tusla bukmenin baslamasi icin gereken en kucuk hareket (sahne px).
-    #: Altinda kalan hareket SECIM tikidir, bukme degil.
+    #: The smallest movement that starts a left-button bend (scene px).
+    #: Anything below that is a SELECTION click, not a bend.
     BEND_THRESHOLD = 4.0
-    #: Var olan bir kirilma noktasinin "tutulmus" sayildigi EKRAN yaricapi.
+    #: The SCREEN radius within which an existing waypoint counts as "grabbed".
     BEND_GRAB_PX = 9.0
 
-    selection_changed = pyqtSignal(list)     # secili eleman id'leri
-    tool_finished = pyqtSignal()             # arac kullanildi -> Select'e don
+    selection_changed = pyqtSignal(list)     # the ids of the selected elements
+    tool_finished = pyqtSignal()             # a tool was used -> go back to Select
     status_message = pyqtSignal(str)
 
     def __init__(self, doc: Document, parent=None) -> None:
@@ -84,7 +84,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self.tool = Tool.SELECT
         self.snap_enabled = True
         self.show_grid = True
-        # Yerlestirme sonrasi ozellik diyalogu (testler kapatabilir; modal).
+        # Property dialog after placement (tests may switch it off; modal).
         self.auto_edit = True
 
         self._scene = QGraphicsScene(self)
@@ -104,7 +104,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self.tran_items: Dict[str, TransitionItem] = {}
 
         self._pending_source: Optional[StateItem] = None
-        #: Sol tusla basildi ama henuz esigi asmadi (bkz. BEND_THRESHOLD).
+        #: The left button is down but has not passed the threshold (BEND_THRESHOLD).
         self._bend_candidate = None
         self._rubber_line: Optional[QGraphicsPathItem] = None
         self._pre_drag: Optional[str] = None
@@ -113,47 +113,47 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self._suppress_selection = False
         self._init_navigation()
 
-        #: Ok bukme durumu (sag tus dogrudan, sol tus esikten sonra).
+        #: The arrow-bending state (right button directly, left button after the threshold).
         self._bend_item = None
         self._bend_before = None
         self._bend_origin = QPointF()
-        #: Surukleme sirasinda TASINAN kirilma noktasinin indisi.
-        #: None ise henuz eklenmemistir (esik asilinca eklenir).
+        #: The index of the waypoint BEING MOVED during a drag.
+        #: None means it has not been added yet (it is added once the threshold is passed).
         self._bend_index = None
-        #: Tutamak yakalandiginda hesaplanan (kip, indis) ikilisi.
+        #: The (mode, index) pair computed when a handle is caught.
         self._bend_grab = None
-        #: ETIKET suruklemesi: (gecis ogesi, baslangic dx, dy, fare).
-        #: Etiket okun kendisinden AYRI tutulur; kullanici etiketi
-        #: okunur bir yere kaydirabilmelidir.
+        #: LABEL drag: (transition item, starting dx, dy, mouse).
+        #: The label is kept SEPARATE from the arrow itself; the user must be able
+        #: to slide the label somewhere readable.
         self._label_drag = None
-        #: FARK kipi: {"added": ..., "removed": ..., "changed": ...}
+        #: DIFF mode: {"added": ..., "removed": ..., "changed": ...}
         self._diff_marks = {}
-        #: Silinen elemanlarin hayalet cizimleri (MODELE AIT DEGIL).
+        #: The ghost drawings of deleted elements (THEY DO NOT BELONG TO THE MODEL).
         self._ghosts = []
-        #: Sag tus ile dikdortgen secim. Qt'nin kendi RubberBandDrag'i
-        #: YALNIZCA sol tusla calisir, bu yuzden kendi bandimizi ciziyoruz.
+        #: Rectangular selection with the right button. Qt's own RubberBandDrag works
+        #: with the LEFT button ONLY, so we draw our own band.
         self._band = QRubberBand(QRubberBand.Shape.Rectangle, self.viewport())
         self._band_origin = QPoint()
 
         self._scene.selectionChanged.connect(self._on_selection_changed)
 
-    # ================================================================== kurulum
+    # set-up
 
     def rebuild(self) -> None:
-        """Modelden sahneyi bastan olusturur (secim korunur)."""
+        """Rebuilds the scene from the model (the selection is kept)."""
         selected = self.selected_ids()
         self._suppress_selection = True
         self._cancel_transition()
 
         self._scene.clear()
-        # Sahne temizlendi: hayalet referanslari da dusurulmeli, yoksa
-        # silinmis C++ nesnelerine erisilir.
+        # The scene was cleared: the ghost references have to be dropped too, or
+        # deleted C++ objects would be accessed.
         self._ghosts = []
         self.state_items.clear()
         self.tran_items.clear()
 
         sm = self.doc.machine
-        # Once ust durumlar, sonra alt durumlar (ebeveyn once var olmali).
+        # Parent states first, then substates (the parent must exist first).
         for st in sm.ordered_states():
             item = StateItem(st, self)
             self.state_items[st.id] = item
@@ -169,47 +169,47 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             src = self.state_items.get(tr.source)
             dst = self.state_items.get(tr.target)
             if src is None or dst is None:
-                continue        # bagli olmayan gecis cizilmez (dogrulayici uyarir)
+                continue        # an unbound transition is not drawn (the validator warns about it)
             bow, label_t = routes.get(tr.id, (0.0, 0.5))
             item = TransitionItem(tr, src, dst, self, bow, label_t)
             self.tran_items[tr.id] = item
             self._scene.addItem(item)
 
-        # BOLGELERI CIZIMDEN YENIDEN OKU.
+        # REREAD THE REGIONS FROM THE DRAWING.
         #
-        # Bolge, ogenin durdugu SERITTEN okunur; serit sinirlari ise
-        # bilesik durumun IC ALANINDAN cikar ve o alan iki sekilde
-        # KAYABILIR:
+        # The region is read from the BAND the item sits in, and the band boundaries
+        # come out of the INNER AREA of the composite state -- and that area CAN
+        # SHIFT in two ways:
         #
-        #   * Bilesik duruma entry/exit/do metni yazilinca ustteki
-        #     davranis seridi buyur (bkz. StateItem.content_rect).
-        #   * Bolge sayisi artinca ayni alan daha cok serite bolunur.
+        #     * Writing entry/exit/do text into the composite state grows the
+        #         behaviour strip at the top (see StateItem.content_rect).
+        #     * Raising the region count splits the same area into more bands.
         #
-        # Her ikisinde de ogelerin KOORDINATI degismez ama hangi banda
-        # dustukleri degisir. Model eski numarayi tasimaya devam ediyor,
-        # dogrulayici da bir sey demiyordu: uretilen `state_region[]`
-        # tablosu kullanicinin ekranda gordugu resimle CELISIYOR, en cok
-        # da bolge sayisini 1'den 2'ye cikaran kullanicida -- orta
-        # cizginin altindaki her oge ikinci bantta cizilip birinci
+        # In both cases the COORDINATES of the items do not change but the band
+        # they fall into does. The model kept carrying the old number and the
+        # validator said nothing: the generated `state_region[]` table CONTRADICTED
+        # the picture the user saw on screen -- most of all for a user raising the
+        # region count from 1 to 2, where every item below the middle line was
+        # drawn in the second band while staying in the first region.
         # bolgede kaliyordu.
         #
-        # Cizim modelin saf bir islevi oldugu icin bu yeniden okuma
-        # belirlenimcidir ve kendini tekrar ettiginde bir sey degistirmez.
+        # Because the drawing is a pure function of the model, this reread is
+        # deterministic and changes nothing when it repeats itself.
         self._sync_regions_from_drawing()
 
         self._update_scene_rect()
         self._suppress_selection = False
         self.set_selected_ids(selected)
         if self._diff_marks:
-            # Yeniden kurulan ogeler isaretlerini kaybeder.
+            # Rebuilt items lose their marks.
             self.set_diff_marks(self._diff_marks)
 
     def _compute_routes(self):
-        """Ayni ikili arasindaki gecisleri birbirinden ayirir.
+        """Separates the transitions between the same pair.
 
-        Iki eksende birden ayirmak gerekir: `bow` egriyi yanlara acar,
-        `label_t` ise etiketi yol uzerinde kaydirir. Yalnizca biri
-        kullanilirsa uzun etiketler yine ust uste biner.
+        They have to be separated on two axes: `bow` opens the curve sideways
+        while `label_t` slides the label along the path. With only one of them,
+        long labels still overlap.
         """
         groups: Dict[frozenset, List[Transition]] = {}
         for tr in self.doc.machine.ordered_transitions():
@@ -238,11 +238,11 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self._set_scene_rect(rect.adjusted(-400, -300, 400, 300))
 
     def retheme(self) -> None:
-        """Tema degisiminde sahne zeminini yeniden okur.
+        """Rereads the scene background on a theme change.
 
-        Sahne zemini KURULUM aninda QColor'a cevrildigi icin ``C``
-        degistiginde kendiliginden guncellenmez; oge firca/kalemleri
-        rebuild() ile zaten yeniden kurulur.
+        Because the scene background is converted to a QColor AT SET-UP time, it
+        is not updated by itself when ``C`` changes; the item brushes and pens
+        are rebuilt by rebuild() anyway.
         """
         self._scene.setBackgroundBrush(QColor(C.CANVAS_BG))
 
@@ -263,15 +263,15 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 item.update()
 
     def set_diff_marks(self, marks: Optional[dict]) -> None:
-        """Diyagrami FARK kipinde boyar (eklenen / degisen / silinen).
+        """Paints the diagram in DIFF mode (added / changed / deleted).
 
-        Kullanici calisma alaninda bir modele tikladiginda "ne degismis"
-        sorusunun cevabini METIN olarak degil DIYAGRAM uzerinde gormek
-        istiyor. Eklenen ve degisen elemanlar yerinde boyanir; SILINEN
-        elemanlar yeni modelde bulunmadigi icin eski surumdeki konumlariyla
-        HAYALET olarak cizilir (bkz. diagram_items.GhostItem).
+        When the user clicks a model in the workspace, they want the answer to
+        "what changed" ON THE DIAGRAM, not as TEXT. Added and changed elements
+        are painted in place; DELETED elements are not in the new model, so they
+        are drawn as GHOSTS at their positions in the old version (see
+        diagram_items.GhostItem).
 
-        `marks` None ise fark kipi kapanir.
+        With `marks` set to None, diff mode is switched off.
         """
         self._diff_marks = marks or {}
         eklenen = self._diff_marks.get("added") or set()
@@ -292,7 +292,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self._rebuild_ghosts(self._diff_marks.get("removed") or {})
 
     def _rebuild_ghosts(self, removed: dict) -> None:
-        """Silinen elemanlari eski konumlariyla hayalet olarak cizer."""
+        """Draws deleted elements as ghosts at their old positions."""
         for item in self._ghosts:
             if item.scene() is self._scene:
                 self._scene.removeItem(item)
@@ -300,9 +300,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         if not removed:
             return
         for kimlik, veri in removed.items():
-            # Yalnizca KONUMU olan elemanlar cizilebilir; gecisler ve
-            # iliskiler uc noktalarina bagli oldugu icin (ve uclar da
-            # silinmis olabilecegi icin) listede METIN olarak kalir.
+            # Only elements that HAVE a position can be drawn; transitions and
+            # relationships hang off their end points (and the ends may have been
+            # deleted too), so they stay in the list as TEXT.
             if "x" not in veri or "y" not in veri:
                 continue
             ghost = GhostItem(veri)
@@ -310,7 +310,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self._ghosts.append(ghost)
 
     def set_active_states(self, ids: List[str]) -> None:
-        """Simulasyondaki etkin durum zincirini vurgular."""
+        """Highlights the active state chain of the simulation."""
         active = set(ids)
         for sid, item in self.state_items.items():
             flag = sid in active
@@ -318,7 +318,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 item.is_active = flag
                 item.update()
 
-    # ================================================================== secim
+    # selection
 
     def selected_ids(self) -> List[str]:
         out: List[str] = []
@@ -347,7 +347,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self.ensureVisible(item, 80, 80)
 
     def edit_element(self, eid: str) -> None:
-        """Cift tiklama: ozellik diyalogunu acar ve degisikligi uygular."""
+        """Double click: opens the property dialog and applies the change."""
         from .dialogs import StateDialog, TransitionDialog
         sm = self.doc.machine
 
@@ -375,7 +375,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         if not self._suppress_selection:
             self.selection_changed.emit(self.selected_ids())
 
-    # ================================================================== araclar
+    # tools
 
     def set_tool(self, tool: Tool) -> None:
         self.tool = tool
@@ -394,7 +394,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 self._scene.removeItem(self._rubber_line)
             self._rubber_line = None
 
-    # ================================================================== fare
+    # mouse
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -406,13 +406,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         scene_pos = self.mapToScene(event.position().toPoint())
 
-        # ---------------------------------------------------------- sag tus --
+        # ---------------------------------------------------------- right button --
         #
-        # Sag tus IKI ise yarar ve hedefe gore ayrilir:
-        #   * bir GECISIN uzerinde  -> oku BUK (waypoint surukle)
-        #   * bos alanda            -> dikdortgen SECIM
-        # Ayrim tikin altindaki ogeye bakilarak yapilir; boylece iki islev
-        # birbirini yemez.
+        # The right button does TWO things, told apart by the target:
+        #     * over a TRANSITION  -> BEND the arrow (drag a waypoint)
+        #     * over empty space   -> rectangular SELECTION
+        # The distinction is made by looking at the item under the click, so the two
+        # functions do not eat each other.
         if event.button() == Qt.MouseButton.RightButton:
             tran = self._transition_at(scene_pos)
             if tran is not None:
@@ -440,30 +440,30 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            # SOL TUSLA DA OK BUKULEBILIR.
+            # AN ARROW CAN BE BENT WITH THE LEFT BUTTON TOO.
             #
-            # Bukme yalnizca SAG tustaydi; kullanici oku "tutup
-            # surukleyemedigini" bildirdi -- cunku kimse bir oku sag tusla
-            # surukleyerek sekillendirmeyi denemez.
+            # Bending was on the RIGHT button only; the user reported that they could
+            # not "grab and drag" the arrow -- because nobody tries to shape an arrow by
+            # dragging it with the right button.
             #
-            # Ama sol tik AYNI ZAMANDA secimdir: basar basmaz bukmeye
-            # baslamak, gecisin ozelliklerini gormek icin uzerine tiklamayi
-            # imkansiz kilardi. Bu yuzden burada yalnizca ADAY kaydedilir;
-            # bukme, imlec esigi asarsa (bkz. mouseMoveEvent) baslar.
-            # Kimildamadan birakilirsa tik sade bir SECIM olarak kalir.
+            # But a left click IS ALSO a selection: starting to bend the moment it goes
+            # down would make it impossible to click a transition to see its properties.
+            # So only a CANDIDATE is recorded here; the bend starts if the cursor passes
+            # the threshold (see mouseMoveEvent). Released without moving, the click
+            # stays a plain SELECTION.
             tran = self._transition_at(scene_pos)
             if tran is not None and self.tool is Tool.SELECT:
-                # ETIKET ONCE. Etiketin uzerinden baslayan surukleme oku
-                # BUKMEZ, etiketi TASIR; aksi halde etiketi kavramak
-                # imkansizdi (etiket okun uzerinde durur).
+                # THE LABEL FIRST. A drag starting over the label does NOT BEND the arrow,
+                # it MOVES the label; otherwise grabbing the label was impossible (the label
+                # sits on the arrow).
                 if tran.label_at(scene_pos):
-                    # ETIKETE TIKLAMAK GECISI DE SECER.
+                    # CLICKING THE LABEL SELECTS THE TRANSITION TOO.
                     #
-                    # Bu dal `event.accept()` ile donuyordu, yani
-                    # `super().mousePressEvent()` hic calismiyordu ve Qt
-                    # secimi yapamiyordu: kullanici etikete tikladiginda
-                    # ozellikler paneli bos kaliyor, Del bir sey silmiyordu.
-                    # Etiket gecisin bir parcasidir; ona tiklamak gecisi
+                    # This branch used to return with `event.accept()`, so
+                    # `super().mousePressEvent()` never ran and Qt could not make the
+                    # selection: clicking the label left the properties panel empty and Del
+                    # deleted nothing. The label is part of the transition; clicking it must
+                    # select the transition. With Shift held it is ADDED to the selection.
                     # secmelidir. Shift basiliysa secime EKLENIR.
                     if not (event.modifiers()
                             & Qt.KeyboardModifier.ShiftModifier):
@@ -483,11 +483,11 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         super().mousePressEvent(event)
 
     def _grab_radius(self) -> float:
-        """Tutamak yaricapini SAHNE birimine cevirir.
+        """Converts the handle radius into SCENE units.
 
-        Sabit bir sahne yaricapi, yakinlastirmaya gore buyuyup kuculurdu:
-        uzaklasinca noktayi yakalamak imkansiz, yakinlasinca her tik nokta
-        tutmus sayilirdi. Olcek bolunerek yaricap EKRANDA sabit tutulur.
+        A fixed scene radius would grow and shrink with the zoom: grabbing the
+        point would be impossible when zoomed out and every click would count as
+        grabbing one when zoomed in. Dividing by the scale keeps it fixed ON SCREEN.
         """
         olcek = self.transform().m11() or 1.0
         return self.BEND_GRAB_PX / abs(olcek)
@@ -514,10 +514,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             event.accept()
             return
 
-        # ADAY -> GERCEK bukme: imlec esigi asinca basla.
+        # CANDIDATE -> REAL bend: start once the cursor passes the threshold.
         #
-        # Esik olmadan her secim tiklamasi minik bir bukme sayilir ve ok
-        # farkedilmeden kayardi.
+        # Without the threshold every selection click counted as a tiny bend and the
+        # arrow drifted unnoticed.
         if self._bend_item is None and self._bend_candidate is not None:
             simdi = self.mapToScene(event.position().toPoint())
             fark = simdi - self._bend_origin
@@ -529,14 +529,14 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 self.viewport().setCursor(Qt.CursorShape.SizeAllCursor)
 
         if self._bend_item is not None:
-            # COK NOKTALI YONLENDIRME.
+            # MULTI-POINT ROUTING.
             #
-            # Onceki surum, nereden cekilirse cekilsin butun kirilma
-            # noktalarini TEK bir noktayla degistiriyordu; ok her zaman tek
-            # bir "V" olabiliyordu ve ikinci bir kivrim eklemek mumkun
-            # degildi. Artik tutulan yer onemlidir: var olan bir noktanin
-            # uzerindeyse O NOKTA tasinir, degilse tutulan PARCAYA yeni bir
-            # nokta eklenir ve o tasinir. Boylece ok, her noktasindan
+            # The previous version replaced every waypoint with a SINGLE point wherever
+            # it was pulled from; an arrow could only ever be one "V" and adding a
+            # second bend was impossible. Now the place grabbed matters: over an
+            # existing point THAT POINT is moved, otherwise a new point is inserted into
+            # the grabbed SEGMENT and that one is moved. So the arrow can be shaped with
+            # as many bends as wanted, pulled from any of its points.
             # cekilerek istenen kadar kivrimla sekillendirilir.
             pos = self.mapToScene(event.position().toPoint())
             if self.snap_enabled:
@@ -555,8 +555,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
             noktalar[self._bend_index] = [round(pos.x(), 2), round(pos.y(), 2)]
             self._bend_item.update_path()
-            # Ok bukerken de kenardan kaydir: uzun bir oku ekranin disina
-            # dogru sekillendirmek aksi halde imkansizdi.
+            # Scroll from the edge while bending an arrow too: shaping a long arrow
+            # towards the outside of the screen was otherwise impossible.
             self._room_for_drag(event.position().toPoint())
             self._update_autoscroll(event.position().toPoint())
             event.accept()
@@ -578,8 +578,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         surukluyor = bool(event.buttons() & Qt.MouseButton.LeftButton)
         if surukluyor:
-            # Sahneyi ONCE buyut: super() ogeyi tasirken yer hazir olsun,
-            # yoksa oge sahne sinirinda kalir ve birakma aninda ziplardi.
+            # Grow the scene FIRST: the room should be ready while super() moves the
+            # item, or the item stops at the scene boundary and jumps on release.
             self._room_for_drag(event.position().toPoint())
 
         super().mouseMoveEvent(event)
@@ -590,9 +590,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self._stop_autoscroll()
 
     def mouseReleaseEvent(self, event) -> None:
-        # Fare birakildi: kenardan kaydirma HER kosulda durur. Asagida
-        # birden fazla erken 'return' var; durdurmayi onlara birakmak
-        # zamanlayicinin acik kalmasina yol acardi.
+        # The mouse was released: edge scrolling stops in EVERY case. There are
+        # several early returns below; leaving the stop to them would leave the
+        # timer running.
         self._stop_autoscroll()
         if self._panning and event.button() == Qt.MouseButton.MiddleButton:
             self._panning = False
@@ -612,8 +612,8 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             event.accept()
             return
 
-        # Sol tusla baslayan bukme ADAYI, hic kimildamadan birakildiysa
-        # sadece bir secim tikiydi: iz birakmadan dusur.
+        # A bend CANDIDATE started with the left button, released without moving at
+        # all, was just a selection click: drop it without a trace.
         self._bend_candidate = None
         if self._bend_item is None:
             self._bend_grab = None
@@ -634,16 +634,16 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self._bend_grab = None
             self._bend_index = None
 
-            # SURUKLEMEDEN birakmak oku DUZLESTIRIR -- ama YALNIZCA sag
-            # tusta. Sol tusta ayni davranis, gecisi secmek icin yapilan
-            # her tiklamada bukumu silerdi. (Sol tusta zaten esik asilmadan
-            # buraya gelinmez.)
+            # Releasing WITHOUT DRAGGING STRAIGHTENS the arrow -- but ONLY on the right
+            # button. On the left button the same behaviour would erase the bend on
+            # every click made to select the transition. (On the left button we never
+            # get here without passing the threshold anyway.)
             durgun = (event.button() == Qt.MouseButton.RightButton
                       and abs(tasima.x()) < 3.0 and abs(tasima.y()) < 3.0)
             if durgun and grab and grab[0] == "move" \
                     and grab[1] < len(item.transition.waypoints):
-                # Bir NOKTANIN uzerinde sag tik: yalnizca o noktayi kaldir.
-                # Tek kivrimi silmek icin okun tamamini duzlestirmek
+                # A right click ON A POINT: remove only that point. Straightening the whole
+                # arrow should not be necessary to delete a single bend.
                 # gerekmemeli.
                 item.transition.waypoints.pop(grab[1])
                 item.update_path()
@@ -660,12 +660,12 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             event.accept()
             return
 
-        # SURUKLE-BIRAK ile gecis. Iki kullanim da desteklenir:
-        #   * tikla-tikla : kaynaga tikla, hedefe tikla
-        #   * surukle     : kaynakta basili tut, hedefte birak
-        # Ayrim, birakma noktasinin KAYNAKTAN FARKLI bir durum olmasidir;
-        # aksi halde tikla-tikla akisinin ILK birakmasi gecisi hemen
-        # tamamlar ve kullanici hedefi hic secemez.
+        # Transitions by DRAG AND DROP. Both usages are supported:
+        #     * click-click : click the source, click the target
+        #     * drag        : hold down on the source, release on the target
+        # The distinction is that the release point is a DIFFERENT state from the
+        # SOURCE; otherwise the FIRST release of the click-click flow would complete
+        # the transition immediately and the user could never pick the target.
         if (event.button() == Qt.MouseButton.LeftButton
                 and self.tool is Tool.TRANSITION
                 and self._pending_source is not None):
@@ -679,7 +679,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         if event.button() == Qt.MouseButton.RightButton and self._band.isVisible():
             rect = self._band.geometry()
             self._band.hide()
-            # Cok kucuk dikdortgen = kazara tiklama; secimi bozmayalim.
+            # A very small rectangle = an accidental click; do not disturb the selection.
             if rect.width() > 3 and rect.height() > 3:
                 path_rect = self.mapToScene(rect).boundingRect()
                 secili = [i for i in self._scene.items(path_rect)
@@ -693,7 +693,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
 
         super().mouseReleaseEvent(event)
-        # Surukleme bitti: kilavuzlar kalkar.
+        # The drag finished: the guides go away.
         self.align_clear()
 
         if self._pre_drag is not None and self.tool is Tool.SELECT:
@@ -705,7 +705,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 self.doc.edit_from("Move / resize", snapshot)
 
     def commit_geometry(self, label: str) -> None:
-        """StateItem tarafindan boyutlandirma bitiminde cagrilir."""
+        """Called by StateItem when a resize finishes."""
         snapshot = self._pre_drag
         self._pre_drag = None
         self._write_geometry_to_model()
@@ -713,13 +713,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self.doc.edit_from(label, snapshot)
 
     def _write_geometry_to_model(self, skip: Optional[Set[str]] = None) -> None:
-        """Sahnedeki konumlari modele yazar.
+        """Writes the positions on the scene back into the model.
 
-        ``skip``: bu islemde ust durumu DEGISEN elemanlar. Onlarin koordinati
-        `_apply_reparenting` tarafindan yeni ebeveyne GORE hesaplanmistir;
-        `item.pos()` ise hala eski (sahne) konumudur, cunku grafik agac ancak
-        yeniden cizimde guncellenir. Uzerine yazilirsa eleman ebeveyninin
-        disinda cizilir.
+        ``skip``: the elements whose PARENT CHANGED in this operation. Their
+        coordinates were computed RELATIVE TO the new parent by
+        `_apply_reparenting`, while `item.pos()` is still the old (scene)
+        position, because the graphics tree is only updated on the next redraw.
+        Overwritten, the element would be drawn outside its parent.
         """
         skipped = skip or set()
         kaymalar = {}
@@ -739,24 +739,24 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self._shift_waypoints(kaymalar)
 
     def _shift_waypoints(self, kaymalar) -> None:
-        """Rijit tasinan bir alt resmin ARA NOKTALARINI da tasir.
+        """Moves the WAYPOINTS of a subpicture that is being moved rigidly.
 
-        Gecis ara noktalari MUTLAK SAHNE koordinatinda saklanir, alt
-        durumlar ise ebeveynlerine GORE. Bir bilesik durum surukleninc
-        cocuklari onunla birlikte gider ama ara noktalar yerinde kalir:
-        kullanicinin elle bicimlendirdigi yol kutunun disina sarkar ve bu
-        haliyle KAYDEDILIR. Dosyayi yeniden acmak da duzeltmez.
+        Transition waypoints are stored in ABSOLUTE SCENE coordinates while
+        substates are stored RELATIVE to their parents. When a composite state is
+        dragged its children go with it but the waypoints stay put: the path the
+        user shaped by hand hangs outside the box -- and IS SAVED that way.
+        Reopening the file does not fix it either.
 
-        Yalnizca IKI UCU DA AYNI KADAR kayan gecisler tasinir -- yani
-        resmin o parcasi butun olarak yer degistirmistir ve yolun sekli
-        anlamini korur. Tek ucu kayan bir geciste ara noktalar
-        kullanicinin sahnede sectigi yerlerdir; onlara dokunmak, elle
-        yapilmis bir bicimlendirmeyi bozmak olurdu.
+        Only transitions whose BOTH ENDS shift BY THE SAME AMOUNT are moved --
+        that is, the whole of that part of the picture moved and the shape of the
+        path keeps its meaning. On a transition with only one end shifting, the
+        waypoints are where the user placed them on the scene; touching them
+        would break a hand-made routing.
         """
         sm = self.doc.machine
 
         def sahne_kaymasi(sid):
-            """Ogenin SAHNEDEKI toplam kaymasi (kendisi + butun ustleri)."""
+            """The total shift of an item ON THE SCENE (itself + every parent)."""
             dx = dy = 0.0
             cur = sid
             gorulen = set()
@@ -786,13 +786,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
     @staticmethod
     def _region_for(ust: Optional[QGraphicsItem],
                     yerel_ust_kenar: float, yukseklik: float) -> int:
-        """`ust`un hangi seridine dusuldugunu YEREL koordinattan hesaplar.
+        """Computes WHICH BAND of `parent` was landed in, from LOCAL coordinates.
 
-        Konum `item.pos()` uzerinden DEGIL, disaridan verilen yerel
-        koordinattan okunur. Sebebi: bir oge yeni bir ebeveyne
-        tasindiginda ya da daha yeni yaratildiginda grafik agac henuz
-        guncel degildir -- `pos()` eski sahne konumunu, `parentItem()`
-        eski ebeveyni verir. O anlarda hesaplanan bolge yanlis cikardi.
+        The position is read from the local coordinate passed in, NOT from
+        `item.pos()`. The reason: when an item has just been moved to a new
+        parent, or has just been created, the graphics tree is not up to date --
+        `pos()` gives the old scene position and `parentItem()` the old parent.
+        The region computed at those moments came out wrong.
         """
         if not isinstance(ust, StateItem) or ust.region_count() <= 1:
             return 0
@@ -800,19 +800,19 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
     def _fit_pasted_into(self, host: StateItem, ids: List[str],
                          scene_pos: QPointF) -> None:
-        """Yapistirilan KOKLERI birakma noktasina tasir ve icine sigdirir.
+        """Moves the pasted ROOTS to the drop point and fits them inside.
 
-        `paste_fragment` kokleri KENDI eski koordinatlarina PASTE_OFFSET
-        ekleyerek koyar. Hedef bir bilesik durumsa o koordinat artik ust
-        durumun YEREL cercevesinde okunur ve parca cogu zaman kutunun
-        tamamen DISINA duser: kok bolgede y=600'de duran bir durumu, ic
-        alani y=34..290 olan bir bilesige yapistirmak onu uc yuz piksel
-        asagiya koyuyordu. Kullanici "yapistirdim, hicbir sey olmadi"
-        diyordu -- oysa oge vardi, ekranin gormedigi bir yerdeydi. Bolge
-        numarasi da o durumda anlamsizdi (kelepcelenmis bir deger).
+        `paste_fragment` places the roots by adding PASTE_OFFSET to THEIR OWN old
+        coordinates. When the target is a composite state, that coordinate is now
+        read in the LOCAL frame of the parent and the fragment usually falls
+        entirely OUTSIDE the box: pasting a state sitting at y=600 in the root
+        region into a composite whose inner area is y=34..290 put it three
+        hundred pixels below. The user said "I pasted and nothing happened" --
+        the element was there, just somewhere off screen. The region number was
+        meaningless in that case too (a clamped value).
 
-        Parca, imlecin bulundugu noktaya ORTALANIR ve ust durumun ic
-        alanina kelepcelenir; parcanin kendi ic duzeni korunur.
+        The fragment is CENTRED on the cursor point and clamped to the inner
+        area of the parent; its own internal layout is preserved.
         """
         sm = self.doc.machine
         kokler = [sm.states[i] for i in ids
@@ -840,9 +840,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             st.y = round(st.y + dy, 2)
 
     def _sync_regions_from_drawing(self) -> bool:
-        """Her ogenin bolgesini, CIZILDIGI seritten yeniden okur.
+        """Rereads the region of every item from the BAND IT IS DRAWN IN.
 
-        :return: modelde bir sey degistiyse True
+        :return: True when something changed in the model
         """
         degisti = False
         for item in self.state_items.values():
@@ -854,20 +854,20 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         return degisti
 
     def _assign_region(self, item: StateItem) -> None:
-        """Ogeyi, ust durumun HANGI bolgesinde durdugu bilgisiyle isaretler.
+        """Marks the item with WHICH region of the parent state it sits in.
 
-        Bolge, diyagramda gorunen seritten OKUNUR: kullanici ogeyi hangi
-        banda birakirsa o bolgeye girer. Ayri bir "bolge sec" alani
-        olsaydi resim ile model birbirinden ayrilabilir, uretilen kod
-        cizimin anlatmadigi bir seyi yapardi.
+        The region is READ from the band visible on the diagram: whichever band
+        the user drops the item into is the region it joins. With a separate
+        "pick a region" field, the picture and the model could drift apart and
+        the generated code would do something the drawing does not say.
         """
         item.state.region = self._region_for(
             item.parentItem(), item.pos().y(), item.state.h)
 
     def _apply_reparenting(self) -> Set[str]:
-        """Bir durum bilesik durumun uzerine birakildiysa hiyerarsiyi gunceller.
+        """Updates the hierarchy when a state is dropped onto a composite state.
 
-        :return: ust durumu degisen ve koordinati burada belirlenen eleman id'leri
+        :return: ids of the elements whose parent changed and were placed here
         """
         changed = False
         moved: Set[str] = set()
@@ -889,12 +889,12 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             item.state.parent = new_parent
             item.state.x = round(local.x(), 2)
             item.state.y = round(local.y(), 2)
-            # BOLGEYI DE BURADA YAZ. Bu ogeler `_write_geometry_to_model`
-            # tarafindan ATLANIR (koordinatlari zaten burada hesaplandi),
-            # dolayisiyla tek bolge yazan yer burasidir. Atlaninca, ogeyi
-            # ortogonal bir duruma surukleyen kullanici diyagramda ikinci
-            # seritte duran ama uretilen `state_region[]` tablosunda
-            # birinci bolgede gorunen bir durum elde ediyordu -- hicbir
+            # WRITE THE REGION HERE TOO. These items are SKIPPED by
+            # `_write_geometry_to_model` (their coordinates were already computed here),
+            # so this is the only place that writes their region. Skipped, a user
+            # dragging an item into an orthogonal state got a state drawn in the second
+            # band on the diagram but showing up in the first region of the generated
+            # `state_region[]` table -- without a single warning.
             # uyari vermeden.
             item.state.region = self._region_for(target, local.y(),
                                                  item.state.h)
@@ -905,7 +905,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         return moved
 
     def _composite_at(self, scene_pos: QPointF, exclude: StateItem) -> Optional[StateItem]:
-        """Noktadaki en ictekki bilesik durum (kendisi ve alt agaci haric)."""
+        """The innermost composite state at the point (excluding itself/subtree)."""
         for item in self._scene.items(scene_pos):
             if not isinstance(item, StateItem):
                 continue
@@ -924,7 +924,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             cur = cur.parentItem()
         return False
 
-    # ------------------------------------------------------- eleman olusturma
+    # element creation
 
     def _place_state(self, scene_pos: QPointF) -> None:
         kind, base, w, h = _NEW_STATE_DEFAULTS[self.tool]
@@ -940,10 +940,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         y = snap(local.y() - h / 2.0, self.snap_enabled)
         name = self._unique_name(base)
 
-        # Paletten birakilan oge de dustugu seride girer. Bu satir
-        # olmadan HER yeni oge birinci bolgeye yaziliyordu: ortogonal bir
-        # durumu paletle kurmak imkansizdi, cunku ikinci serite birakilan
-        # durum modelde birinci bolgede kaliyordu.
+        # An item dropped from the palette also joins the band it lands in. Without
+        # this line EVERY new item was written into the first region: building an
+        # orthogonal state from the palette was impossible, because a state dropped
+        # into the second band stayed in the first region in the model.
         region = self._region_for(parent_item, y, h)
         new_state = State(name=name, kind=kind, parent=parent_id,
                           x=x, y=y, w=w, h=h, region=region)
@@ -1009,7 +1009,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 "An initial pseudostate cannot be a transition target.")
             return
         if hit is source and hit.kind.is_pseudo:
-            # Sozde-duruma kendine gecis: makine o dugumde asili kalir.
+            # A self-transition on a pseudostate: the machine would hang on that vertex.
             self.status_message.emit(
                 "A pseudostate cannot have a transition to itself.")
             return
@@ -1025,18 +1025,18 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self.status_message.emit(label + " added.")
         self.tool_finished.emit()
 
-        # OZELLIK PENCERESI hemen acilir. Yeni bir gecis olay/guard/eylem
-        # olmadan anlamsizdir; kullaniciyi ayrica cift tiklamaya zorlamak
-        # yerine alanlar dogrudan sorulur. Durum yerlestirmede de ayni
-        # davranis var (bkz. _place_state), boylece iki arac tutarli.
+        # THE PROPERTY DIALOG opens at once. A new transition is meaningless without
+        # an event/guard/effect; rather than forcing the user into a separate double
+        # click, the fields are asked for directly. State placement behaves the same
+        # way (see _place_state), so the two tools are consistent.
         if self.auto_edit:
             self.edit_element(new_tran.id)
 
     def _transition_at(self, scene_pos: QPointF) -> Optional[TransitionItem]:
-        """Verilen noktadaki gecis oku (yoksa None).
+        """The transition arrow at the given point (None if there is none).
 
-        `TransitionItem.shape()` oku 12 px kalinlikta bir seride genisletir,
-        bu yuzden ince cizgiyi tam isabetle tutturmak gerekmez.
+        `TransitionItem.shape()` widens the arrow into a 12 px band, so the thin
+        line does not have to be hit exactly.
         """
         for item in self._scene.items(scene_pos):
             if isinstance(item, TransitionItem):
@@ -1049,7 +1049,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 return item
         return None
 
-    # ================================================================== klavye
+    # keyboard
 
     def keyPressEvent(self, event) -> None:
         key = event.key()
@@ -1088,15 +1088,15 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
         super().keyPressEvent(event)
 
-    # ============================================================ kopyala/yapistir
+    #  copy/paste
 
     def copy_selection(self) -> bool:
-        """Secili durumlari (alt agaclariyla) SISTEM panosuna koyar.
+        """Puts the selected states (with their subtrees) on the SYSTEM clipboard.
 
-        Sistem panosu kullanilir, uygulama ici bir degisken degil: boylece
-        ayni parca ikinci bir pencereye de yapistirilabilir ve kullanicinin
-        alistigi Ctrl+C davranisi korunur. Yuk JSON'dur; tur imzasi
-        tasidigi icin baska bir metin yapistirilirsa sessizce yok sayilir.
+        The system clipboard is used, not a variable inside the application: so
+        the same fragment can be pasted into a second window and the Ctrl+C
+        behaviour the user knows is preserved. The payload is JSON; because it
+        carries a type signature, other text is ignored silently.
         """
         payload = copy_fragment(self.doc.machine, self.selected_ids())
         if payload is None:
@@ -1113,16 +1113,16 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             self.delete_selection()
 
     def paste_clipboard(self, scene_pos: Optional[QPointF] = None) -> None:
-        """Panodaki parcayi yapistirir ve YAPISTIRILANI secer.
+        """Pastes the fragment on the clipboard and SELECTS WHAT WAS PASTED.
 
-        Hedef ust durum, imlecin ustundeki bilesik durumdur; imlec bos
-        alandaysa kok bolgeye yapistirilir. Kopya orijinalin tam ustune
-        binmesin diye ::PASTE_OFFSET kadar kaydirilir.
+        The target parent is the composite state under the cursor; with the
+        cursor over empty space it is pasted into the root region. The copy is
+        offset by ::PASTE_OFFSET so it does not land exactly on the original.
 
-        ``scene_pos``: hedefi ACIKCA verir. Menuden ya da kisayoldan
-        gelen cagri bunu bos birakir ve imlec kullanilir; testler ise
-        gercek fare imlecini oynatmadan belirli bir noktaya yapistirmak
-        icin verir -- aksi halde yapistirma yolu OLCULEMEZ kalirdi.
+        ``scene_pos``: gives the target EXPLICITLY. A call from the menu or a
+        shortcut leaves it empty and the cursor is used; the tests pass it to
+        paste at a specific point without moving the real mouse cursor --
+        otherwise the paste path would stay UNMEASURABLE.
         """
         payload = QApplication.clipboard().text()
         if not payload.strip():
@@ -1138,10 +1138,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 pos = self.mapToScene(self.viewport().rect().center())
 
         host = self._composite_at_point(pos)
-        # StateItem'in kimligi `state.id`dir; `state_id` diye bir alan HIC
-        # OLMADI. Imlec bir bilesik durumun uzerindeyken yapistirmak
-        # AttributeError ile cokuyordu -- en sik kullanilan yapistirma
-        # bicimi tam olarak buydu (parcayi bir bilesik durumun icine koymak).
+        # The id of a StateItem is `state.id`; a field called `state_id` NEVER
+        # EXISTED. Pasting while the cursor was over a composite state crashed with
+        # AttributeError -- and that was exactly the most common way to paste
+        # (putting the fragment inside a composite state).
         parent_id = host.state.id if host is not None else None
 
         before = self.doc.machine.to_json()
@@ -1150,17 +1150,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                                   parent=parent_id,
                                   dx=PASTE_OFFSET, dy=PASTE_OFFSET)
         except ValueError:
-            # Panoda bizim parcamiz yok (baska bir uygulamadan metin).
-            # Sessizce yok say: kullanici Ctrl+V'yi baska bir sey icin
-            # kullanmis olabilir, uyari kutusu acmak rahatsiz edici olurdu.
+            # The clipboard does not hold a fragment of ours (text from another
+            # application). Ignore it silently: the user may have used Ctrl+V for
+            # something else, and a warning box would be irritating.
             return
         if not yeni:
             return
 
-        # Once KONUM, sonra bolge: bolge zaten konumdan turetilir.
+        # POSITION first, then the region: the region is derived from the position.
         #
-        # Geri alma anlik goruntusu ("before") bu satirlardan ONCE
-        # alindigi icin duzeltmeler de geri alinabilir.
+        # Because the undo snapshot ("before") is taken BEFORE these lines, the
+        # corrections can be undone as well.
         if host is not None:
             self._fit_pasted_into(host, yeni, pos)
             if host.region_count() > 1:
@@ -1205,7 +1205,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self.doc.edit("Delete %d elements" % count, mutate)
         self.status_message.emit("%d elements deleted." % count)
 
-    # ================================================================== gorunum
+    # view
 
     def wheelEvent(self, event) -> None:
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -1236,17 +1236,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
     def zoom_percent(self) -> int:
         return int(round(self.transform().m11() * 100))
 
-    # ------------------------------------------------------------- arka plan
+    # background
 
     def sibling_boxes(self, item: StateItem):
-        """Hizalanilacak komsularin kutulari (ogenin EBEVEYN koordinati).
+        """The boxes of the neighbours to align to (in the PARENT coordinates).
 
-        Yalnizca AYNI ebeveyne sahip durumlar alinir: bir bilesik durumun
-        icindeki alt durum, disaridaki durumlara degil kardeslerine
-        hizalanir -- koordinat uzaylari da zaten ayridir.
+        Only states with the SAME parent are taken: a substate inside a composite
+        state aligns to its siblings, not to the states outside -- their
+        coordinate spaces are separate anyway.
 
-        Secili ogeler DISARIDA birakilir: onlar suruklenen ogeyle
-        BIRLIKTE hareket eder, birbirlerine hizalanmalari anlamsizdir.
+        Selected items are left OUT: they move TOGETHER with the dragged item, so
+        aligning them to each other is meaningless.
         """
         ebeveyn = item.parentItem()
         kutular = []
