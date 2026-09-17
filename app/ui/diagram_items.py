@@ -1,4 +1,4 @@
-"""Tuval uzerindeki grafik elemanlar: durumlar ve gecisler."""
+"""The graphics items on the canvas: states and transitions."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .theme import C, mono_font, ui_font
 
 GRID = 10.0
 MIN_W, MIN_H = 90.0, 54.0
-#: Gecis etiketinin en fazla genisligi (px).
+#: The maximum width of a transition label (px).
 LABEL_MAX_W = 520.0
 GRIP = 14.0
 PSEUDO_SIZE = 24.0
@@ -26,7 +26,7 @@ FINAL_SIZE = 30.0
 
 
 # --------------------------------------------------------------------------- #
-#  Geometri yardimcilari
+#   Geometry helpers
 # --------------------------------------------------------------------------- #
 
 def snap(value: float, enabled: bool = True) -> float:
@@ -41,10 +41,10 @@ def _unit(v: QPointF) -> QPointF:
 
 
 def _point_segment_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
-    """`p` noktasinin [a, b] DOGRU PARCASINA uzakligi.
+    """The distance from the point `p` to the LINE SEGMENT [a, b].
 
-    Sonsuz dogruya degil PARCAYA olan uzaklik gerekir: aksi halde okun
-    uzantisi uzerindeki uzak bir tik, o parcaya en yakin sayilirdi.
+    We need the distance to the SEGMENT, not to the infinite line: otherwise a
+    far-away click on the extension of the arrow would count as nearest to it.
     """
     vx, vy = b.x() - a.x(), b.y() - a.y()
     uzunluk2 = vx * vx + vy * vy
@@ -56,17 +56,17 @@ def _point_segment_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
 
 
 def guarded_paint(fn):
-    """Cizim istisnalarini yutan sarmalayici.
+    """A wrapper that swallows painting exceptions.
 
-    Qt, paint() icinden sizan bir Python istisnasinda sureci SESSIZCE sonlandirir
-    (izi bile basmadan). Bu yuzden her paint govdesi burada korunur: hata olursa
-    konsola yazilir ve eleman kirmizi bir cerceve ile isaretlenir.
+    On a Python exception escaping paint(), Qt terminates the process SILENTLY
+    (without even printing a traceback). So every paint body is guarded here:
+    on an error it is logged and the item is marked with a red frame.
     """
     def wrapper(self, painter, option, widget=None):
         painter.save()
         try:
             fn(self, painter, option, widget)
-        except Exception:                       # pragma: no cover - savunma amacli
+        except Exception:                       # pragma: no cover - defensive
             import traceback
             traceback.print_exc()
             try:
@@ -83,7 +83,7 @@ def guarded_paint(fn):
 
 
 def _polygon_hit(poly: QPolygonF, center: QPointF, toward: QPointF) -> QPointF:
-    """`center`ten `toward`a giden isinin cokgen kenariyla kesisimi."""
+    """Where the ray from `center` toward `toward` crosses the polygon edge."""
     from PyQt6.QtCore import QLineF
     ray = QLineF(center, center + _unit(toward - center) * 4000.0)
     best: Optional[QPointF] = None
@@ -99,18 +99,18 @@ def _polygon_hit(poly: QPolygonF, center: QPointF, toward: QPointF) -> QPointF:
 
 
 # --------------------------------------------------------------------------- #
-#  Durum elemani
+#   State item
 # --------------------------------------------------------------------------- #
 
 class GhostItem(QGraphicsItem):
-    """FARK kipinde SILINEN bir elemanin eski yerindeki izi.
+    """The trace of a DELETED item at its old place, in DIFF mode.
 
-    Silinen eleman yeni modelde YOKTUR, dolayisiyla normal bir StateItem
-    olarak cizilemez. Kullanicinin "ne cikarilmis" sorusunu diyagram
-    uzerinde gorebilmesi icin eski surumdeki konum ve boyutuyla kesik
-    kirmizi bir cerceve olarak cizilir.
+    A deleted element DOES NOT EXIST in the new model, so it cannot be drawn as
+    a normal StateItem. So that the user can see "what was removed" on the
+    diagram, it is drawn as a dashed red frame at the position and size it had
+    in the old version.
 
-    Modele AIT DEGILDIR: secilemez, tasinamaz, kaydedilmez.
+    IT DOES NOT BELONG TO THE MODEL: it cannot be selected, moved or saved.
     """
 
     def __init__(self, veri: dict) -> None:
@@ -119,7 +119,7 @@ class GhostItem(QGraphicsItem):
         self._w = float(veri.get("w") or 120.0)
         self._h = float(veri.get("h") or 70.0)
         self.setPos(float(veri.get("x") or 0.0), float(veri.get("y") or 0.0))
-        self.setZValue(-5.0)          # gercek elemanlarin ALTINDA
+        self.setZValue(-5.0)          # BELOW the real items
         self.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
         self.setToolTip("Removed: %s" % self._ad)
         self._font = ui_font(9)
@@ -144,15 +144,15 @@ class GhostItem(QGraphicsItem):
 
 
 class StateItem(QGraphicsObject):
-    """Bir durumu / sozde-durumu cizen ve suruklenebilir kilan eleman."""
+    """The item that draws a state / pseudostate and makes it draggable."""
 
     def __init__(self, state: State, canvas) -> None:
         super().__init__()
         self.state = state
         self.canvas = canvas
         self.has_error = False
-        self.is_active = False     # simulasyonda etkin durum zincirinde mi
-        #: FARK kipi isareti: "" | "added" | "changed" (bkz. canvas).
+        self.is_active = False     # is it in the active state chain during simulation
+        #: DIFF mode mark: "" | "added" | "changed" (see canvas).
         self.diff_mark = ""
         self._resizing = False
         self._resize_origin = QPointF()
@@ -170,31 +170,31 @@ class StateItem(QGraphicsObject):
 
         self.f_title = ui_font(10)
         self.f_title.setBold(True)
-        # Kullanici "durumlarin icindeki yazilar okunmuyor" dedi:
-        # 8 punto, tipik yakinlastirma duzeyinde silik kaliyordu.
+        # The user said "the text inside the states is unreadable":
+        # 8 point stayed faint at a typical zoom level.
         self.f_body = mono_font(9)
 
-    # ------------------------------------------------------------- geometri #
+    # ------------------------------------------------------------- geometry #
 
     @property
     def kind(self) -> StateKind:
         return self.state.kind
 
     def min_size(self) -> Tuple[float, float]:
-        """Icerigin GEREKTIRDIGI en kucuk kutu (yerel koordinat).
+        """The smallest box the content REQUIRES (in local coordinates).
 
-        Kullanici entry/exit/do metnini ya da adi uzattiginda kutu
-        kendiliginden buyumuyordu; tuval de sigmayani `elidedText` ile
-        kirpiyordu. Yarim gorunen bir davranis, diyagrami okuyan kisiye
-        durumun ne yaptigini yanlis anlatir.
+        When the user lengthened the entry/exit/do text or the name, the box did
+        not grow by itself; and the canvas clipped what did not fit with
+        `elidedText`. A half-visible behaviour tells whoever reads the diagram
+        the wrong thing about what the state does.
 
-        Sozde-durumlar ve final durum sabit sekillerdir; onlara
+        Pseudostates and the final state are fixed shapes; they are left alone.
         dokunulmaz.
         """
         if self.kind.is_pseudo or self.kind is StateKind.FINAL:
-            # Sabit sekiller: daire, elmas, cubuk... MIN_W/MIN_H buraya
-            # UYGULANMAZ; uygulanirsa 24x24'luk bir initial 90x54'e sisip
-            # komsu durumun uzerine biner.
+            # Fixed shapes: circle, diamond, bar... MIN_W/MIN_H are NOT APPLIED
+            # here; applied, a 24x24 initial would swell to 90x54 and cover the
+            # neighbouring state.
             return (self.state.w, self.state.h)
         en = QFontMetricsF(self.f_title).horizontalAdvance(self.state.name)
         en += 20.0
@@ -207,21 +207,21 @@ class StateItem(QGraphicsObject):
         else:
             boy = MIN_H
 
-        # BILESIK DURUM ALT DURUMLARINI DA KAPSAMALI.
+        # A COMPOSITE STATE MUST ALSO COVER ITS SUBSTATES.
         #
-        # Alt durumlar artik kendi metinlerine gore buyudugu icin ust
-        # durumun sabit boyutu yetmeyebilir: yazi tipi degisen bir
-        # makinede (uygulama JetBrains Mono'yu paketlemiyor) alt durum
-        # ust durumun disina tasiyordu.
+        # Because the substates now grow with their own text, the fixed size of the
+        # parent may not be enough: on a machine with a different font (the
+        # application does not package JetBrains Mono) a substate overflowed the
+        # parent.
         if self.kind is StateKind.COMPOSITE:
             sag = alt = 0.0
             try:
                 cocuklar = list(self.childItems())
             except RuntimeError:
-                # Oge yeniden kurulumda silinmis olabilir; cagiran taraf
-                # hala eski basvuruyu tutuyor olabilir. Cokmek yerine
-                # modeldeki boyutla yetin. (rect() eskiden yalnizca Python
-                # alanlarini okudugu icin bu durum sessizce calisiyordu.)
+                # The item may have been deleted in a rebuild while the caller still
+                # holds the old reference. Rather than crashing, make do with the size
+                # in the model. (rect() used to read only Python fields, so this case
+                # worked silently.)
                 cocuklar = []
             for cocuk in cocuklar:
                 if not isinstance(cocuk, StateItem):
@@ -235,17 +235,17 @@ class StateItem(QGraphicsObject):
         return (max(MIN_W, en), max(MIN_H, boy))
 
     def rect(self) -> QRectF:
-        """Cizim dikdortgeni: modeldeki boyut, ama icerikten KUCUK DEGIL.
+        """The drawing rectangle: the size in the model, but NOT SMALLER.
 
-        Model degistirilmez -- dosya, geri alma ve "kaydedilmedi" bayragi
-        etkilenmez. Kullanicinin verdigi boyut korunur; yalnizca metnin
-        gerektirdiginin altina dusulemez.
+        The model is not modified -- the file, the undo stack and the "unsaved"
+        flag are untouched. The size the user gave is kept; it simply cannot go
+        below what the text requires.
         """
         en, boy = self.min_size()
         return QRectF(0.0, 0.0, max(self.state.w, en),
                       max(self.state.h, boy))
 
-    #: Adini seklin ALTINA yazan sozde-durumlar (INITIAL ve FINAL yazmaz).
+    #: The pseudostates that write their name UNDER the shape (INITIAL and FINAL do not).
     NAMED_PSEUDO_KINDS = (StateKind.CHOICE, StateKind.JUNCTION,
                           StateKind.SHALLOW_HISTORY, StateKind.DEEP_HISTORY,
                           StateKind.TERMINATE, StateKind.FORK, StateKind.JOIN,
@@ -254,10 +254,10 @@ class StateItem(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         kutu = self.rect().adjusted(-8.0, -8.0, 8.0, 8.0)
         if self.kind in self.NAMED_PSEUDO_KINDS:
-            # _paint_pseudo_name adi seklin 50 px solundan/sagindan tasarak
-            # ve altina yazar. Bu serit boundingRect'e girmezse Qt orayi ne
-            # yeniden boyar (oge tasinirken ad iz birakir) ne de
-            # itemsBoundingRect'e katar (zoom_fit ve disa aktarma adi kirpar).
+            # _paint_pseudo_name writes the name up to 50 px left and right of the
+            # shape and below it. Unless that strip is in boundingRect, Qt neither
+            # repaints it (the name leaves a trail as the item moves) nor counts it
+            # into itemsBoundingRect (zoom_fit and export clip the name).
             kutu = kutu.united(QRectF(self.rect().left() - 50.0,
                                       self.rect().bottom() + 2.0,
                                       self.rect().width() + 100.0, 16.0))
@@ -278,15 +278,15 @@ class StateItem(QGraphicsObject):
             path.addRect(self.rect())
         elif self.kind in self.BRANCH_KINDS:
             path.addPolygon(self._diamond())
-            # addPolygon cokgeni KAPATMAZ (drawPolygon'un aksine): son
-            # kose ilk koseye baglanmaz ve elmasin BIR KENARI eksik kalir.
+            # addPolygon DOES NOT CLOSE the polygon (unlike drawPolygon): the last
+            # corner is not joined to the first and ONE EDGE of the diamond is missing.
             path.closeSubpath()
         else:
             path.addRoundedRect(self.rect(), 9.0, 9.0)
         return path
 
     def _halo_path(self) -> QPainterPath:
-        """Simulasyon halesi: seklin 4 px disindan gecen dis hat."""
+        """The simulation halo: an outline running 4 px outside the shape."""
         path = QPainterPath()
         r = self.rect().adjusted(-4.0, -4.0, 4.0, 4.0)
         if self.kind in self.CIRCULAR_KINDS or self.kind in self.POINT_KINDS:
@@ -300,8 +300,8 @@ class StateItem(QGraphicsObject):
                 QPointF(r.center().x(), r.bottom()),
                 QPointF(r.left(), r.center().y()),
             ]))
-            # KAPATILMAZSA secim halesinin bir kenari cizilmez -- choice
-            # elmasi secildiginde tam da bu goruluyordu.
+            # UNLESS IT IS CLOSED one edge of the selection halo is not drawn -- which
+            # is exactly what happened when a choice diamond was selected.
             path.closeSubpath()
         else:
             path.addRoundedRect(r, 12.0, 12.0)
@@ -317,7 +317,7 @@ class StateItem(QGraphicsObject):
         ])
 
     def scene_polygon(self) -> QPolygonF:
-        """Sahne koordinatlarinda dis hat (gecis baglama noktalari icin)."""
+        """The outline in scene coordinates (for transition anchor points)."""
         r = self.rect()
         if self.kind in self.BRANCH_KINDS:
             local = self._diamond()
@@ -329,7 +329,7 @@ class StateItem(QGraphicsObject):
         return self.mapToScene(self.rect().center())
 
     def anchor_toward(self, target: QPointF) -> QPointF:
-        """Gecis cizgisinin bu duruma degecegi nokta."""
+        """The point where the transition line will touch this state."""
         center = self.scene_center()
         if self.kind in self.CIRCULAR_KINDS:
             radius = self.state.w / 2.0
@@ -337,11 +337,11 @@ class StateItem(QGraphicsObject):
         return _polygon_hit(self.scene_polygon(), center, target)
 
     def behavior_lines(self) -> List[str]:
-        """entry / exit / do davranislarinin cizilecek satirlari.
+        """The lines of the entry / exit / do behaviours to be drawn.
 
-        Satir sonu iki yoldan gelir (bkz. core/text_layout): cok satirli
-        alanlardaki gercek Enter ve her alanda gecerli LINE_BREAK_MARKER.
-        Devam satirlari basligin altina hizalanir.
+        A line break arrives two ways (see core/text_layout): a real Enter in a
+        multi-line field, and the LINE_BREAK_MARKER valid in every field.
+        Continuation lines are aligned under the heading.
         """
         out: List[str] = []
         for caption, text in (("entry / ", self.state.entry),
@@ -356,16 +356,16 @@ class StateItem(QGraphicsObject):
         return out
 
     def behavior_strip_height(self) -> float:
-        """Bilesik durumda davranis satirlarinin kapladigi dikey serit.
+        """The vertical strip the behaviour lines occupy in a composite state.
 
-        BILESIK DURUMDA DA BUTUN DAVRANISLAR YAZILIR. Onceki surum yalnizca
-        ILK satiri ciziyordu: `Running` durumunun exit ve do davranislari
-        modelde ve URETILEN KODDA vardi ama diyagramda hic gorunmuyordu.
-        Diyagrama bakan biri durumun cikista `led_write(false)` cagirdigini
-        goremiyordu -- uretilen kod kritik yerlerde kullanildigi icin bu
-        kabul edilemez bir eksiklik.
+        ALL BEHAVIOURS ARE WRITTEN IN A COMPOSITE STATE TOO. The previous version
+        drew only the FIRST line: the exit and do behaviours of the `Running`
+        state existed in the model and IN THE GENERATED CODE but never appeared
+        on the diagram. Someone looking at the diagram could not see that the
+        state called `led_write(false)` on exit -- unacceptable when the
+        generated code is used in critical places.
 
-        Alt durumlarin bolgesi bu seridin ALTINDAN baslar (content_rect).
+        The region of the substates starts BELOW this strip (content_rect).
         """
         if self.kind is not StateKind.COMPOSITE:
             return 0.0
@@ -375,21 +375,21 @@ class StateItem(QGraphicsObject):
         return QFontMetricsF(self.f_body).height() * len(lines) + 6.0
 
     def content_rect(self) -> QRectF:
-        """Alt durumlarin yerlesebilecegi ic alan (yerel koordinat)."""
+        """The inner area the substates can be placed in (local coordinates)."""
         return self.rect().adjusted(10.0, 34.0 + self.behavior_strip_height(),
                                     -10.0, -10.0)
 
     def region_count(self) -> int:
-        """Bu durumun sahip oldugu bolge sayisi (bilesik degilse 1)."""
+        """The number of regions this state owns (1 when not composite)."""
         if self.kind is not StateKind.COMPOSITE:
             return 1
         return max(1, int(getattr(self.state, "regions", 1) or 1))
 
     def region_rect(self, index: int) -> QRectF:
-        """Bir bolgenin ic alani (yerel koordinat).
+        """The inner area of one region (in local coordinates).
 
-        Bolgeler YATAY seritlere bolunur; UML'in alistigimiz gosterimi
-        budur (kesikli cizgiyle ayrilmis yatay bantlar).
+        The regions are split into HORIZONTAL bands; that is the UML notation we
+        are used to (horizontal bands separated by a dashed line).
         """
         alan = self.content_rect()
         sayi = self.region_count()
@@ -401,7 +401,7 @@ class StateItem(QGraphicsObject):
                       alan.width(), yukseklik)
 
     def region_at(self, y: float) -> int:
-        """Yerel `y` koordinatinin dustugu bolge."""
+        """The region the local `y` coordinate falls into."""
         alan = self.content_rect()
         sayi = self.region_count()
         if sayi <= 1 or alan.height() <= 0.0:
@@ -416,7 +416,7 @@ class StateItem(QGraphicsObject):
         r = self.rect()
         return QRectF(r.right() - GRIP, r.bottom() - GRIP, GRIP, GRIP)
 
-    # --------------------------------------------------------------- olaylar #
+    # ---------------------------------------------------------------- events #
 
     def hoverEnterEvent(self, event) -> None:
         self._hover = True
@@ -451,8 +451,8 @@ class StateItem(QGraphicsObject):
         if self._resizing:
             delta = event.scenePos() - self._resize_origin
             snap_on = self.canvas.snap_enabled
-            # Alt sinir ICERIKTEN gelir: kullanici kutuyu metnin altina
-            # kuculturse yazi kirpilirdi.
+            # The lower bound comes FROM THE CONTENT: if the user shrank the box
+            # below the text, the text would be clipped.
             en_az_w, en_az_h = self.min_size()
             w = max(en_az_w, snap(self._resize_size[0] + delta.x(), snap_on))
             h = max(en_az_h, snap(self._resize_size[1] + delta.y(), snap_on))
@@ -478,7 +478,7 @@ class StateItem(QGraphicsObject):
         event.accept()
 
     def _clamp_to_children(self, w: float, h: float):
-        """Bilesik durum, icindeki alt durumlardan kucuk olamaz."""
+        """A composite state cannot be smaller than the substates inside it."""
         for child in self.childItems():
             if isinstance(child, StateItem):
                 w = max(w, child.pos().x() + child.state.w + 10.0)
@@ -491,9 +491,9 @@ class StateItem(QGraphicsObject):
             pt: QPointF = value
             snap_on = self.canvas.snap_enabled
             pt = QPointF(snap(pt.x(), snap_on), snap(pt.y(), snap_on))
-            # HIZALAMA izgaradan SONRA gelir: izgara 10 px'e yuvarlar,
-            # hiza ise komsunun gercek kenarina oturtur. Tersi sirada
-            # izgara, bulunan hizayi hemen bozardi.
+            # ALIGNMENT COMES AFTER the grid: the grid rounds to 10 px while the
+            # alignment seats the item on a neighbour's real edge. In the reverse
+            # order the grid would immediately break the alignment just found.
             pt = self.canvas.align_drag(
                 self, pt, (self.state.w, self.state.h),
                 self.canvas.sibling_boxes(self))
@@ -503,9 +503,9 @@ class StateItem(QGraphicsObject):
                 hizali = QPointF(pt)
                 pt.setX(min(max(pt.x(), area.left()), area.right() - self.state.w))
                 pt.setY(min(max(pt.y(), area.top()), area.bottom() - self.state.h))
-                # Ebeveyn kirpmasi hizayi BOZDUYSA kilavuz kaldirilir:
-                # aksi halde cizgi, ogenin aslinda oturmadigi bir hizayi
-                # gosterir ve kullaniciya yalan soyler.
+                # If the parent clamp BROKE the alignment, the guide is removed:
+                # otherwise the line would show an alignment the item does not actually
+                # sit on, and lie to the user.
                 if pt != hizali:
                     self.canvas.align_clear()
             return pt
@@ -515,7 +515,7 @@ class StateItem(QGraphicsObject):
             self.setZValue(1.0 if value else 0.0)
         return super().itemChange(change, value)
 
-    # ----------------------------------------------------------------- cizim #
+    # -------------------------------------------------------------- painting #
 
     @guarded_paint
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
@@ -527,13 +527,13 @@ class StateItem(QGraphicsObject):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(self._halo_path())
 
-        # SECIM HALESI.
+        # THE SELECTION HALO.
         #
-        # Secim yalnizca kenarlik RENGI ve 1.3 -> 2.0 px kalinlik farkiyla
-        # gosteriliyordu; kullanici "secilen oge hic belli olmuyor" dedi ve
-        # haklidir -- koyu temada iki mavi tonu yan yana ayirt edilmiyor.
-        # Sekilden BAGIMSIZ, seklin disindan gecen bir hale her durum
-        # turunde (dikdortgen, daire, elmas) ayni netlikte gorunur.
+        # Selection used to be shown by the border COLOUR alone plus a 1.3 -> 2.0 px
+        # width difference; the user said "you cannot tell which item is selected"
+        # and they are right -- two blues side by side are indistinguishable in the
+        # dark theme. A halo running outside the shape, INDEPENDENT of that shape,
+        # reads equally clearly on every state kind (rectangle, circle, diamond).
         if selected and not self.is_active:
             painter.setPen(QPen(QColor(C.STATE_SELECTED), 2.6))
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -571,10 +571,10 @@ class StateItem(QGraphicsObject):
         else:
             self._paint_state(painter, border, selected)
 
-    # -- sozde-durumlar
+    # -- pseudostates
 
     def _paint_pseudo_name(self, p: QPainter) -> None:
-        """Sozde-durum adini seklin altina yazar."""
+        """Writes the pseudostate name under the shape."""
         p.setPen(QPen(QColor(C.STATE_TEXT)))
         p.setFont(ui_font(8))
         label = QRectF(self.rect().left() - 50, self.rect().bottom() + 2,
@@ -597,12 +597,12 @@ class StateItem(QGraphicsObject):
         p.drawEllipse(r.adjusted(5, 5, -5, -5))
 
     def _paint_choice(self, p: QPainter, border: QColor, selected: bool) -> None:
-        """Choice: DUZ bir elmas (UML 2.5.1, 14.2.4.6).
+        """Choice: a PLAIN diamond (UML 2.5.1, 14.2.4.6).
 
-        Icine bir soru isareti yaziyorduk; spesifikasyonda boyle bir sus
-        yok ve elmasin kendisi zaten dinamik dallanmayi anlatiyor.
-        Standart gosterime yabanci bir isaret, aracin ciktisini UML
-        okuyan birine tanidik gelmekten cikariyordu.
+        We used to write a question mark inside it; the specification has no such
+        ornament and the diamond itself already says dynamic branching. A marker
+        foreign to the standard notation stopped the output of the tool looking
+        familiar to someone who reads UML.
         """
         p.setPen(QPen(border, 2.0 if selected else 1.4))
         p.setBrush(QBrush(QColor(C.CHOICE_FILL)))
@@ -610,13 +610,13 @@ class StateItem(QGraphicsObject):
         self._paint_pseudo_name(p)
 
     def _paint_junction(self, p: QPainter, border: QColor, selected: bool) -> None:
-        """Junction: kucuk DOLU daire (UML 2.5.1, 14.2.4.6).
+        """Junction: a small FILLED circle (UML 2.5.1, 14.2.4.6).
 
-        Choice ile AYNI dolgu rengini kullaniyordu; iki ayri sozde-durum
-        yalnizca bicimle (elmas / daire) ayirt ediliyordu. Spesifikasyon
-        junction icin "small black circle" der -- bu yuzden initial ile
-        ayni murekkep rengi kullanilir ve choice'in kehribar elmasindan
-        bakisla ayrilir.
+        It used to use the SAME fill colour as a choice, and the two different
+        pseudostates were told apart by shape alone (diamond / circle). The
+        specification says "small black circle" for a junction -- so it uses the
+        same ink as the initial pseudostate and separates at a glance from the
+        amber diamond of a choice.
         """
         p.setPen(QPen(border, 2.0 if selected else 1.2))
         p.setBrush(QBrush(QColor(C.INITIAL_FILL)))
@@ -646,12 +646,12 @@ class StateItem(QGraphicsObject):
         self._paint_pseudo_name(p)
 
     def _paint_bar(self, p: QPainter, border: QColor, selected: bool) -> None:
-        """FORK / JOIN: UML'in KALIN CUBUK gosterimi.
+        """FORK / JOIN: the THICK BAR notation of UML.
 
-        UML 2.5.1, 14.2.3.7: ikisi de bolgeler arasinda dagitim ya da
-        birlestirme yapar; gosterimi kalin bir cizgidir. Fork ile join
-        ayni sekle sahiptir -- farki oklarin yonu soyler, tipki belgede
-        oldugu gibi.
+        UML 2.5.1, 14.2.3.7: both spread across regions or merge them; the
+        notation is a thick line. A fork and a join have the same shape -- the
+        difference is told by the direction of the arrows, exactly as in the
+        specification.
         """
         r = self.rect()
         renk = QColor(C.TEXT_BRIGHT) if not selected else border
@@ -662,11 +662,11 @@ class StateItem(QGraphicsObject):
 
     def _paint_connection_point(self, p: QPainter, border: QColor,
                                 selected: bool) -> None:
-        """ENTRY / EXIT POINT: sinirda duran kucuk daire.
+        """ENTRY / EXIT POINT: a small circle sitting on the border.
 
-        UML 2.5.1, 14.2.3.7 (basili s.313): ikisi de bilesik durumun
-        icini disariya KAPATIR. Giris noktasi ICI BOS bir daire, cikis
-        noktasi CARPI isaretli bir dairedir; boylece ikisi tek bakista
+        UML 2.5.1, 14.2.3.7 (printed p.313): both CLOSE the inside of a composite
+        state off from the outside. An entry point is a HOLLOW circle, an exit
+        point a circle marked with a CROSS; so the two separate at a glance.
         ayrilir.
         """
         r = self.rect()
@@ -682,7 +682,7 @@ class StateItem(QGraphicsObject):
             p.drawLine(ic.topRight(), ic.bottomLeft())
         self._paint_pseudo_name(p)
 
-    # -- gercek durumlar
+    # -- real states
 
     def _paint_state(self, p: QPainter, border: QColor, selected: bool) -> None:
         r = self.rect()
@@ -692,7 +692,7 @@ class StateItem(QGraphicsObject):
         body = QPainterPath()
         body.addRoundedRect(r, radius, radius)
 
-        # golge
+        # shadow
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(0, 0, 0, 55))
         shadow = QPainterPath()
@@ -703,7 +703,7 @@ class StateItem(QGraphicsObject):
         p.setPen(QPen(border, 2.0 if selected else 1.3))
         p.drawPath(body)
 
-        # baslik seridi
+        # title strip
         header_h = 26.0
         p.save()
         p.setClipPath(body)
@@ -717,11 +717,11 @@ class StateItem(QGraphicsObject):
         p.drawLine(QPointF(r.left() + 1, r.top() + header_h),
                    QPointF(r.right() - 1, r.top() + header_h))
 
-        # ALTMAKINE DURUMU: UML'in "ic ice iki daire" isareti ve referans.
+        # SUBMACHINE STATE: the UML "two nested circles" mark and the reference.
         #
-        # Referans YAZILMAZSA kullanici, kutunun neyi gosterdigini ancak
-        # ozellikler panelini acarak ogrenir; oysa uretilen kod tam da o
-        # dosyadan gelir.
+        # WITHOUT THE REFERENCE WRITTEN OUT the user only learns what the box
+        # points at by opening the properties panel -- while the generated code
+        # comes from exactly that file.
         if self.kind is StateKind.SUBMACHINE:
             isaret = QRectF(r.right() - 34.0, r.bottom() - 20.0, 26.0, 12.0)
             p.setPen(QPen(QColor(C.TEXT_DIM), 1.4))
@@ -738,12 +738,12 @@ class StateItem(QGraphicsObject):
                            int(Qt.AlignmentFlag.AlignVCenter),
                            ref.rsplit("/", 1)[-1])
 
-        # ORTOGONAL DURUM: bolgeler kesikli cizgiyle ayrilir.
+        # ORTHOGONAL STATE: the regions are separated by a dashed line.
         #
-        # UML 2.5.1, 14.2.3.2: bir bilesik durum birden cok BOLGE sahibi
-        # olabilir ve bolgeler ES ZAMANLI etkindir. Ayirici cizilmezse
-        # kullanici hangi alt durumun hangi bolgede oldugunu goremez ve
-        # uretilen kodun neden oyle davrandigini anlayamaz.
+        # UML 2.5.1, 14.2.3.2: a composite state may own several REGIONS and the
+        # regions are active AT THE SAME TIME. Without the separator drawn, the
+        # user cannot see which substate is in which region, nor understand why
+        # the generated code behaves as it does.
         if composite and self.region_count() > 1:
             ayirici = QPen(QColor(C.BORDER_LIGHT), 1.0, Qt.PenStyle.DashLine)
             p.setPen(ayirici)
@@ -752,7 +752,7 @@ class StateItem(QGraphicsObject):
                 p.drawLine(QPointF(r.left() + 6.0, bant.top()),
                            QPointF(r.right() - 6.0, bant.top()))
 
-        # baslik
+        # title
         p.setFont(self.f_title)
         p.setPen(QPen(QColor(C.STATE_TITLE)))
         fm = QFontMetricsF(self.f_title)
@@ -769,34 +769,34 @@ class StateItem(QGraphicsObject):
                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight),
                        "◧")
 
-        # davranislar
+        # behaviours
         #
-        # COK SATIRLI. Onceki surum butun bosluklari tek bosluga indirip
-        # her davranisi TEK satira siktiriyordu; iki ifadeli bir exit
-        # eylemi kutuda "... check_temp_sensor(in..." diye kirpiliyor ve
-        # kullanici yazdiginin tamamini goremiyordu.
+        # MULTI-LINE. The previous version collapsed every run of whitespace to one
+        # space and squeezed each behaviour onto ONE line; an exit effect with two
+        # statements was clipped in the box as "... check_temp_sensor(in..." and the
+        # user could not see all of what they had written.
         #
-        # Satir sonu iki yoldan gelir (bkz. core/text_layout):
-        #   * cok satirli alanlarda gercek Enter,
-        #   * her alanda LINE_BREAK_MARKER isareti.
-        # Devam satirlari basligin altina hizalanir.
-        # BILESIK DURUM DA AYNI YOLU KULLANIR.
+        # A line break arrives two ways (see core/text_layout):
+        #     * a real Enter in multi-line fields,
+        #     * the LINE_BREAK_MARKER in every field.
+        # Continuation lines are aligned under the heading.
+        # A COMPOSITE STATE USES THE SAME PATH.
         #
-        # Eskiden bilesik durum icin yalnizca `lines[0]` ciziliyordu; entry
-        # gorunuyor, exit ve do SESSIZCE dusuyordu. `Running` durumunun
-        # exit davranisi (`led_write(false);`) ve do davranisi modelde ve
-        # uretilen kodda vardi ama diyagramda hicbir izi yoktu. Diyagram,
-        # uretilen kodun dogrulanabilir gosterimi olmak zorunda.
+        # Only `lines[0]` used to be drawn for a composite state; entry showed and
+        # exit and do were dropped SILENTLY. The exit behaviour of the `Running`
+        # state (`led_write(false);`) and its do behaviour existed in the model and
+        # in the generated code but left no trace on the diagram. The diagram has to
+        # be a verifiable representation of the generated code.
         lines = self.behavior_lines()
         if lines:
             p.setFont(self.f_body)
             fmb = QFontMetricsF(self.f_body)
-            # Bilesik durumda da TAM kontrast: TEXT_DIM ile yazilinca
-            # entry/exit/do satirlari silik kaliyor ve okunmuyordu.
+            # FULL contrast in a composite state too: written with TEXT_DIM the
+            # entry/exit/do lines stayed faint and unreadable.
             p.setPen(QPen(QColor(C.STATE_TEXT)))
             y = r.top() + header_h + 6.0
-            # Bilesik durumda davranis seridi alt durumlarin bolgesinde
-            # BITER; basit durumda kutunun sonuna kadar gidebilir.
+            # In a composite state the behaviour strip ENDS at the region of the
+            # substates; in a simple state it can run to the end of the box.
             alt_sinir = (r.top() + 34.0 + self.behavior_strip_height()
                          if composite else r.bottom() - 4.0)
             kalan = 0
@@ -812,9 +812,9 @@ class StateItem(QGraphicsObject):
                            text)
                 y += fmb.height() + 1.0
             if kalan:
-                # Kutuya SIGMAYAN satir var. Sessizce yutulursa kullanici
-                # davranisin eksik oldugunu fark etmez; kutuyu buyutmesi
-                # gerektigini soyleyen bir isaret birak.
+                # There is a line that DOES NOT FIT the box. Swallowed silently, the user
+                # would not notice the behaviour is incomplete; leave a mark telling them
+                # the box needs to be made bigger.
                 p.setPen(QPen(QColor(C.TEXT_DIM)))
                 p.drawText(QRectF(r.left() + 8, r.bottom() - fmb.height() - 3,
                                   r.width() - 16, fmb.height()),
@@ -822,7 +822,7 @@ class StateItem(QGraphicsObject):
                                | Qt.AlignmentFlag.AlignVCenter),
                            "+%d" % kalan)
 
-        # boyutlandirma tutamagi
+        # resize handle
         if selected and self.is_resizable():
             g = self._grip_rect()
             p.setPen(QPen(QColor(C.STATE_SELECTED), 1.4))
@@ -832,11 +832,11 @@ class StateItem(QGraphicsObject):
 
 
 # --------------------------------------------------------------------------- #
-#  Gecis elemani
+#   Transition item
 # --------------------------------------------------------------------------- #
 
 class TransitionItem(QGraphicsItem):
-    """Iki durum arasindaki oku, etiketi ve secim alanini cizer."""
+    """Draws the arrow between two states, its label and its selection area."""
 
     ARROW = 11.0
 
@@ -847,8 +847,8 @@ class TransitionItem(QGraphicsItem):
         self.src = src
         self.dst = dst
         self.canvas = canvas
-        self.bow = bow                # paralel gecisleri ayirmak icin egrilik
-        self.label_t = label_t        # etiketin yol uzerindeki konumu (0..1)
+        self.bow = bow                # curvature, to separate parallel transitions
+        self.label_t = label_t        # the position of the label along the path (0..1)
         self.has_error = False
         self._hover = False
 
@@ -860,7 +860,7 @@ class TransitionItem(QGraphicsItem):
         self._label_lines: List[str] = []
         self._label_drawn: List[str] = []
         self._bow_normal: Optional[QPointF] = None
-        #: FARK kipi isareti (bkz. StateItem.diff_mark).
+        #: DIFF mode mark (see StateItem.diff_mark).
         self.diff_mark = ""
 
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
@@ -869,9 +869,9 @@ class TransitionItem(QGraphicsItem):
         self.font = ui_font(8)
         self.update_path()
 
-    # -------------------------------------------------------------- geometri #
+    # -------------------------------------------------------------- geometry #
 
-    #: Kirilma noktasi tutamaginin yaricapi (sahne birimi).
+    #: The radius of a waypoint handle (in scene units).
     HANDLE = 4.0
 
     def boundingRect(self) -> QRectF:
@@ -924,8 +924,8 @@ class TransitionItem(QGraphicsItem):
             direction = _unit(c2 - c1)
             normal = QPointF(-direction.y(), direction.x())
             ctrl = mid + normal * self.bow
-            # Etiketi egrinin dis tarafina koy; boylece paralel gecislerin
-            # etiketleri ust uste binmez.
+            # Put the label on the outside of the curve, so the labels of parallel
+            # transitions do not overlap.
             self._bow_normal = normal * (1.0 if self.bow > 0 else -1.0)
         else:
             ctrl = mid
@@ -943,13 +943,13 @@ class TransitionItem(QGraphicsItem):
         self._path = path
         self._arrow = self._arrow_head(p2, tangent)
 
-    # ------------------------------------------------ cok noktali yonlendirme #
+    # ---------------------------------------------------- multi-point routing #
 
     def route_points(self) -> List[QPointF]:
-        """Okun TAM cizgisi: [kaynak ucu, *kirilma noktalari, hedef ucu].
+        """The FULL line of the arrow: [source end, *waypoints, target end].
 
-        Bukme islemleri bunun uzerinden yurur: kullanici okun HERHANGI bir
-        noktasindan cekebilmelidir, yalnizca tek bir kirilma noktasindan
+        The bending operations run over this: the user has to be able to pull
+        the arrow from ANY of its points, not from a single waypoint.
         degil.
         """
         pts = [QPointF(x, y) for x, y in self.transition.waypoints]
@@ -962,10 +962,10 @@ class TransitionItem(QGraphicsItem):
         return [self.src.anchor_toward(mid), self.dst.anchor_toward(mid)]
 
     def label_at(self, pos: QPointF) -> bool:
-        """Verilen sahne noktasi ETIKETIN uzerinde mi?
+        """Is the given scene point over THE LABEL?
 
-        Etiket, okun kendisinden AYRI tutulur: kullanici etiketi okun
-        uzerinden kaydirip okunur bir yere tasiyabilmelidir (bkz.
+        The label is kept SEPARATE from the arrow itself: the user must be able
+        to slide the label off the arrow to somewhere readable (see
         Transition.label_dx / label_dy).
         """
         if self._label_rect.isEmpty():
@@ -973,15 +973,15 @@ class TransitionItem(QGraphicsItem):
         return self._label_rect.adjusted(-3.0, -3.0, 3.0, 3.0).contains(pos)
 
     def grab_at(self, pos: QPointF, radius: float):
-        """Verilen noktada okun neresi tutuldu?
+        """What part of the arrow was grabbed at the given point?
 
-        Doner:
-          ("move", i)   -> i numarali KIRILMA NOKTASI tutuldu (tasinacak)
-          ("insert", i) -> i numarali PARCA tutuldu; oraya YENI nokta girer
+        Returns:
+          ("move", i)   -> WAYPOINT number i was grabbed (it will be moved)
+          ("insert", i) -> SEGMENT number i was grabbed; a NEW point goes there
 
-        Parca indisi ile kirilma noktasi indisi AYNIDIR: yol
-        [uc, w0, w1, ..., uc] oldugu icin i. parca w[i-1] ile w[i] arasinda
-        kalir ve yeni nokta tam o indise eklenir.
+        The segment index and the waypoint index are THE SAME: because the path
+        is [end, w0, w1, ..., end], segment i lies between w[i-1] and w[i] and
+        the new point is inserted at exactly that index.
         """
         for i, (x, y) in enumerate(self.transition.waypoints):
             d = QPointF(x, y) - pos
@@ -1021,14 +1021,14 @@ class TransitionItem(QGraphicsItem):
             self._label_drawn = []
             return
         fm = QFontMetricsF(self.font)
-        # COK SATIRLI ETIKET. Kullanici olay / guard / eylem alanlarina
-        # satir sonu isareti yazarsa etiket bolunur; her satir AYRI
-        # kirpilir, kutu en genis satira gore kurulur.
+        # A MULTI-LINE LABEL. When the user writes a line-break marker into the
+        # event / guard / effect fields the label splits; each line is clipped
+        # SEPARATELY and the box is sized to the widest line.
         satirlar = self._label_lines or [self._label]
-        # 260 px yaklasik 37 karakter demekti ve
-        # "after(SETTLE_MS) [pin_is_low(ctx)]" gibi siradan bir etiket bile
-        # kirpiliyordu. Sinir, gercek bir olay+guard+eylem ucusunu tasiyacak
-        # kadar genis; yine de kacak bir metnin diyagrami kaplamasini onler.
+        # 260 px meant about 37 characters, and even an ordinary label such as
+        # "after(SETTLE_MS) [pin_is_low(ctx)]" was being clipped. The bound is wide
+        # enough for a real event+guard+effect triple, while still stopping a
+        # runaway text from covering the diagram.
         cizilecek = [fm.elidedText(ln, Qt.TextElideMode.ElideRight,
                                    LABEL_MAX_W)
                      for ln in satirlar]
@@ -1044,7 +1044,7 @@ class TransitionItem(QGraphicsItem):
             anchor += QPointF(self.transition.label_dx, self.transition.label_dy)
         self._label_rect = QRectF(anchor.x() - w / 2.0, anchor.y() - h / 2.0, w, h)
 
-    # -------------------------------------------------------------- olaylar  #
+    # --------------------------------------------------------------- events  #
 
     def hoverEnterEvent(self, event) -> None:
         self._hover = True
@@ -1060,7 +1060,7 @@ class TransitionItem(QGraphicsItem):
         self.canvas.edit_element(self.transition.id)
         event.accept()
 
-    # ---------------------------------------------------------------- cizim  #
+    # ------------------------------------------------------------- painting  #
 
     @guarded_paint
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
@@ -1081,8 +1081,8 @@ class TransitionItem(QGraphicsItem):
             color = QColor(C.TRANSITION)
 
         width = 3.0 if selected else 1.5
-        # Secili okun ALTINA solgun ve genis bir iz cizilir: ince bir
-        # cizgide renk degisimi tek basina yeterince belli olmuyordu.
+        # A pale, wide trace is drawn UNDER the selected arrow: on a thin line a
+        # colour change alone was not visible enough.
         if selected:
             iz = QColor(color)
             iz.setAlpha(70)
@@ -1104,11 +1104,11 @@ class TransitionItem(QGraphicsItem):
         painter.setBrush(QBrush(color))
         painter.drawPolygon(self._arrow)
 
-        # KIRILMA NOKTASI TUTAMAKLARI (yalnizca secili okta).
+        # THE WAYPOINT HANDLES (only on the selected arrow).
         #
-        # Ok her noktasindan cekilerek sekillendirilebilir; hangi
-        # noktalarin VAR OLDUGU gorunmezse kullanici onlari yeniden
-        # yakalayamaz, her cekiste yenisini ekler ve ok bozulur.
+        # The arrow can be shaped by pulling any of its points; unless it is
+        # visible WHICH points EXIST, the user cannot grab them again, adds a new
+        # one on every pull, and the arrow falls apart.
         if selected and self.transition.waypoints:
             painter.setPen(QPen(QColor(C.STATE_TITLE), 1.2))
             painter.setBrush(QBrush(color))
@@ -1117,9 +1117,9 @@ class TransitionItem(QGraphicsItem):
 
         if self._label_rect.isEmpty():
             return
-        # Etiket zemini TUVALIN rengidir, beyaz DEGIL: acik temada beyaz
-        # kutucuklar acik gri tuvalde "etrafi belirgin olmayan" lekeler
-        # gibi duruyordu. Zemin yalnizca altindaki oku maskeler.
+        # The label background is the colour of THE CANVAS, NOT white: in the light
+        # theme white boxes looked like patches "with no clear edge" on the light
+        # grey canvas. The background only masks the arrow beneath it.
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(C.LABEL_BG)))
         painter.drawRoundedRect(self._label_rect, 4.0, 4.0)
