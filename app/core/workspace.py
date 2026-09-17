@@ -276,7 +276,7 @@ def normalise_recent(paths: List[str], limit: int = MAX_RECENT) -> List[str]:
 
 def push_recent(paths: List[str], path: str,
                 limit: int = MAX_RECENT) -> List[str]:
-    """``path``i listenin basina tasir."""
+    """Moves ``path`` to the front of the list."""
     return normalise_recent([path] + list(paths), limit)
 
 
@@ -292,3 +292,39 @@ def suggest_root(parent_dir: str, name: str) -> str:
         if not os.path.exists(lower):
             return lower
     return candidate
+
+
+def display_path(path: str) -> str:
+    """A path with the home folder written as ``~``.
+
+    THE ACCOUNT NAME IS IN EVERY PATH under the home folder, and paths are on
+    screen constantly -- the start-up dialog, the workspace tooltip, the file
+    tree. That puts the account name into every screenshot, every screen share
+    and every bug report, whether or not anyone meant to share it. Showing
+    ``~/Documents`` says exactly as much to the person using the application
+    and nothing at all to anyone else looking at the picture.
+
+    Only the DISPLAY is shortened. Every path the application acts on is the
+    real one; :func:`expand_path` is the way back.
+    """
+    if not path:
+        return path
+    try:
+        full = os.path.abspath(path)
+        home = os.path.abspath(os.path.expanduser("~"))
+    except (OSError, ValueError):
+        return path
+    if os.path.normcase(full) == os.path.normcase(home):
+        return "~"
+    if os.path.normcase(full).startswith(os.path.normcase(home + os.sep)):
+        return "~" + os.sep + full[len(home) + 1:]
+    return path
+
+
+def expand_path(text: str) -> str:
+    """The inverse of :func:`display_path`.
+
+    It also accepts a ``~`` the user typed themselves, which is what someone
+    coming from a shell will try first.
+    """
+    return os.path.expanduser((text or "").strip())

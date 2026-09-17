@@ -118,12 +118,14 @@ if _IS_MAC:
         exe,
         name="UML Design Studio.app",
         icon=_icon_file,
-        bundle_identifier="com.kubilaykozleme.umldesignstudio",
+        bundle_identifier="io.github.loopoverlord1453.umldesignstudio",
         info_plist={
             "CFBundleDisplayName": "UML Design Studio",
             "CFBundleShortVersionString": "2.0.0",
             "CFBundleVersion": "2.0.0",
-            "NSHumanReadableCopyright": "(c) 2026 Kubilay Kozleme - GNU GPL v3",
+            "NSHumanReadableCopyright":
+                "(c) 2026 the UML Design Studio contributors"
+                " - GNU GPL v3",
             # Retina: without this the whole interface is drawn at half
             # resolution and every label looks blurred.
             "NSHighResolutionCapable": True,

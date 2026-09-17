@@ -73,7 +73,7 @@ REAL_SIZES = {
 }
 
 
-class _TekerleksizKarisim:
+class _NoWheelMixin:
     """Ignores the mouse wheel while NOT focused.
 
     THIS WAS A REAL DATA-LOSS DEFECT. In Qt a QComboBox / QSpinBox catches the
@@ -98,15 +98,15 @@ class _TekerleksizKarisim:
             event.ignore()
 
 
-class NoWheelComboBox(_TekerleksizKarisim, QComboBox):
+class NoWheelComboBox(_NoWheelMixin, QComboBox):
     pass
 
 
-class NoWheelSpinBox(_TekerleksizKarisim, QSpinBox):
+class NoWheelSpinBox(_NoWheelMixin, QSpinBox):
     pass
 
 
-class NoWheelDoubleSpinBox(_TekerleksizKarisim, QDoubleSpinBox):
+class NoWheelDoubleSpinBox(_NoWheelMixin, QDoubleSpinBox):
     pass
 
 
@@ -177,10 +177,10 @@ class MiniCodeEdit(QPlainTextEdit):
         """
         # +6: the rounding margin of the document layout. At 4 px the content
         # overflowed by a pixel or two and an unnecessary scroll bar appeared.
-        gider = 2 * self.frameWidth() + 2 * int(self.document().documentMargin()) + 6
+        overhead = 2 * self.frameWidth() + 2 * int(self.document().documentMargin()) + 6
         if not self._wraps:
-            gider += self.horizontalScrollBar().sizeHint().height()
-        return gider
+            overhead += self.horizontalScrollBar().sizeHint().height()
+        return overhead
 
     def _apply_height(self, row: Optional[int] = None) -> None:
         """The size that shows `rows` (or `_rows`) lines IN FULL."""
@@ -339,8 +339,8 @@ class Inspector(QScrollArea):
         from PyQt6.QtWidgets import (QAbstractSpinBox, QApplication,
                                      QLineEdit, QPlainTextEdit, QTextEdit)
         focus = QApplication.focusWidget()
-        korunan = (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)
-        if isinstance(focus, korunan) and self._host.isAncestorOf(focus):
+        preserved = (QLineEdit, QPlainTextEdit, QTextEdit, QAbstractSpinBox)
+        if isinstance(focus, preserved) and self._host.isAncestorOf(focus):
             return
         self.show_selection(self._ids)
 
@@ -490,19 +490,19 @@ class Inspector(QScrollArea):
         # UML 2.5.1, 14.5.9.6: deferrableTrigger is a STATE property. A
         # comma-separated list; leaving it empty means "none".
         if st.kind.is_real_state:
-            ertelenen = QLineEdit(", ".join(st.deferred or []))
-            ertelenen.setObjectName("state_deferred")
-            ertelenen.setAccessibleName("Deferred events")
-            ertelenen.setPlaceholderText("e.g. PRINT, RESIZE")
-            ertelenen.setToolTip(
+            deferred_list = QLineEdit(", ".join(st.deferred or []))
+            deferred_list.setObjectName("state_deferred")
+            deferred_list.setAccessibleName("Deferred events")
+            deferred_list.setPlaceholderText("e.g. PRINT, RESIZE")
+            deferred_list.setToolTip(
                 "Event types held in the pool while this state is active "
                 "instead of being dispatched. They are delivered once the "
                 "machine reaches a configuration that no longer defers them "
                 "(UML 2.5.1, 14.2.3.4.4).")
-            ertelenen.editingFinished.connect(
-                lambda _sid=sid, _f=ertelenen: self._edit(
+            deferred_list.editingFinished.connect(
+                lambda _sid=sid, _f=deferred_list: self._edit(
                     self._set_deferred(_sid, _f.text()), "Deferred events"))
-            form.addRow("Defers", ertelenen)
+            form.addRow("Defers", deferred_list)
 
         # SUBMACHINE REFERENCE -- only on submachine states.
         #
@@ -516,15 +516,15 @@ class Inspector(QScrollArea):
                 "The state machine this state stands for. Its contents are "
                 "inserted here when code is generated (UML 2.5.1, "
                 "14.2.3.4.7).")
-            mevcut = (getattr(st, "submachine_ref", "") or "").strip()
+            existing = (getattr(st, "submachine_ref", "") or "").strip()
             selection.addItem("(none)", "")
             for path in self._workspace_machines():
                 selection.addItem(path, path)
-            if mevcut and selection.findData(mevcut) < 0:
+            if existing and selection.findData(existing) < 0:
                 # The referenced file is gone; show it rather than removing it SILENTLY,
                 # so the user knows what is missing.
-                selection.addItem("%s  (missing)" % mevcut, mevcut)
-            selection.setCurrentIndex(max(0, selection.findData(mevcut)))
+                selection.addItem("%s  (missing)" % existing, existing)
+            selection.setCurrentIndex(max(0, selection.findData(existing)))
             selection.activated.connect(
                 lambda _i, _sid=sid, _c=selection: self._edit(
                     self._set_submachine(_sid, _c.currentData()),
@@ -791,11 +791,11 @@ class Inspector(QScrollArea):
         form.addRow("[Guard]", guard)
 
         if start:
-            engel = ("An initial transition cannot have an event or a guard "
+            blocked = ("An initial transition cannot have an event or a guard "
                      "(UML 2.5.1 §14.5.6.7).")
             for w in (event, guard):
                 w.setEnabled(False)
-                w.setToolTip(engel)
+                w.setToolTip(blocked)
 
         action = MiniCodeEdit(2, "ctx->count++;")
         action.set_value(tr.action)

@@ -190,13 +190,13 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         """
         self._diff_marks = marks or {}
         added = self._diff_marks.get("added") or set()
-        degisen = self._diff_marks.get("changed") or set()
+        changed = self._diff_marks.get("changed") or set()
 
-        for kimlik, item in list(self.class_items.items()) \
+        for ident, item in list(self.class_items.items()) \
                 + list(self.rel_items.items()):
-            if kimlik in added:
+            if ident in added:
                 new = "added"
-            elif kimlik in degisen:
+            elif ident in changed:
                 new = "changed"
             else:
                 new = ""
@@ -347,13 +347,13 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
 
         # The class canvas behaves EXACTLY like the state canvas: the scene grows
         # while dragging, and the view scrolls when the cursor reaches the edge.
-        surukluyor = bool(event.buttons() & Qt.MouseButton.LeftButton)
-        if surukluyor:
+        dragging = bool(event.buttons() & Qt.MouseButton.LeftButton)
+        if dragging:
             self._room_for_drag(event.position().toPoint())
 
         super().mouseMoveEvent(event)
 
-        if surukluyor:
+        if dragging:
             self._update_autoscroll(event.position().toPoint())
         else:
             self._stop_autoscroll()
@@ -573,13 +573,13 @@ class ClassCanvas(CanvasNavigation, QGraphicsView):
         Selected items are left out: they move together with the item being
         dragged.
         """
-        kutular = []
+        boxes = []
         for other in self.class_items.values():
             if other is item or other.isSelected():
                 continue
-            kutular.append((other.pos().x(), other.pos().y(),
+            boxes.append((other.pos().x(), other.pos().y(),
                             other.cls.w, other.cls.h))
-        return kutular
+        return boxes
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawForeground(painter, rect)

@@ -35,7 +35,7 @@ VSVersionInfo(
                 StringTable(
                     '040904B0',
                     [
-                        StringStruct('CompanyName', 'Kubilay Kozleme'),
+                        StringStruct('CompanyName', 'UML Design Studio'),
                         StringStruct('FileDescription',
                                      'UML Design Studio - UML 2.5.1 state machine '
                                      'and class diagram editor with C/C++ code '
@@ -43,7 +43,8 @@ VSVersionInfo(
                         StringStruct('FileVersion', '2.0.0.0'),
                         StringStruct('InternalName', 'UML-Design-Studio'),
                         StringStruct('LegalCopyright',
-                                     '(c) 2026 Kubilay Kozleme - GNU GPL v3'),
+                                     '(c) 2026 the UML Design Studio contributors'
+                                     ' - GNU GPL v3'),
                         StringStruct('OriginalFilename', 'UML-Design-Studio.exe'),
                         StringStruct('ProductName', 'UML Design Studio'),
                         StringStruct('ProductVersion', '2.0.0.0'),

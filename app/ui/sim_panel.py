@@ -445,9 +445,9 @@ class SimulatorPanel(QWidget):
         _clear_table(self.var_table)
         self.var_table.setRowCount(len(names))
         for row, name in enumerate(names):
-            oge = QTableWidgetItem(name)
-            oge.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.var_table.setItem(row, 0, oge)
+            elem = QTableWidgetItem(name)
+            elem.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            self.var_table.setItem(row, 0, elem)
 
             box = QLineEdit(self._var_text.get(name, ""))
             box.setFont(mono_font(8))
@@ -479,8 +479,8 @@ class SimulatorPanel(QWidget):
 
     def _paint_variable_row(self, name: str, ok: bool, filled: bool) -> None:
         for row in range(self.var_table.rowCount()):
-            oge = self.var_table.item(row, 0)
-            if oge is None or oge.text() != name:
+            elem = self.var_table.item(row, 0)
+            if elem is None or elem.text() != name:
                 continue
             box = self.var_table.cellWidget(row, 1)
             if box is None:
@@ -500,10 +500,10 @@ class SimulatorPanel(QWidget):
         _clear_table(self.guard_table)
         self.guard_table.setRowCount(len(self._guards))
         for row, expr in enumerate(self._guards):
-            oge = QTableWidgetItem(expr)
-            oge.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            oge.setToolTip(expr)
-            self.guard_table.setItem(row, 0, oge)
+            elem = QTableWidgetItem(expr)
+            elem.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            elem.setToolTip(expr)
+            self.guard_table.setItem(row, 0, elem)
 
             selection = QComboBox()
             selection.addItems(list(_MODES))
@@ -556,26 +556,26 @@ class SimulatorPanel(QWidget):
 
     def _refresh_guard_values(self) -> None:
         for row, expr in enumerate(self._guards):
-            oge = self.guard_table.item(row, 2)
-            if oge is None:
+            elem = self.guard_table.item(row, 2)
+            if elem is None:
                 continue
             value, source = self._resolve_guard(expr)
             label = "true" if value else "false"
             if source == "unresolved":
                 label += "  ?"
-                oge.setToolTip(
+                elem.setToolTip(
                     "This condition cannot be computed from variables "
                     "(it is a call or uses a pointer). Force it with the "
                     "Mode column.")
                 color = C.WARN
             elif source == "manual":
-                oge.setToolTip("Forced by hand in the Mode column.")
+                elem.setToolTip("Forced by hand in the Mode column.")
                 color = C.TEXT_BRIGHT
             else:
-                oge.setToolTip("Computed from the Variables tab.")
+                elem.setToolTip("Computed from the Variables tab.")
                 color = C.GREEN if value else C.ORANGE
-            oge.setText(label)
-            oge.setForeground(_brush(color))
+            elem.setText(label)
+            elem.setForeground(_brush(color))
 
     # actions
 
@@ -656,9 +656,9 @@ class SimulatorPanel(QWidget):
             "→ entry   ● do   = configuration", C.TEXT_DIM)
 
     def _section(self, title: str) -> None:
-        cizgi = "─" * max(4, 58 - len(title))
+        line = "─" * max(4, 58 - len(title))
         self._append("", C.TEXT_DIM)
-        self._append("── %s %s" % (title, cizgi), C.CYAN)
+        self._append("── %s %s" % (title, line), C.CYAN)
 
     def _log(self, kind: str, detail: str) -> None:
         """Writes every record coming from the simulation into the trace.

@@ -44,7 +44,7 @@ def _load(text: str) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
-def _anlamli(d: dict) -> dict:
+def _meaningful(d: dict) -> dict:
     """Gorsel alanlari atilmis kopya."""
     return {k: v for k, v in d.items() if k not in _VISUAL_FIELDS}
 
@@ -68,7 +68,7 @@ def _transition_label(d: dict, states: Dict[str, dict]) -> str:
     return label
 
 
-def _farklar(old: dict, new: dict) -> List[str]:
+def _diffs(old: dict, new: dict) -> List[str]:
     """The list of changed fields as 'field: old -> new'."""
     out = []
     for key in sorted(set(old) | set(new)):
@@ -79,27 +79,27 @@ def _farklar(old: dict, new: dict) -> List[str]:
     return out
 
 
-def _karsilastir(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
+def _compare(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
     """Matches by id and produces added / removed / changed rows."""
     old = {d.get("id"): d for d in old_list if isinstance(d, dict)}
     new = {d.get("id"): d for d in new_list if isinstance(d, dict)}
 
     rows: List[DiffRow] = []
 
-    for kimlik, d in new.items():
-        if kimlik not in old:
+    for ident, d in new.items():
+        if ident not in old:
             rows.append((section, "+", label_fn(d)))
 
-    for kimlik, d in old.items():
-        if kimlik not in new:
+    for ident, d in old.items():
+        if ident not in new:
             rows.append((section, "-", label_fn(d)))
 
-    for kimlik, y in new.items():
-        e = old.get(kimlik)
+    for ident, y in new.items():
+        e = old.get(ident)
         if e is None:
             continue
-        degisen = _farklar(_anlamli(e), _anlamli(y))
-        if not degisen:
+        changed = _diffs(_meaningful(e), _meaningful(y))
+        if not changed:
             continue
         title = label_fn(y)
         old_name, new_name = e.get("name"), y.get("name")
@@ -108,7 +108,7 @@ def _karsilastir(section: str, old_list, new_list, label_fn) -> List[DiffRow]:
             # this is a rename, NOT a "remove + add".
             title = "%s  (renamed from '%s')" % (title, old_name)
         rows.append((section, "~", title))
-        for row in degisen:
+        for row in changed:
             rows.append((section, " ", "    " + row))
 
     return rows
@@ -132,21 +132,21 @@ def element_status(old_text: str, new_text: str) -> dict:
     old = _load(old_text) or {}
     new = _load(new_text) or {}
 
-    added, silinen, degisen = set(), {}, set()
+    added, removed, changed = set(), {}, set()
     for field in ("states", "transitions", "classes", "relations"):
         e = {d.get("id"): d for d in (old.get(field) or [])
              if isinstance(d, dict)}
         y = {d.get("id"): d for d in (new.get(field) or [])
              if isinstance(d, dict)}
-        for kimlik in y:
-            if kimlik not in e:
-                added.add(kimlik)
-            elif _farklar(_anlamli(e[kimlik]), _anlamli(y[kimlik])):
-                degisen.add(kimlik)
-        for kimlik, d in e.items():
-            if kimlik not in y:
-                silinen[kimlik] = d
-    return {"added": added, "removed": silinen, "changed": degisen}
+        for ident in y:
+            if ident not in e:
+                added.add(ident)
+            elif _diffs(_meaningful(e[ident]), _meaningful(y[ident])):
+                changed.add(ident)
+        for ident, d in e.items():
+            if ident not in y:
+                removed[ident] = d
+    return {"added": added, "removed": removed, "changed": changed}
 
 
 def state_machine_diff(old_text: str, new_text: str) -> List[DiffRow]:
@@ -160,18 +160,18 @@ def state_machine_diff(old_text: str, new_text: str) -> List[DiffRow]:
             states[d.get("id")] = d
 
     rows: List[DiffRow] = []
-    rows += _karsilastir("States", old.get("states") or [],
+    rows += _compare("States", old.get("states") or [],
                              new.get("states") or [], _state_label)
-    rows += _karsilastir(
+    rows += _compare(
         "Transitions", old.get("transitions") or [],
         new.get("transitions") or [],
         lambda d: _transition_label(d, states))
 
-    rows += _makine_ayarlari(old, new)
+    rows += _machine_settings(old, new)
     return rows
 
 
-def _makine_ayarlari(old: dict, new: dict) -> List[DiffRow]:
+def _machine_settings(old: dict, new: dict) -> List[DiffRow]:
     """The machine-level fields (name, prefix, context type, ...)."""
     fields = ("name", "prefix", "context_type", "user_includes", "description")
     out: List[DiffRow] = []
@@ -187,25 +187,25 @@ def class_model_diff(old_text: str, new_text: str) -> List[DiffRow]:
     old = _load(old_text) or {}
     new = _load(new_text) or {}
 
-    siniflar = {}
+    classes = {}
     for d in list(old.get("classes") or []) + list(new.get("classes") or []):
         if isinstance(d, dict):
-            siniflar[d.get("id")] = d
+            classes[d.get("id")] = d
 
     def class_label(d: dict) -> str:
-        damga = d.get("stereotype") or ""
-        on = ("«%s» " % damga) if damga and damga != "none" else ""
+        stamp = d.get("stereotype") or ""
+        on = ("«%s» " % stamp) if stamp and stamp != "none" else ""
         return "%s%s" % (on, d.get("name", "?"))
 
     def relation_label(d: dict) -> str:
-        source = siniflar.get(d.get("source", ""), {}).get("name", "?")
-        target = siniflar.get(d.get("target", ""), {}).get("name", "?")
+        source = classes.get(d.get("source", ""), {}).get("name", "?")
+        target = classes.get(d.get("target", ""), {}).get("name", "?")
         return "%s  %s  %s" % (source, d.get("kind", "association"), target)
 
     rows: List[DiffRow] = []
-    rows += _karsilastir("Classes", old.get("classes") or [],
+    rows += _compare("Classes", old.get("classes") or [],
                              new.get("classes") or [], class_label)
-    rows += _karsilastir("Relations", old.get("relations") or [],
+    rows += _compare("Relations", old.get("relations") or [],
                              new.get("relations") or [], relation_label)
     return rows
 
@@ -242,19 +242,19 @@ def render(rows: List[DiffRow]) -> str:
         return ""
     out: List[str] = []
     last_section = None
-    for section, isaret, text in rows:
+    for section, mark, text in rows:
         if section != last_section:
             if out:
                 out.append("")
             out.append("@@ %s @@" % section)
             last_section = section
-        out.append("%s %s" % (isaret, text) if isaret != " " else "  " + text)
+        out.append("%s %s" % (mark, text) if mark != " " else "  " + text)
     return "\n".join(out)
 
 
 def summary(rows: List[DiffRow]) -> Tuple[int, int, int]:
     """The (added, removed, changed) counts."""
     art = sum(1 for _b, s, _t in rows if s == "+")
-    eksi = sum(1 for _b, s, _t in rows if s == "-")
-    degisen = sum(1 for _b, s, _t in rows if s == "~")
-    return art, eksi, degisen
+    minus = sum(1 for _b, s, _t in rows if s == "-")
+    changed = sum(1 for _b, s, _t in rows if s == "~")
+    return art, minus, changed

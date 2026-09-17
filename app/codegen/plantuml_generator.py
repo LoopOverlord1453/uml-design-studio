@@ -43,7 +43,7 @@ _PLAIN_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 #:
 #: PlantUML has no separate notation for a junction; it uses the same
 #: diamond as a choice. A body line keeps the distinction visible.
-_STEREOTIP = {
+_STEREOTYPE = {
     StateKind.CHOICE: "<<choice>>",
     StateKind.JUNCTION: "<<choice>>",
     StateKind.TERMINATE: "<<end>>",
@@ -57,7 +57,7 @@ _STEREOTIP = {
 }
 
 #: Pseudostates that appear as an arrow end and are NOT declared separately.
-_UC_OLARAK = (StateKind.INITIAL, StateKind.FINAL,
+_AS_END = (StateKind.INITIAL, StateKind.FINAL,
               StateKind.SHALLOW_HISTORY, StateKind.DEEP_HISTORY)
 
 
@@ -65,22 +65,22 @@ def _esc(text: str) -> str:
     return " ".join(str(text).split()).replace('"', "'")
 
 
-def _kimlik(name: str, used: Dict[str, str]) -> str:
+def _ident(name: str, used: Dict[str, str]) -> str:
     """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
     if _PLAIN_NAME.match(name):
         used[name] = name
         return name
-    temiz = re.sub(r"[^A-Za-z0-9_]", "_", name) or "S"
-    if temiz[0].isdigit():
-        temiz = "S" + temiz
-    aday, i = temiz, 2
-    while aday in used.values():
-        aday = "%s_%d" % (temiz, i)
+    clean = re.sub(r"[^A-Za-z0-9_]", "_", name) or "S"
+    if clean[0].isdigit():
+        clean = "S" + clean
+    candidate, i = clean, 2
+    while candidate in used.values():
+        candidate = "%s_%d" % (clean, i)
         i += 1
-    used[name] = aday
-    return aday
+    used[name] = candidate
+    return candidate
 
 
 def _abs_center(sm: StateMachine, s: State) -> Tuple[float, float]:
@@ -91,16 +91,16 @@ def _abs_center(sm: StateMachine, s: State) -> Tuple[float, float]:
     """
     x, y = s.x, s.y
     top = sm.parent_of(s.id)
-    gorulen = set()
-    while top is not None and top.id not in gorulen:
-        gorulen.add(top.id)
+    seen = set()
+    while top is not None and top.id not in seen:
+        seen.add(top.id)
         x += top.x
         y += top.y
         top = sm.parent_of(top.id)
     return x + s.w / 2.0, y + s.h / 2.0
 
 
-def _dikey_aralik(sm: StateMachine, s: State):
+def _vertical_gap(sm: StateMachine, s: State):
     """The vertical range of the state ON THE SCENE (top, bottom)."""
     _cx, cy = _abs_center(sm, s)
     return cy - s.h / 2.0, cy + s.h / 2.0
@@ -115,7 +115,7 @@ def _dikey_aralik(sm: StateMachine, s: State):
 _MIDDLE_BAND = 0.6
 
 
-def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
+def is_horizontal(top0: float, bottom0: float, top1: float, bottom1: float) -> bool:
     """Do the two boxes sit in the SAME HORIZONTAL BAND?
 
     In PlantUML `-right->`/`-left->` means "the same rank", while
@@ -131,18 +131,18 @@ def yatay_mi(ust0: float, alt0: float, ust1: float, alt1: float) -> bool:
         half = (bottom - top) * _MIDDLE_BAND / 2.0
         return middle - half, middle + half
 
-    a0, a1 = band(ust0, alt0)
-    b0, b1 = band(ust1, alt1)
+    a0, a1 = band(top0, bottom0)
+    b0, b1 = band(top1, bottom1)
     return min(a1, b1) >= max(a0, b0)
 
 
-def _yon(sm: StateMachine, src: State, tgt: State) -> str:
+def _direction(sm: StateMachine, src: State, tgt: State) -> str:
     """Marks the arrow between two states with the direction ON THE CANVAS."""
     x0, y0 = _abs_center(sm, src)
     x1, y1 = _abs_center(sm, tgt)
-    ust0, alt0 = _dikey_aralik(sm, src)
-    ust1, alt1 = _dikey_aralik(sm, tgt)
-    if yatay_mi(ust0, alt0, ust1, alt1):
+    top0, bottom0 = _vertical_gap(sm, src)
+    top1, bottom1 = _vertical_gap(sm, tgt)
+    if is_horizontal(top0, bottom0, top1, bottom1):
         return "-right->" if (x1 - x0) >= 0 else "-left->"
     return "-down->" if (y1 - y0) >= 0 else "-up->"
 
@@ -165,7 +165,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         except Exception:                       # noqa: BLE001
             pass                                # drawing generation is never blocked
 
-    kimlikler: Dict[str, str] = {}
+    idents: Dict[str, str] = {}
 
     alias: Dict[str, str] = {}
     for s in sm.states.values():
@@ -174,7 +174,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         elif s.kind.is_history:
             continue            # second pass: qualified BY ITS OWNER
         else:
-            alias[s.id] = _kimlik(s.name, kimlikler)
+            alias[s.id] = _ident(s.name, idents)
 
     # A HISTORY NODE IS QUALIFIED BY ITS OWNER.
     #
@@ -189,14 +189,14 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
     for s in sm.states.values():
         if not s.kind.is_history:
             continue
-        isaret = "[H*]" if s.kind is StateKind.DEEP_HISTORY else "[H]"
-        sahip = alias.get(s.parent) if s.parent else None
-        if sahip:
-            alias[s.id] = "%s%s" % (sahip, isaret)
+        mark = "[H*]" if s.kind is StateKind.DEEP_HISTORY else "[H]"
+        owner = alias.get(s.parent) if s.parent else None
+        if owner:
+            alias[s.id] = "%s%s" % (owner, mark)
         else:
             # A history in the root region is invalid in UML (V064); still, putting
             # something into the drawing beats dropping it silently.
-            alias[s.id] = isaret
+            alias[s.id] = mark
 
     # -- Layout direction # -------------------------------------------------- #
     #
@@ -209,13 +209,13 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
     # EVERY ARROW already carries its own direction (see _direction); a global
     # directive is both unnecessary and harmful. `horizontal` is used only for
     # the DECLARATION ORDER: all else being equal PlantUML keeps writing order.
-    kutular = [s for s in sm.states.values()
+    boxes = [s for s in sm.states.values()
                if s.kind.is_real_state or s.kind.is_branch]
-    yatay = False
-    if kutular:
-        xs = [_abs_center(sm, s)[0] for s in kutular]
-        ys = [_abs_center(sm, s)[1] for s in kutular]
-        yatay = (max(xs) - min(xs)) > (max(ys) - min(ys))
+    horizontal = False
+    if boxes:
+        xs = [_abs_center(sm, s)[0] for s in boxes]
+        ys = [_abs_center(sm, s)[1] for s in boxes]
+        horizontal = (max(xs) - min(xs)) > (max(ys) - min(ys))
 
     L: List[str] = ["@startuml"]
     if sm.name:
@@ -270,16 +270,16 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         for row in inner_transition_rows(s):
             L.append("%s%s" % (pad, row))
 
-    def head_row(s: State, pad: str, acik: bool) -> str:
+    def head_row(s: State, pad: str, opened: bool) -> str:
         """Builds the `state X` / `state "Name" as X` line."""
         if alias[s.id] == s.name:
             text = "%sstate %s" % (pad, s.name)
         else:
             text = '%sstate "%s" as %s' % (pad, _esc(s.name), alias[s.id])
-        stereo = _STEREOTIP.get(s.kind, "")
+        stereo = _STEREOTYPE.get(s.kind, "")
         if stereo:
             text += " " + stereo
-        if acik:
+        if opened:
             text += " {"
         return text
 
@@ -294,25 +294,25 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
             children = list(sm.sorted_children(parent))
         else:
             children = list(sm.children_in(parent, region))
-        if yatay:
+        if horizontal:
             return sorted(children, key=lambda s: (s.x, s.y))
         return sorted(children, key=lambda s: (s.y, s.x))
 
     def emit_region(parent: Optional[str], pad: str,
                     region: Optional[int] = None) -> None:
         for s in draw_order(parent, region):
-            if s.kind in _UC_OLARAK:
+            if s.kind in _AS_END:
                 # These have no separate declaration in PlantUML; they only appear as
                 # arrow ends ([*], [H], [H*]).
                 continue
             if s.kind is StateKind.COMPOSITE:
-                L.append(head_row(s, pad, acik=True))
+                L.append(head_row(s, pad, opened=True))
                 # The regions of an ORTHOGONAL state are separated with "--"; PlantUML
                 # draws that as concurrent regions. For a single-region state no
                 # separator is written and the output stays as it was.
                 n_regions = sm.region_count(s.id)
 
-                def inner_transitions(sahip: str, which: Optional[int]) -> None:
+                def inner_transitions(owner: str, which: Optional[int]) -> None:
                     """The inner arrows of an owner (optionally of one region).
 
                     The arrows must be written INSIDE THEIR OWN region block: if
@@ -324,12 +324,12 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                             continue
                         src = sm.states[t.source]
                         tgt = sm.states[t.target]
-                        if src.parent != sahip:
+                        if src.parent != owner:
                             continue
                         if which is not None and sm.region_of(src.id) != which:
                             continue
                         L.append("%s  %s %s %s%s"
-                                 % (pad, alias[src.id], _yon(sm, src, tgt),
+                                 % (pad, alias[src.id], _direction(sm, src, tgt),
                                     alias[tgt.id], _label(t)))
 
                 if n_regions > 1:
@@ -343,7 +343,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
                     inner_transitions(s.id, None)
                 L.append("%s}" % pad)
             else:
-                L.append(head_row(s, pad, acik=False))
+                L.append(head_row(s, pad, opened=False))
                 if s.kind is StateKind.JUNCTION:
                     # The diamond is the same as a choice; keep the distinction in text.
                     L.append("%s%s : <<junction>>" % (pad, alias[s.id]))
@@ -359,7 +359,7 @@ def generate_plantuml(sm: StateMachine, resolve=None) -> Dict[str, str]:
         tgt = sm.states.get(t.target)
         if src is None or tgt is None:
             continue
-        L.append("%s %s %s%s" % (alias[src.id], _yon(sm, src, tgt),
+        L.append("%s %s %s%s" % (alias[src.id], _direction(sm, src, tgt),
                                  alias[tgt.id], _label(t)))
 
     if sm.description:

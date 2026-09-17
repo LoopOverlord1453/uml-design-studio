@@ -64,19 +64,19 @@ class ClassItem(QGraphicsObject):
         class: the rows were either clipped or left outside the box.
         """
         fm = QFontMetricsF(self.f_member)
-        en = QFontMetricsF(self.f_title).horizontalAdvance(self.cls.name) + 24.0
+        box_w = QFontMetricsF(self.f_title).horizontalAdvance(self.cls.name) + 24.0
         row = 0
-        for uye in list(self.cls.attributes) + list(self.cls.operations):
-            caption = uye.label()
-            en = max(en, fm.horizontalAdvance(caption) + 24.0)
+        for member in list(self.cls.attributes) + list(self.cls.operations):
+            caption = member.label()
+            box_w = max(box_w, fm.horizontalAdvance(caption) + 24.0)
             row += 1
-        boy = 34.0 + row * (fm.height() + 2.0) + 20.0
-        return (max(MIN_W, en), max(MIN_H, boy))
+        box_h = 34.0 + row * (fm.height() + 2.0) + 20.0
+        return (max(MIN_W, box_w), max(MIN_H, box_h))
 
     def rect(self) -> QRectF:
         """The drawing rectangle: the size in the model, but NOT SMALLER."""
-        en, boy = self.min_size()
-        return QRectF(0.0, 0.0, max(self.cls.w, en), max(self.cls.h, boy))
+        box_w, box_h = self.min_size()
+        return QRectF(0.0, 0.0, max(self.cls.w, box_w), max(self.cls.h, box_h))
 
     def boundingRect(self) -> QRectF:
         return self.rect().adjusted(-8.0, -8.0, 8.0, 8.0)

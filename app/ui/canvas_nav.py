@@ -78,29 +78,29 @@ class CanvasNavigation:
         # vertically, as far as we measured. On a rebuild the scene shrinks to fit
         # the content, so this happened the moment a drag ended.
         # yasaniyordu.
-        gorunen = self.mapToScene(self.viewport().rect()).boundingRect()
-        rect = rect.united(gorunen)
+        visible = self.mapToScene(self.viewport().rect()).boundingRect()
+        rect = rect.united(visible)
         if rect == self._scene.sceneRect():
             return
         before = self.mapToScene(QPoint(0, 0))
         self._scene.setSceneRect(rect)
-        sonrasi = self.mapToScene(QPoint(0, 0))
-        kayma = sonrasi - before
-        if kayma.isNull():
+        after = self.mapToScene(QPoint(0, 0))
+        offset = after - before
+        if offset.isNull():
             return
         scale = self.transform().m11() or 1.0
-        dikey = self.transform().m22() or 1.0
-        yatay_cubuk = self.horizontalScrollBar()
-        dikey_cubuk = self.verticalScrollBar()
-        yatay_cubuk.setValue(yatay_cubuk.value() + int(round(kayma.x() * scale)))
-        dikey_cubuk.setValue(dikey_cubuk.value() + int(round(kayma.y() * dikey)))
+        vertical = self.transform().m22() or 1.0
+        hbar = self.horizontalScrollBar()
+        vbar = self.verticalScrollBar()
+        hbar.setValue(hbar.value() + int(round(offset.x() * scale)))
+        vbar.setValue(vbar.value() + int(round(offset.y() * vertical)))
 
     def _grow_scene(self, rect: QRectF) -> None:
         """GROWS the scene to cover the given rectangle (it never shrinks it)."""
-        simdiki = self._scene.sceneRect()
-        birlesik = simdiki.united(rect)
-        if birlesik != simdiki:
-            self._set_scene_rect(birlesik)
+        current = self._scene.sceneRect()
+        combined = current.united(rect)
+        if combined != current:
+            self._set_scene_rect(combined)
 
     def _room_for_drag(self, view_pos: QPoint) -> None:
         """Makes room around the cursor and around the selected items.
@@ -110,11 +110,11 @@ class CanvasNavigation:
         scroll bars, so edge scrolling actually advances -- otherwise there is
         nowhere to scroll to once the cursor reaches the edge.
         """
-        nokta = self.mapToScene(view_pos)
+        point = self.mapToScene(view_pos)
         share = self.SCENE_PAD
-        field = QRectF(nokta.x() - share, nokta.y() - share, share * 2.0, share * 2.0)
-        for oge in self._scene.selectedItems():
-            field = field.united(oge.sceneBoundingRect())
+        field = QRectF(point.x() - share, point.y() - share, share * 2.0, share * 2.0)
+        for elem in self._scene.selectedItems():
+            field = field.united(elem.sceneBoundingRect())
         self._grow_scene(field)
 
     def _autoscroll_vector(self, pos: QPoint) -> QPointF:
@@ -139,11 +139,11 @@ class CanvasNavigation:
         """Starts/stops edge scrolling during a drag."""
         self._drag_pos = QPoint(pos)
         self._autoscroll_vec = self._autoscroll_vector(pos)
-        calisiyor = self._autoscroll.isActive()
+        running = self._autoscroll.isActive()
         needed = not self._autoscroll_vec.isNull()
-        if needed and not calisiyor:
+        if needed and not running:
             self._autoscroll.start()
-        elif not needed and calisiyor:
+        elif not needed and running:
             self._autoscroll.stop()
 
     def _stop_autoscroll(self) -> None:
@@ -167,13 +167,13 @@ class CanvasNavigation:
             return
 
         self._room_for_drag(self._drag_pos)
-        yatay = self.horizontalScrollBar()
-        dikey = self.verticalScrollBar()
-        yatay.setValue(yatay.value() + int(round(self._autoscroll_vec.x())))
-        dikey.setValue(dikey.value() + int(round(self._autoscroll_vec.y())))
+        horizontal = self.horizontalScrollBar()
+        vertical = self.verticalScrollBar()
+        horizontal.setValue(horizontal.value() + int(round(self._autoscroll_vec.x())))
+        vertical.setValue(vertical.value() + int(round(self._autoscroll_vec.y())))
 
-        nokta = QPointF(self._drag_pos)
-        event = QMouseEvent(QMouseEvent.Type.MouseMove, nokta, nokta,
+        point = QPointF(self._drag_pos)
+        event = QMouseEvent(QMouseEvent.Type.MouseMove, point, point,
                            Qt.MouseButton.NoButton,
                            Qt.MouseButton.LeftButton,
                            Qt.KeyboardModifier.NoModifier)
@@ -215,19 +215,19 @@ class CanvasNavigation:
 
     def align_paint(self, painter) -> None:
         """Draws the guides; called from ``drawForeground``."""
-        cizgiler = getattr(self, "_align_guides", None)
-        if not cizgiler:
+        lines = getattr(self, "_align_guides", None)
+        if not lines:
             return
-        kalem = QPen(QColor(C.ORANGE), 0.0)
+        pen = QPen(QColor(C.ORANGE), 0.0)
         # A COSMETIC pen: the width does not grow with the zoom. Given 1 px in
         # scene units, at 400% zoom it would be a 4 px band and would hide the
         # very alignment it marks.
-        kalem.setCosmetic(True)
-        kalem.setStyle(Qt.PenStyle.DashLine)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
         painter.save()
-        painter.setPen(kalem)
-        for bas, last in cizgiler:
-            painter.drawLine(bas, last)
+        painter.setPen(pen)
+        for head, last in lines:
+            painter.drawLine(head, last)
         painter.restore()
 
     # snapping
@@ -250,7 +250,7 @@ class CanvasNavigation:
             return False
         return len(scene_obj.selectedItems()) <= 1
 
-    def align_drag(self, item, pt: QPointF, size, komsular) -> QPointF:
+    def align_drag(self, item, pt: QPointF, size, neighbours) -> QPointF:
         """Aligns the dragged item to its neighbours.
 
         ``pt``          -- the proposed top left corner (in PARENT coordinates)
@@ -260,66 +260,66 @@ class CanvasNavigation:
         Returns the aligned position and prepares the guides to be drawn.
         """
         previous = getattr(self, "_align_guides", [])
-        if not self._align_uygun(item) or not komsular:
+        if not self._align_uygun(item) or not neighbours:
             if previous:
                 self._align_guides = []
                 self.viewport().update()
             return pt
 
         scale = abs(self.transform().m11()) or 1.0
-        esik = self.ALIGN_PX / scale
-        gen, yuk = float(size[0]), float(size[1])
+        threshold = self.ALIGN_PX / scale
+        width, height = float(size[0]), float(size[1])
 
-        dx, x_align = self._align_eksen(pt.x(), gen, komsular, 0, esik)
-        dy, y_align = self._align_eksen(pt.y(), yuk, komsular, 1, esik)
+        dx, x_align = self._align_eksen(pt.x(), width, neighbours, 0, threshold)
+        dy, y_align = self._align_eksen(pt.y(), height, neighbours, 1, threshold)
 
         new = QPointF(pt.x() + dx, pt.y() + dy)
-        box = (new.x(), new.y(), gen, yuk)
-        cizgiler = []
+        box = (new.x(), new.y(), width, height)
+        lines = []
         if x_align is not None:
-            cizgiler.append(self._align_cizgi(item, x_align, box, komsular, 0))
+            lines.append(self._align_line(item, x_align, box, neighbours, 0))
         if y_align is not None:
-            cizgiler.append(self._align_cizgi(item, y_align, box, komsular, 1))
+            lines.append(self._align_line(item, y_align, box, neighbours, 1))
 
-        if cizgiler != previous:
-            self._align_guides = cizgiler
+        if lines != previous:
+            self._align_guides = lines
             self.viewport().update()
         return new
 
     @staticmethod
-    def _align_olcutler(bas: float, uzunluk: float):
+    def _align_measures(head: float, length: float):
         """The measures on one axis: the CENTRE comes first.
 
         The order matters so that a tie picks the centre alignment: the centre
         and the edge of two boxes can be the same distance away, and in that
         case the centre line is what looks most natural.
         """
-        return (bas + uzunluk / 2.0, bas, bas + uzunluk)
+        return (head + length / 2.0, head, head + length)
 
-    def _align_eksen(self, bas: float, uzunluk: float, komsular, axis: int,
-                     esik: float):
+    def _align_eksen(self, head: float, length: float, neighbours, axis: int,
+                     threshold: float):
         """Finds the nearest alignment on a single axis.
 
         Returns ``(offset, target_value)``; ``(0.0, None)`` when there is none.
         """
-        benim = self._align_olcutler(bas, uzunluk)
-        en_iyi = None
-        for komsu in komsular:
-            k_bas = komsu[axis]
-            k_uzunluk = komsu[axis + 2]
-            onun = self._align_olcutler(k_bas, k_uzunluk)
+        mine = self._align_measures(head, length)
+        best = None
+        for neighbour in neighbours:
+            k_head = neighbour[axis]
+            k_length = neighbour[axis + 2]
+            theirs = self._align_measures(k_head, k_length)
             for order in range(3):
-                fark = onun[order] - benim[order]
-                if abs(fark) > esik:
+                delta = theirs[order] - mine[order]
+                if abs(delta) > threshold:
                     continue
-                aday = (abs(fark), order, fark, onun[order])
-                if en_iyi is None or aday[:2] < en_iyi[:2]:
-                    en_iyi = aday
-        if en_iyi is None:
+                candidate = (abs(delta), order, delta, theirs[order])
+                if best is None or candidate[:2] < best[:2]:
+                    best = candidate
+        if best is None:
             return (0.0, None)
-        return (en_iyi[2], en_iyi[3])
+        return (best[2], best[3])
 
-    def _align_cizgi(self, item, value: float, box, komsular, axis: int):
+    def _align_line(self, item, value: float, box, neighbours, axis: int):
         """Produces the guide line in SCENE coordinates.
 
         The line is stretched to cover every box that SHARES the alignment, so
@@ -327,23 +327,23 @@ class CanvasNavigation:
         """
         # The boxes that share the alignment (the dragged one included).
         related = [box]
-        for komsu in komsular:
-            olcutler = self._align_olcutler(komsu[axis], komsu[axis + 2])
-            if any(abs(o - value) < 0.5 for o in olcutler):
-                related.append(komsu)
+        for neighbour in neighbours:
+            measures = self._align_measures(neighbour[axis], neighbour[axis + 2])
+            if any(abs(o - value) < 0.5 for o in measures):
+                related.append(neighbour)
 
         other = 1 - axis
-        bas = min(k[other] for k in related) - self.ALIGN_PAD
+        head = min(k[other] for k in related) - self.ALIGN_PAD
         last = max(k[other] + k[other + 2] for k in related) + self.ALIGN_PAD
         if axis == 0:
-            p1, p2 = QPointF(value, bas), QPointF(value, last)
+            p1, p2 = QPointF(value, head), QPointF(value, last)
         else:
-            p1, p2 = QPointF(bas, value), QPointF(last, value)
+            p1, p2 = QPointF(head, value), QPointF(last, value)
 
         # When the item is INSIDE a composite state its coordinates are relative
         # to that parent; the guide is drawn on the scene, so it must be converted.
-        ebeveyn = item.parentItem()
-        if ebeveyn is not None:
-            p1 = ebeveyn.mapToScene(p1)
-            p2 = ebeveyn.mapToScene(p2)
+        parent_item = item.parentItem()
+        if parent_item is not None:
+            p1 = parent_item.mapToScene(p1)
+            p2 = parent_item.mapToScene(p2)
         return (p1, p2)

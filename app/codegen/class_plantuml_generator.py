@@ -18,7 +18,7 @@ import re
 from typing import Dict, List, Tuple
 
 from ..core.class_model import ClassModel, RelationKind, Stereotype, UmlClass
-from .plantuml_generator import yatay_mi
+from .plantuml_generator import is_horizontal
 
 #: Relationship kind -> PlantUML arrow body (the direction is added later).
 _ARROWS = {
@@ -35,7 +35,7 @@ _ARROWS = {
 #: In PlantUML the direction goes in the MIDDLE of the line: `-->` ->
 #: `-right->`, `o--` -> `o-right-`, `..|>` -> `.right.|>`. A plain text
 #: suffix is not enough, so each kind keeps its own pattern.
-_YONLU = {
+_DIRECTED = {
     RelationKind.ASSOCIATION: "-%s->",
     RelationKind.AGGREGATION: "o-%s-",
     RelationKind.COMPOSITION: "*-%s-",
@@ -51,29 +51,29 @@ def _esc(text: str) -> str:
     return " ".join(str(text).split()).replace('"', "'")
 
 
-def _kimlik(name: str, used: Dict[str, str]) -> str:
+def _ident(name: str, used: Dict[str, str]) -> str:
     """Name -> PlantUML identifier (so names with spaces work too)."""
     if name in used:
         return used[name]
     if _PLAIN_NAME.match(name):
         used[name] = name
         return name
-    temiz = re.sub(r"[^A-Za-z0-9_]", "_", name) or "C"
-    if temiz[0].isdigit():
-        temiz = "C" + temiz
-    aday, i = temiz, 2
-    while aday in used.values():
-        aday = "%s_%d" % (temiz, i)
+    clean = re.sub(r"[^A-Za-z0-9_]", "_", name) or "C"
+    if clean[0].isdigit():
+        clean = "C" + clean
+    candidate, i = clean, 2
+    while candidate in used.values():
+        candidate = "%s_%d" % (clean, i)
         i += 1
-    used[name] = aday
-    return aday
+    used[name] = candidate
+    return candidate
 
 
 def _center(c: UmlClass) -> Tuple[float, float]:
     return c.x + c.w / 2.0, c.y + c.h / 2.0
 
 
-def _yon(src: UmlClass, tgt: UmlClass, kind: RelationKind) -> str:
+def _direction(src: UmlClass, tgt: UmlClass, kind: RelationKind) -> str:
     """Marks the relationship arrow with the direction ON THE CANVAS.
 
     In PlantUML a horizontal direction means "the same rank" and a vertical
@@ -82,24 +82,24 @@ def _yon(src: UmlClass, tgt: UmlClass, kind: RelationKind) -> str:
     """
     x0, y0 = _center(src)
     x1, y1 = _center(tgt)
-    if yatay_mi(src.y, src.y + src.h, tgt.y, tgt.y + tgt.h):
-        yon = "right" if (x1 - x0) >= 0 else "left"
+    if is_horizontal(src.y, src.y + src.h, tgt.y, tgt.y + tgt.h):
+        direction = "right" if (x1 - x0) >= 0 else "left"
     else:
-        yon = "down" if (y1 - y0) >= 0 else "up"
-    return _YONLU[kind] % yon
+        direction = "down" if (y1 - y0) >= 0 else "up"
+    return _DIRECTED[kind] % direction
 
 
 def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
-    kimlikler: Dict[str, str] = {}
-    alias = {c.id: _kimlik(c.name, kimlikler)
+    idents: Dict[str, str] = {}
+    alias = {c.id: _ident(c.name, idents)
              for c in cm.ordered_classes()}
 
-    siniflar = list(cm.ordered_classes())
-    yatay = False
-    if siniflar:
-        xs = [_center(c)[0] for c in siniflar]
-        ys = [_center(c)[1] for c in siniflar]
-        yatay = (max(xs) - min(xs)) > (max(ys) - min(ys))
+    class_list = list(cm.ordered_classes())
+    horizontal = False
+    if class_list:
+        xs = [_center(c)[0] for c in class_list]
+        ys = [_center(c)[1] for c in class_list]
+        horizontal = (max(xs) - min(xs)) > (max(ys) - min(ys))
 
     # `left to right direction` IS NOT WRITTEN -- same reason as in the state
     # diagram: PlantUML turns it into `rankdir=LR`, and `-right-` ("the same
@@ -126,11 +126,11 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
 
     # Emit the classes in the reading order of the CANVAS: all else being equal
     # PlantUML keeps the declaration order, which brings the picture closer.
-    sirali = sorted(siniflar,
-                    key=(lambda c: (c.x, c.y)) if yatay
+    ordered = sorted(class_list,
+                    key=(lambda c: (c.x, c.y)) if horizontal
                     else (lambda c: (c.y, c.x)))
 
-    for c in sirali:
+    for c in ordered:
         if c.stereotype is Stereotype.INTERFACE:
             rel_kind = "interface"
         elif c.is_abstract:
@@ -138,20 +138,20 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         else:
             rel_kind = "class"
         if alias[c.id] == c.name:
-            bas = "%s %s" % (rel_kind, c.name)
+            head = "%s %s" % (rel_kind, c.name)
         else:
-            bas = '%s "%s" as %s' % (rel_kind, _esc(c.name), alias[c.id])
-        L.append(bas + " {")
+            head = '%s "%s" as %s' % (rel_kind, _esc(c.name), alias[c.id])
+        L.append(head + " {")
         for a in c.attributes:
-            isaret = "{static} " if a.static else ""
-            L.append("  %s%s" % (isaret, a.label()))
+            mark = "{static} " if a.static else ""
+            L.append("  %s%s" % (mark, a.label()))
         for o in c.operations:
-            isaret = ""
+            mark = ""
             if o.abstract:
-                isaret += "{abstract} "
+                mark += "{abstract} "
             if o.static:
-                isaret += "{static} "
-            L.append("  %s%s" % (isaret, o.label()))
+                mark += "{static} "
+            L.append("  %s%s" % (mark, o.label()))
         L.append("}")
         L.append("")
 
@@ -168,7 +168,7 @@ def generate_class_plantuml(cm: ClassModel) -> Dict[str, str]:
         if r.target_mult:
             right += '"%s" ' % _esc(r.target_mult)
         right += alias[tgt.id]
-        row = left_x + _yon(src, tgt, r.kind) + right
+        row = left_x + _direction(src, tgt, r.kind) + right
 
         # End names (roles) and the label are collected into ONE ":" section;
         # PlantUML does not accept a second ":".

@@ -68,12 +68,12 @@ def _fit(nm, w, h, kind, kw):
     if kind not in (StateKind.SIMPLE, StateKind.COMPOSITE,
                     StateKind.SUBMACHINE):
         return w, h
-    rows = [onek + kw[slot] for slot, onek in
+    rows = [prefix_text + kw[slot] for slot, prefix_text in
                 (("entry", "entry / "), ("exit", "exit  / "),
                  ("do", "do    / ")) if kw.get(slot)]
-    gerek = [len(nm) * _CH_TITLE + 20.0]
-    gerek += [len(t) * _CH_BODY + 20.0 for t in rows]
-    w = max(w, max(gerek))
+    needed = [len(nm) * _CH_TITLE + 20.0]
+    needed += [len(t) * _CH_BODY + 20.0 for t in rows]
+    w = max(w, max(needed))
     if rows:
         h = max(h, 34.0 + len(rows) * _LINE_H + 12.0)
     return w, h

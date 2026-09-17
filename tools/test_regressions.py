@@ -3732,7 +3732,12 @@ def test_no_employer_branding() -> None:
     kaynak = open(MW.__file__, encoding="utf-8").read()
     check("Profen" not in kaynak,
           "main_window kaynaginda kurum adi yok")
-    check("Kubilay" in kaynak, "gelistirici adi duruyor")
+    # ARTIK TERSI ISTENIYOR. Kisisel ad, teslim edilen dosyalarin
+    # hicbirinde gecmemeli; telif satiri projeye ait.
+    for ad in ("Kubilay", "Kozleme", "Közleme"):
+        check(ad not in kaynak,
+              "main_window kaynaginda kisisel ad yok (%s)" % ad)
+    check("GNU GPL v3" in kaynak, "lisans satiri duruyor")
 
     # TESLIM EDILEN IKILI DOSYA da denetlenir.
     #
@@ -3747,7 +3752,9 @@ def test_no_employer_branding() -> None:
         surum = open(surum_yolu, encoding="utf-8").read()
         check("Profen" not in surum,
               "EXE surum bilgisinde kurum adi yok")
-        check("Kubilay" in surum, "EXE surum bilgisi gelistirici adini yaziyor")
+        for ad in ("Kubilay", "Kozleme"):
+            check(ad not in surum,
+                  "EXE surum bilgisinde kisisel ad yok (%s)" % ad)
         # Bu metinler Gezgin'de GORUNUR; arayuz gibi ingilizce olmali.
         govde = chr(10).join(l for l in surum.splitlines()
                              if not l.lstrip().startswith("#"))
@@ -4278,8 +4285,8 @@ _TR_SOZCUK = re.compile(
     r"|hiyerarsi|ornegi|olayi|yazar|kullanici|satir|uretilen)\b",
     re.IGNORECASE)
 
-#: Yazarin kendi adi ve telif satiri -- ceviri konusu degil.
-_IZINLI = ("Kubilay", "©")
+#: Telif satiri -- ceviri konusu degil.
+_IZINLI = ("©",)
 
 
 def test_user_facing_text_is_english() -> None:
@@ -5220,9 +5227,9 @@ def test_spec_viewer_does_not_freeze() -> None:
             # -- Sayfalar GERCEKTEN ciziliyor mu ------------------------- #
             cubuk.setValue(0)
             bekle(1.2)
-            check(len(gorunum._onbellek) > 0,
+            check(len(gorunum._cache) > 0,
                   "gorunen sayfalar ciziliyor",
-                  "onbellek: %s" % sorted(gorunum._onbellek))
+                  "onbellek: %s" % sorted(gorunum._cache))
 
             # -- Sayfa kutusu gidis-donus -------------------------------- #
             pencere.spin.setValue(7)
@@ -5390,8 +5397,8 @@ def test_spec_viewer_does_not_freeze() -> None:
 
             # -- Onbellek sinirli ----------------------------------------- #
             toplam = sum(g.sizeInBytes()
-                         for _, _, g in gorunum._onbellek.values())
-            check(toplam <= gorunum.ONBELLEK_BAYT,
+                         for _, _, g in gorunum._cache.values())
+            check(toplam <= gorunum.CACHE_BYTES,
                   "cizim onbellegi sinir icinde",
                   "%.1f MB" % (toplam / 1048576.0))
 
@@ -5402,7 +5409,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             # goruntulenmeyecek onlarca cizim uretiliyor, tek bir
             # kaydirma adimi 225 ms'ye kadar cikiyordu. Istekler artik
             # kaydirma DURDUKTAN sonra veriliyor.
-            gorunum._onbellek.clear()
+            gorunum._cache.clear()
             gorunum._pending.clear()
             cubuk = gorunum.verticalScrollBar()
             basla = time.perf_counter()
@@ -5426,9 +5433,9 @@ def test_spec_viewer_does_not_freeze() -> None:
                      "(gecikme %d ms) -- erteleme sinanamadi"
                      % (gecen, gorunum.REQUEST_DELAY))
             bekle(0.8)
-            check(len(gorunum._onbellek) > 0,
+            check(len(gorunum._cache) > 0,
                   "kaydirma DURUNCA sayfalar ciziliyor",
-                  "onbellek: %s" % sorted(gorunum._onbellek))
+                  "onbellek: %s" % sorted(gorunum._cache))
 
             # -- BOSTA sonsuz cizim dongusu OLMAMALI ---------------------- #
             #
@@ -5504,7 +5511,7 @@ def test_spec_viewer_does_not_freeze() -> None:
                   "w=%.2f h=%.2f y=%.2f x=%.2f"
                   % (gorunum._w[0], gorunum._h[0], gorunum._y[0],
                      gorunum._page_x(gorunum._w[0])))
-            girdi = gorunum._onbellek.get(gorunum.current_page())
+            girdi = gorunum._cache.get(gorunum.current_page())
             if girdi is not None:
                 check(girdi[2].width() == int(gorunum._w[0])
                       and girdi[2].height() == int(gorunum._h[0]),
@@ -5587,12 +5594,12 @@ def test_spec_viewer_does_not_freeze() -> None:
             # Sonraki bir satir hata atar ve isci durdurulmadan cikilirsa
             # calisan bir QThread yok edilir; Qt bunu qFatal ile
             # karsilar ve surec SESSIZCE oler (0xC0000409).
-            asil_kur = sw.SpecWindow._kur
+            asil_kur = sw.SpecWindow._setup
 
             def patlayan_kur(kendi):
                 raise RuntimeError("kasitli hata")
 
-            sw.SpecWindow._kur = patlayan_kur
+            sw.SpecWindow._setup = patlayan_kur
             try:
                 sw.SpecWindow(yol)
                 check(False, "yarida kalan kurulum hata veriyor",
@@ -5600,7 +5607,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             except RuntimeError:
                 check(True, "yarida kalan kurulum hata veriyor")
             finally:
-                sw.SpecWindow._kur = asil_kur
+                sw.SpecWindow._setup = asil_kur
             bekle(0.4)
             check(True, "yarida kalan kurulumdan sonra surec yasiyor")
 
@@ -5628,9 +5635,9 @@ def test_spec_viewer_does_not_freeze() -> None:
         # YASANAN HATA: kapatilan pencere cizim onbellegini ve pdfium
         # sayfa onbellegini tutmaya devam ediyordu. Pencere sekiz kez
         # acilip kapatildiginda surec 131 MB'den 463 MB'ye cikiyordu.
-        check(not pencere.view._onbellek,
+        check(not pencere.view._cache,
               "kapanista cizim onbellegi bosaltiliyor",
-              "%d sayfa kaldi" % len(pencere.view._onbellek))
+              "%d sayfa kaldi" % len(pencere.view._cache))
         check(pencere.doc.pageCount() == 0,
               "kapanista PDF belgesi kapatiliyor")
     finally:

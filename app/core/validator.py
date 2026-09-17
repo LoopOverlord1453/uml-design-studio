@@ -92,7 +92,7 @@ def _balanced(expr: str) -> bool:
     return not stack
 
 
-def _baglamli(type_name: str) -> bool:
+def _with_context(type_name: str) -> bool:
     """Does the machine carry a USER CONTEXT (`void` does not)."""
     return (type_name or "").strip() not in ("", "void")
 
@@ -106,7 +106,7 @@ def _submachine_flatten(sm, resolve):
     return flatten(sm, resolve)
 
 
-def _sorumlu_altmakine(sm, genis_id: str):
+def _responsible_submachine(sm, expanded_id: str):
     """The id of the submachine state that PRODUCED an expanded state.
 
     Substitution gives inner states ids of the form `<outerId>__<innerId>`,
@@ -115,9 +115,9 @@ def _sorumlu_altmakine(sm, genis_id: str):
 
     :return: the id, or None when the state does not come from an expansion
     """
-    if "__" not in genis_id:
+    if "__" not in expanded_id:
         return None
-    outer = genis_id.split("__", 1)[0]
+    outer = expanded_id.split("__", 1)[0]
     if outer in sm.states:
         return outer
     return None
@@ -132,15 +132,15 @@ def _error_owner(sm, text: str):
 
     :return: the id, or None when the name alone is not enough
     """
-    adaylar = [x.id for x in sm.ordered_states()
+    candidates = [x.id for x in sm.ordered_states()
                if x.kind is StateKind.SUBMACHINE and x.name
                and ("'%s'" % x.name) in text]
-    if len(adaylar) == 1:
-        return adaylar[0]
+    if len(candidates) == 1:
+        return candidates[0]
     return None
 
 
-def _expanded_name_problems(sm, duz):
+def _expanded_name_problems(sm, flat):
     """The name collisions that appear only AFTER flattening.
 
     When a submachine is substituted, the inner states are renamed to
@@ -161,28 +161,28 @@ def _expanded_name_problems(sm, duz):
 
     :return: (code, message, culprit_id) triples; culprit_id may be None
     """
-    sorunlar = []
-    gorulen = {}
-    for st in duz.ordered_states():
+    problems = []
+    seen_ids = {}
+    for st in flat.ordered_states():
         if st.kind is StateKind.INITIAL:
             continue
-        sorumlu = _sorumlu_altmakine(sm, st.id)
+        responsible = _responsible_submachine(sm, st.id)
         if not _valid_ident(st.name):
-            sorunlar.append((
+            problems.append((
                 "V165",
                 "Expanding the submachines produces the state name '%s', "
                 "which is not a valid C identifier." % st.name,
-                sorumlu))
+                responsible))
             continue
         key = screaming_snake(st.name)
-        previous = gorulen.get(key)
+        previous = seen_ids.get(key)
         if previous is not None:
             # Of the two sides of the collision, mark the one that DOES NOT COME
             # FROM AN EXPANSION: that is what the user will fix (either the name of
             # the inner state or the name of the submachine state qualifying it).
-            target = sorumlu if sorumlu is not None else previous[1]
+            target = responsible if responsible is not None else previous[1]
             if previous[0] != st.name:
-                sorunlar.append((
+                problems.append((
                     "V164",
                     "Expanding the submachines produces two states, '%s' and "
                     "'%s', that generate the same constant '%s'. Rename one "
@@ -190,7 +190,7 @@ def _expanded_name_problems(sm, duz):
                     % (previous[0], st.name, key),
                     target))
             else:
-                sorunlar.append((
+                problems.append((
                     "V164",
                     "Expanding the submachines produces two states both named "
                     "'%s', which generate the same constant '%s'. Rename the "
@@ -198,11 +198,11 @@ def _expanded_name_problems(sm, duz):
                     % (st.name, key),
                     target))
         else:
-            gorulen[key] = (st.name, sorumlu)
-    return sorunlar
+            seen_ids[key] = (st.name, responsible)
+    return problems
 
 
-def _region_split(sm, node, idler, ne: str):
+def _region_split(sm, node, ids, ne: str):
     """Are the given vertices in DIFFERENT regions of the SAME orthogonal state?
 
     UML 2.5.1, 14.5.6.7 (printed p.350-351): transitions leaving a fork
@@ -210,18 +210,18 @@ def _region_split(sm, node, idler, ne: str):
     transitions entering a join "must originate in different Regions of an
     orthogonal State".
     """
-    idler = [x for x in idler if x in sm.states]
-    if len(idler) < 2:
+    ids = [x for x in ids if x in sm.states]
+    if len(ids) < 2:
         return None
-    common = idler[0]
-    for other in idler[1:]:
+    common = ids[0]
+    for other in ids[1:]:
         common = sm.lca(common, other)
         if common is None:
             break
     if common is None or not sm.is_orthogonal(common):
         return "The segments of '%s' must %s." % (node.name, ne)
     regions = []
-    for x in idler:
+    for x in ids:
         b = _region_index(sm, x, common)
         if b is None:
             return "The segments of '%s' must %s." % (node.name, ne)
@@ -232,7 +232,7 @@ def _region_split(sm, node, idler, ne: str):
     return None
 
 
-def _region_index(sm, sid: str, sahip: str):
+def _region_index(sm, sid: str, owner: str):
     """Which region under `owner` `sid` falls into (None if none)."""
     cur = sid
     n = 0
@@ -240,7 +240,7 @@ def _region_index(sm, sid: str, sahip: str):
         st = sm.states.get(cur)
         if st is None:
             return None
-        if st.parent == sahip:
+        if st.parent == owner:
             return sm.region_of(cur)
         cur = st.parent
         n += 1
@@ -258,7 +258,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     """
     issues: List[Issue] = []
     #: Expansion problems are reported ONLY ONCE.
-    _genisletme_bildirildi: List[bool] = []
+    _expansion_reported: List[bool] = []
     #: The flattening RESULT: [(expanded_machine, error)] -- at most one item.
     #:
     #: Flattening used to run once PER submachine state, and every call
@@ -277,7 +277,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     def info(code, msg, eid=None):
         issues.append(Issue("info", code, msg, eid))
 
-    def _genisletilmis():
+    def _expanded():
         """Computes the expanded model ONCE.
 
         :return: (machine, error) -- a None machine means either there is no
@@ -340,7 +340,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     # enumerator". The same gap also disabled V012/V014/V017 and the time
     # event rules (V190/V191) for events coming from a submachine.
     # devre disi birakiyordu.
-    _wide_model, _ = _genisletilmis()
+    _wide_model, _ = _expanded()
     if _wide_model is not None:
         event_source = _wide_model
     else:
@@ -377,13 +377,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         # constant, and so do `after(1.5)` and `after(15)`. The result was a
         # DUPLICATE ENUM CONSTANT in the generated header and a file that would
         # not compile -- with the tool saying nothing.
-        gecikme = time_event_delay(ev)
-        if gecikme is not None:
-            if not gecikme:
+        delay = time_event_delay(ev)
+        if delay is not None:
+            if not delay:
                 err("V190", "The time event '%s' has no delay; write "
                             "after(100) or after(MY_TIMEOUT_MS)." % ev,
                     tran_of(ev))
-            elif not _balanced(gecikme):
+            elif not _balanced(delay):
                 err("V191", "The delay of the time event '%s' has unbalanced "
                             "brackets or quotes." % ev, tran_of(ev))
         elif not _valid_ident(ev):
@@ -494,11 +494,11 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         # the tool's "use a fork or a join" message appeared precisely when the
         # user drew a fork, and three features became unusable at once. V120-V127
         # and V140-V149 already check the distinction.
-        _MUAF = (StateKind.FORK, StateKind.JOIN,
+        _EXEMPT = (StateKind.FORK, StateKind.JOIN,
                  StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
         common = sm.lca(t.source, t.target)
         if (common is not None and sm.is_orthogonal(common)
-                and src.kind not in _MUAF and tgt.kind not in _MUAF
+                and src.kind not in _EXEMPT and tgt.kind not in _EXEMPT
                 and t.source != common and t.target != common):
             s_region = _region_index(sm, t.source, common)
             t_region = _region_index(sm, t.target, common)
@@ -518,13 +518,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
     # its own default entry. Having two initials in an orthogonal state is
     # correct; putting them in one bucket and counting them would reject a
     # valid model.
-    sahipler: List[Optional[str]] = [None]
-    sahipler += [s.id for s in sm.states.values()
+    owners: List[Optional[str]] = [None]
+    owners += [s.id for s in sm.states.values()
                  if s.kind is StateKind.COMPOSITE]
-    for sahip in sahipler:
-        if sahip is not None and not sm.children(sahip):
+    for owner in owners:
+        if owner is not None and not sm.children(owner):
             continue
-        n_regions = sm.region_count(sahip)
+        n_regions = sm.region_count(owner)
 
         # THERE MUST BE NO CHILD OUTSIDE THE DECLARED REGION COUNT.
         #
@@ -539,8 +539,8 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         # a populated region), but a file edited by hand or coming from another
         # version may carry it. Every silent divergence between the drawing and
         # the generated code has to be reported.
-        if sahip is not None:
-            for child in sm.children(sahip):
+        if owner is not None:
+            for child in sm.children(owner):
                 region_no = int(getattr(child, "region", 0) or 0)
                 if region_no < 0 or region_no >= n_regions:
                     err("V103",
@@ -548,23 +548,23 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         "has only %d region(s). Drag it into one of the bands "
                         "shown in the diagram."
                         % (child.name, region_no + 1,
-                           sm.states[sahip].name, n_regions),
+                           sm.states[owner].name, n_regions),
                         child.id)
         for region in range(n_regions):
-            content = sm.children_in(sahip, region)
-            if sahip is None:
+            content = sm.children_in(owner, region)
+            if owner is None:
                 rname = "root region"
             elif n_regions > 1:
-                rname = "region %d of '%s'" % (region + 1, sm.states[sahip].name)
+                rname = "region %d of '%s'" % (region + 1, sm.states[owner].name)
             else:
-                rname = "'%s'" % sm.states[sahip].name
-            if sahip is not None and n_regions > 1 and not content:
+                rname = "'%s'" % sm.states[owner].name
+            if owner is not None and n_regions > 1 and not content:
                 err("V100", "%s is empty; every region of an orthogonal state "
-                            "must contain at least one state." % rname, sahip)
+                            "must contain at least one state." % rname, owner)
                 continue
             inits = [x for x in content if x.kind is StateKind.INITIAL]
             if not inits:
-                err("V050", "%s has no initial pseudostate." % rname, sahip)
+                err("V050", "%s has no initial pseudostate." % rname, owner)
             elif len(inits) > 1:
                 err("V051", "%s contains %d initial pseudostates; only one is "
                             "allowed." % (rname, len(inits)), inits[1].id)
@@ -595,14 +595,14 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         if s.kind is StateKind.INITIAL and sm.incoming(s.id):
             err("V060", "An initial pseudostate cannot have an incoming transition.", s.id)
         if s.kind.is_branch:
-            kname = "choice" if s.kind is StateKind.CHOICE else "junction"
+            key_name = "choice" if s.kind is StateKind.CHOICE else "junction"
             outs = sm.outgoing(s.id)
             if not outs:
                 err("V061", "The '%s' %s node has no outgoing transitions; the machine "
-                            "cannot proceed once it reaches this node." % (s.name, kname), s.id)
+                            "cannot proceed once it reaches this node." % (s.name, key_name), s.id)
             elif len(outs) < 2:
                 warn("V073", "The '%s' %s node should have at least two outgoing transitions."
-                     % (s.name, kname), s.id)
+                     % (s.name, key_name), s.id)
             has_else = any(not t.guard.strip() or t.guard.strip().lower() == "else"
                            for t in outs)
             if outs and not has_else:
@@ -627,56 +627,56 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                  "compound transition is simply disabled."
                                  % s.name, s.id)
             if not sm.incoming(s.id):
-                warn("V063", "The '%s' %s node has no incoming transitions." % (s.name, kname), s.id)
+                warn("V063", "The '%s' %s node has no incoming transitions." % (s.name, key_name), s.id)
         # fork / join rules
         #
         # Every quotation is taken verbatim from OMG UML 2.5.1; see
         # app/core/uml_spec.py.
         if s.kind is StateKind.FORK:
-            gelen = sm.incoming(s.id)
-            giden = sm.outgoing(s.id)
-            if len(gelen) != 1:
+            incoming_of = sm.incoming(s.id)
+            outgoing_of = sm.outgoing(s.id)
+            if len(incoming_of) != 1:
                 err("V120", "Fork '%s' must have exactly one incoming "
-                            "transition (it has %d)." % (s.name, len(gelen)),
+                            "transition (it has %d)." % (s.name, len(incoming_of)),
                     s.id)
-            if len(giden) < 2:
+            if len(outgoing_of) < 2:
                 err("V121", "Fork '%s' must have at least two outgoing "
                             "transitions (it has %d); with one target it is "
-                            "an ordinary transition." % (s.name, len(giden)),
+                            "an ordinary transition." % (s.name, len(outgoing_of)),
                     s.id)
-            for t in giden:
+            for t in outgoing_of:
                 if t.guard.strip() or t.event.strip():
                     err("V122", "A transition leaving fork '%s' cannot carry a "
                                 "guard or a trigger." % s.name, t.id)
             # The code sits HERE, at the call site, as PLAIN TEXT: the test that
             # checks the reference table for completeness looks for the literal
             # "V123" in the source and cannot see a code passed in a variable.
-            sorun = _region_split(sm, s, [t.target for t in giden],
+            problem = _region_split(sm, s, [t.target for t in outgoing_of],
                                   "target states in different regions of an "
                                   "orthogonal state")
-            if sorun:
-                err("V123", sorun, s.id)
+            if problem:
+                err("V123", problem, s.id)
 
         if s.kind is StateKind.JOIN:
-            gelen = sm.incoming(s.id)
-            giden = sm.outgoing(s.id)
-            if len(gelen) < 2:
+            incoming_of = sm.incoming(s.id)
+            outgoing_of = sm.outgoing(s.id)
+            if len(incoming_of) < 2:
                 err("V124", "Join '%s' must have at least two incoming "
-                            "transitions (it has %d)." % (s.name, len(gelen)),
+                            "transitions (it has %d)." % (s.name, len(incoming_of)),
                     s.id)
-            if len(giden) != 1:
+            if len(outgoing_of) != 1:
                 err("V125", "Join '%s' must have exactly one outgoing "
-                            "transition (it has %d)." % (s.name, len(giden)),
+                            "transition (it has %d)." % (s.name, len(outgoing_of)),
                     s.id)
-            for t in gelen:
+            for t in incoming_of:
                 if t.guard.strip() or t.event.strip():
                     err("V126", "A transition entering join '%s' cannot carry "
                                 "a guard or a trigger." % s.name, t.id)
-            sorun = _region_split(sm, s, [t.source for t in gelen],
+            problem = _region_split(sm, s, [t.source for t in incoming_of],
                                   "originate in different regions of an "
                                   "orthogonal state")
-            if sorun:
-                err("V127", sorun, s.id)
+            if problem:
+                err("V127", problem, s.id)
 
         # deferred events
         if s.deferred:
@@ -686,9 +686,9 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
             # The events used IN TRANSITIONS. Because `sm.events()` includes the
             # deferred ones, using it would count an event no transition consumes as
             # "known" and the warning would NEVER fire.
-            bilinen = {t.event.strip() for t in sm.transitions.values()
+            known = {t.event.strip() for t in sm.transitions.values()
                        if t.event.strip()}
-            gorulen = set()
+            seen_ids = set()
             for ident in s.deferred:
                 ident = str(ident).strip()
                 if not ident:
@@ -696,10 +696,10 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 if not IDENT_RE.match(ident):
                     err("V181", "'%s' is not a valid event name to defer in "
                                 "'%s'." % (ident, s.name), s.id)
-                elif ident in gorulen:
+                elif ident in seen_ids:
                     warn("V182", "'%s' is listed twice in the deferred events "
                                  "of '%s'." % (ident, s.name), s.id)
-                gorulen.add(ident)
+                seen_ids.add(ident)
                 # When a state's OWN outgoing transition carries the same event, UML
                 # gives the transition priority ("a kind of override option"). That is
                 # VALID but easily misread, so it IS REPORTED.
@@ -710,7 +710,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                                      "transition triggered by it; the "
                                      "transition wins." % (s.name, ident), s.id)
                         break
-            empty = gorulen - bilinen
+            empty = seen_ids - known
             if empty:
                 warn("V184", "'%s' defers %s, which no transition uses."
                      % (s.name, ", ".join(sorted(empty))), s.id)
@@ -737,7 +737,7 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                 if dest is None:
                     err("V162", "The machine referenced by '%s' could not be "
                                 "found: %s" % (s.name, ref), s.id)
-                elif (_baglamli(dest.context_type)
+                elif (_with_context(dest.context_type)
                       and dest.context_type.strip()
                       != sm.context_type.strip()):
                     # THE CONTEXT TYPE WAS BEING DROPPED SILENTLY.
@@ -759,13 +759,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         "the context type 'void'."
                         % (s.name, dest.name, dest.context_type.strip(),
                            sm.context_type.strip()), s.id)
-                elif not _genisletme_bildirildi:
+                elif not _expansion_reported:
                     # The expansion and its checks are for the WHOLE MACHINE, not for a
                     # single submachine state: it happens once and the result is shared.
                     # Otherwise the same collision would be reported again for every
                     # submachine state.
-                    _genisletme_bildirildi.append(True)
-                    genis, error = _genisletilmis()
+                    _expansion_reported.append(True)
+                    expanded, error = _expanded()
                     if error is not None:
                         # The message ALREADY names the culprit; bind the error to that
                         # element. If it cannot be found, bind it to NO element -- painting
@@ -774,13 +774,13 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
                         err("V163", "A submachine reference cannot be "
                                     "expanded: %s" % error,
                             _error_owner(sm, str(error)))
-                    elif genis is not None:
+                    elif expanded is not None:
                         # The codes are given as plain text, not through a VARIABLE: the
                         # reference test looks for the `err("Vxxx"` pattern in the source and
                         # a code passed in a variable looks like a "dead entry".
-                        for kod, message, dest in _expanded_name_problems(
-                                sm, genis):
-                            if kod == "V164":
+                        for code_text, message, dest in _expanded_name_problems(
+                                sm, expanded):
+                            if code_text == "V164":
                                 err("V164", message, dest)
                             else:
                                 err("V165", message, dest)
@@ -789,69 +789,69 @@ def validate(sm: StateMachine, resolve=None) -> List[Issue]:
         if s.kind.is_connection_point:
             ident = ("entry point" if s.kind is StateKind.ENTRY_POINT
                   else "exit point")
-            sahip = sm.states.get(s.parent) if s.parent else None
-            if sahip is None or sahip.kind is not StateKind.COMPOSITE:
+            owner = sm.states.get(s.parent) if s.parent else None
+            if owner is None or owner.kind is not StateKind.COMPOSITE:
                 err("V140", "The %s '%s' must belong to a composite state; "
                             "drag it onto the state whose boundary it sits "
                             "on." % (ident, s.name), s.id)
-            giden = sm.outgoing(s.id)
-            gelen = sm.incoming(s.id)
+            outgoing_of = sm.outgoing(s.id)
+            incoming_of = sm.incoming(s.id)
 
             if s.kind is StateKind.ENTRY_POINT:
-                if not giden:
+                if not outgoing_of:
                     err("V141", "The entry point '%s' has no transition into "
                                 "the state; it would lead nowhere." % s.name,
                         s.id)
-                if not gelen:
+                if not incoming_of:
                     warn("V142", "Nothing enters the entry point '%s'."
                          % s.name, s.id)
-                if sahip is not None:
-                    for t in giden:
-                        if not sm.is_descendant(t.target, sahip.id):
+                if owner is not None:
+                    for t in outgoing_of:
+                        if not sm.is_descendant(t.target, owner.id):
                             err("V143", "A transition leaving entry point "
                                         "'%s' must end inside '%s'."
-                                % (s.name, sahip.name), t.id)
+                                % (s.name, owner.name), t.id)
                     # 14.2.3.7 (printed p.313): "In each Region ... there is
                     # at most a single Transition from the entry point to a
                     # Vertex within that Region."
-                    kullanilan = {}
-                    for t in giden:
-                        b = _region_index(sm, t.target, sahip.id)
+                    used = {}
+                    for t in outgoing_of:
+                        b = _region_index(sm, t.target, owner.id)
                         if b is None:
                             continue
-                        if b in kullanilan:
+                        if b in used:
                             err("V144", "The entry point '%s' has two "
                                         "transitions into the same region of "
                                         "'%s'; at most one is allowed."
-                                % (s.name, sahip.name), t.id)
-                        kullanilan[b] = t.id
-                    for t in gelen:
-                        if sahip is not None and sm.is_descendant(t.source,
-                                                                 sahip.id):
+                                % (s.name, owner.name), t.id)
+                        used[b] = t.id
+                    for t in incoming_of:
+                        if owner is not None and sm.is_descendant(t.source,
+                                                                 owner.id):
                             err("V145", "The entry point '%s' is entered from "
                                         "inside '%s'; an entry point is the "
                                         "way IN from outside."
-                                % (s.name, sahip.name), t.id)
+                                % (s.name, owner.name), t.id)
             else:
-                if len(giden) != 1:
+                if len(outgoing_of) != 1:
                     err("V146", "The exit point '%s' must have exactly one "
                                 "outgoing transition (it has %d)."
-                        % (s.name, len(giden)), s.id)
-                if not gelen:
+                        % (s.name, len(outgoing_of)), s.id)
+                if not incoming_of:
                     warn("V147", "Nothing inside the state reaches the exit "
                                  "point '%s'." % s.name, s.id)
-                if sahip is not None:
-                    for t in gelen:
-                        if not sm.is_descendant(t.source, sahip.id):
+                if owner is not None:
+                    for t in incoming_of:
+                        if not sm.is_descendant(t.source, owner.id):
                             err("V148", "A transition entering exit point "
                                         "'%s' must start inside '%s'."
-                                % (s.name, sahip.name), t.id)
-                    for t in giden:
-                        if sm.is_descendant(t.target, sahip.id):
+                                % (s.name, owner.name), t.id)
+                    for t in outgoing_of:
+                        if sm.is_descendant(t.target, owner.id):
                             err("V149", "The transition leaving exit point "
                                         "'%s' ends inside '%s'; an exit point "
                                         "is the way OUT."
-                                % (s.name, sahip.name), t.id)
+                                % (s.name, owner.name), t.id)
 
         if s.kind.is_history:
             if s.parent is None:

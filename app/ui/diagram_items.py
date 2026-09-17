@@ -47,10 +47,10 @@ def _point_segment_distance(p: QPointF, a: QPointF, b: QPointF) -> float:
     far-away click on the extension of the arrow would count as nearest to it.
     """
     vx, vy = b.x() - a.x(), b.y() - a.y()
-    uzunluk2 = vx * vx + vy * vy
-    if uzunluk2 < 1e-9:
+    length2 = vx * vx + vy * vy
+    if length2 < 1e-9:
         return math.hypot(p.x() - a.x(), p.y() - a.y())
-    t = ((p.x() - a.x()) * vx + (p.y() - a.y()) * vy) / uzunluk2
+    t = ((p.x() - a.x()) * vx + (p.y() - a.y()) * vy) / length2
     t = max(0.0, min(1.0, t))
     return math.hypot(p.x() - (a.x() + t * vx), p.y() - (a.y() + t * vy))
 
@@ -131,9 +131,9 @@ class GhostItem(QGraphicsItem):
     def paint(self, painter: QPainter, option, widget=None) -> None:
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         color = QColor(C.GIT_DEL)
-        zemin = QColor(color)
-        zemin.setAlpha(26)
-        painter.setBrush(QBrush(zemin))
+        bg = QColor(color)
+        bg.setAlpha(26)
+        painter.setBrush(QBrush(bg))
         painter.setPen(QPen(color, 1.6, Qt.PenStyle.DashLine))
         painter.drawRoundedRect(QRectF(0.0, 0.0, self._w, self._h), 9.0, 9.0)
         painter.setFont(self._font)
@@ -196,16 +196,16 @@ class StateItem(QGraphicsObject):
             # here; applied, a 24x24 initial would swell to 90x54 and cover the
             # neighbouring state.
             return (self.state.w, self.state.h)
-        en = QFontMetricsF(self.f_title).horizontalAdvance(self.state.name)
-        en += 20.0
+        box_w = QFontMetricsF(self.f_title).horizontalAdvance(self.state.name)
+        box_w += 20.0
         rows = self.behavior_lines()
         if rows:
             fmb = QFontMetricsF(self.f_body)
             for ln in rows:
-                en = max(en, fmb.horizontalAdvance(ln) + 20.0)
-            boy = 34.0 + len(rows) * (fmb.height() + 1.0) + 10.0
+                box_w = max(box_w, fmb.horizontalAdvance(ln) + 20.0)
+            box_h = 34.0 + len(rows) * (fmb.height() + 1.0) + 10.0
         else:
-            boy = MIN_H
+            box_h = MIN_H
 
         # A COMPOSITE STATE MUST ALSO COVER ITS SUBSTATES.
         #
@@ -230,9 +230,9 @@ class StateItem(QGraphicsObject):
                 right = max(right, child.pos().x() + r.width())
                 bottom = max(bottom, child.pos().y() + r.height())
             if right > 0.0:
-                en = max(en, right + 12.0)
-                boy = max(boy, bottom + 12.0)
-        return (max(MIN_W, en), max(MIN_H, boy))
+                box_w = max(box_w, right + 12.0)
+                box_h = max(box_h, bottom + 12.0)
+        return (max(MIN_W, box_w), max(MIN_H, box_h))
 
     def rect(self) -> QRectF:
         """The drawing rectangle: the size in the model, but NOT SMALLER.
@@ -241,9 +241,9 @@ class StateItem(QGraphicsObject):
         flag are untouched. The size the user gave is kept; it simply cannot go
         below what the text requires.
         """
-        en, boy = self.min_size()
-        return QRectF(0.0, 0.0, max(self.state.w, en),
-                      max(self.state.h, boy))
+        box_w, box_h = self.min_size()
+        return QRectF(0.0, 0.0, max(self.state.w, box_w),
+                      max(self.state.h, box_h))
 
     #: The pseudostates that write their name UNDER the shape (INITIAL and FINAL do not).
     NAMED_PSEUDO_KINDS = (StateKind.CHOICE, StateKind.JUNCTION,
@@ -406,8 +406,8 @@ class StateItem(QGraphicsObject):
         count = self.region_count()
         if count <= 1 or field.height() <= 0.0:
             return 0
-        oran = (y - field.top()) / field.height()
-        return max(0, min(int(oran * count), count - 1))
+        ratio = (y - field.top()) / field.height()
+        return max(0, min(int(ratio * count), count - 1))
 
     def is_resizable(self) -> bool:
         return self.kind in (StateKind.SIMPLE, StateKind.COMPOSITE)
@@ -500,13 +500,13 @@ class StateItem(QGraphicsObject):
             parent = self.parentItem()
             if isinstance(parent, StateItem):
                 area = parent.content_rect()
-                hizali = QPointF(pt)
+                aligned = QPointF(pt)
                 pt.setX(min(max(pt.x(), area.left()), area.right() - self.state.w))
                 pt.setY(min(max(pt.y(), area.top()), area.bottom() - self.state.h))
                 # If the parent clamp BROKE the alignment, the guide is removed:
                 # otherwise the line would show an alignment the item does not actually
                 # sit on, and lie to the user.
-                if pt != hizali:
+                if pt != aligned:
                     self.canvas.align_clear()
             return pt
         if change == QGraphicsItem.GraphicsItemChange.ItemScenePositionHasChanged:
@@ -723,11 +723,11 @@ class StateItem(QGraphicsObject):
         # points at by opening the properties panel -- while the generated code
         # comes from exactly that file.
         if self.kind is StateKind.SUBMACHINE:
-            isaret = QRectF(r.right() - 34.0, r.bottom() - 20.0, 26.0, 12.0)
+            mark = QRectF(r.right() - 34.0, r.bottom() - 20.0, 26.0, 12.0)
             p.setPen(QPen(QColor(C.TEXT_DIM), 1.4))
             p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawEllipse(QRectF(isaret.left(), isaret.top(), 11.0, 11.0))
-            p.drawEllipse(QRectF(isaret.left() + 11.0, isaret.top(),
+            p.drawEllipse(QRectF(mark.left(), mark.top(), 11.0, 11.0))
+            p.drawEllipse(QRectF(mark.left() + 11.0, mark.top(),
                                  11.0, 11.0))
             ref = (getattr(self.state, "submachine_ref", "") or "").strip()
             if ref:
@@ -745,12 +745,12 @@ class StateItem(QGraphicsObject):
         # user cannot see which substate is in which region, nor understand why
         # the generated code behaves as it does.
         if composite and self.region_count() > 1:
-            ayirici = QPen(QColor(C.BORDER_LIGHT), 1.0, Qt.PenStyle.DashLine)
-            p.setPen(ayirici)
+            separator = QPen(QColor(C.BORDER_LIGHT), 1.0, Qt.PenStyle.DashLine)
+            p.setPen(separator)
             for k in range(1, self.region_count()):
-                bant = self.region_rect(k)
-                p.drawLine(QPointF(r.left() + 6.0, bant.top()),
-                           QPointF(r.right() - 6.0, bant.top()))
+                band = self.region_rect(k)
+                p.drawLine(QPointF(r.left() + 6.0, band.top()),
+                           QPointF(r.right() - 6.0, band.top()))
 
         # title
         p.setFont(self.f_title)
@@ -799,10 +799,10 @@ class StateItem(QGraphicsObject):
             # substates; in a simple state it can run to the end of the box.
             lower_bound = (r.top() + 34.0 + self.behavior_strip_height()
                          if composite else r.bottom() - 4.0)
-            kalan = 0
+            remaining = 0
             for i, line in enumerate(lines):
                 if y + fmb.height() > lower_bound:
-                    kalan = len(lines) - i
+                    remaining = len(lines) - i
                     break
                 text = fmb.elidedText(line, Qt.TextElideMode.ElideRight,
                                       r.width() - 16)
@@ -811,7 +811,7 @@ class StateItem(QGraphicsObject):
                                | Qt.AlignmentFlag.AlignVCenter),
                            text)
                 y += fmb.height() + 1.0
-            if kalan:
+            if remaining:
                 # There is a line that DOES NOT FIT the box. Swallowed silently, the user
                 # would not notice the behaviour is incomplete; leave a mark telling them
                 # the box needs to be made bigger.
@@ -820,7 +820,7 @@ class StateItem(QGraphicsObject):
                                   r.width() - 16, fmb.height()),
                            int(Qt.AlignmentFlag.AlignRight
                                | Qt.AlignmentFlag.AlignVCenter),
-                           "+%d" % kalan)
+                           "+%d" % remaining)
 
         # resize handle
         if selected and self.is_resizable():
@@ -1029,13 +1029,13 @@ class TransitionItem(QGraphicsItem):
         # "after(SETTLE_MS) [pin_is_low(ctx)]" was being clipped. The bound is wide
         # enough for a real event+guard+effect triple, while still stopping a
         # runaway text from covering the diagram.
-        cizilecek = [fm.elidedText(ln, Qt.TextElideMode.ElideRight,
+        to_draw = [fm.elidedText(ln, Qt.TextElideMode.ElideRight,
                                    LABEL_MAX_W)
                      for ln in rows]
-        self._label_drawn = cizilecek
-        self._label_text = cizilecek[0]
-        w = max(fm.horizontalAdvance(t) for t in cizilecek) + 10.0
-        h = fm.height() * len(cizilecek) + 4.0
+        self._label_drawn = to_draw
+        self._label_text = to_draw[0]
+        w = max(fm.horizontalAdvance(t) for t in to_draw) + 10.0
+        h = fm.height() * len(to_draw) + 4.0
         anchor = self._path.pointAtPercent(self.label_t)
         if self._bow_normal is not None:
             anchor += self._bow_normal * (h * 0.75)

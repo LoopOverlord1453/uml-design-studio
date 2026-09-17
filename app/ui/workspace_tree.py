@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (QAbstractItemView, QMenu, QMessageBox,
 
 from ..core.class_model import ClassModel
 from ..core.model import StateMachine
+from ..core.workspace import display_path
 from .document import KIND_CLASS, KIND_STATE, detect_kind
 from .panels import (CLASS_GLYPH, CLASS_LABEL, ID_ROLE, KIND_GLYPH,
                      KIND_LABEL, RELATION_GLYPH, RELATION_LABEL)
@@ -134,7 +135,7 @@ class WorkspaceTree(QTreeWidget):
         self.refresh_open_nodes()
 
     def rebuild(self) -> None:
-        genisleyenler = self._expanded_paths()
+        expanded = self._expanded_paths()
         self._suppress = True
         self.clear()
 
@@ -163,11 +164,11 @@ class WorkspaceTree(QTreeWidget):
         root_item.setForeground(0, QBrush(QColor(C.TEXT_BRIGHT)))
         root_item.setData(0, NODE_ROLE, "dir")
         root_item.setData(0, PATH_ROLE, self._workspace.model_path)
-        root_item.setToolTip(0, self._workspace.root)
+        root_item.setToolTip(0, display_path(self._workspace.root))
 
         self._fill_dir(root_item, self._workspace.model_path)
         root_item.setExpanded(True)
-        self._restore_expanded(genisleyenler)
+        self._restore_expanded(expanded)
         self._suppress = False
 
     def _info_row(self, *rows: str) -> None:
@@ -233,10 +234,10 @@ class WorkspaceTree(QTreeWidget):
             model = next((m for k, m in self._open_paths.items()
                           if self._norm(k) == self._norm(path)), None)
             if model is not None:
-                imza = self._structure_signature(model)
-                if item.data(0, SIGNATURE_ROLE) == imza:
+                signature = self._structure_signature(model)
+                if item.data(0, SIGNATURE_ROLE) == signature:
                     continue
-                item.setData(0, SIGNATURE_ROLE, imza)
+                item.setData(0, SIGNATURE_ROLE, signature)
             self._load_model_node(item, force=True)
 
     def select_element(self, eid: str) -> None:
@@ -262,30 +263,30 @@ class WorkspaceTree(QTreeWidget):
     def _fill_dir(self, parent: QTreeWidgetItem, path: str) -> None:
         """Writes a folder into the tree: subfolders first, then model files."""
         try:
-            girdiler = sorted(os.listdir(path), key=str.lower)
+            entries = sorted(os.listdir(path), key=str.lower)
         except OSError:
             warning = QTreeWidgetItem(parent, ["(folder cannot be read)"])
             warning.setForeground(0, QBrush(QColor(C.WARN)))
             warning.setData(0, NODE_ROLE, "note")
             return
 
-        klasorler = [a for a in girdiler if os.path.isdir(os.path.join(path, a))]
-        files = [a for a in girdiler
+        folders = [a for a in entries if os.path.isdir(os.path.join(path, a))]
+        files = [a for a in entries
                     if a.lower().endswith(MODEL_SUFFIXES)
                     and os.path.isfile(os.path.join(path, a))]
 
-        for name in klasorler:
-            tam = os.path.join(path, name)
+        for name in folders:
+            full = os.path.join(path, name)
             node = QTreeWidgetItem(parent, ["📁  %s" % name])
             node.setData(0, NODE_ROLE, "dir")
-            node.setData(0, PATH_ROLE, tam)
+            node.setData(0, PATH_ROLE, full)
             node.setForeground(0, QBrush(QColor(C.TEXT)))
-            self._fill_dir(node, tam)
+            self._fill_dir(node, full)
 
         for name in files:
             self._add_model_node(parent, os.path.join(path, name), name)
 
-        if not klasorler and not files and parent.parent() is None:
+        if not folders and not files and parent.parent() is None:
             # An empty workspace must not be a DEAD END: the user is told how a file
             # gets there. The old text ("(no model files yet)") reported the state
             # but did not say what to do about it.
@@ -297,15 +298,15 @@ class WorkspaceTree(QTreeWidget):
                 empty.setData(0, NODE_ROLE, "note")
                 empty.setFlags(Qt.ItemFlag.ItemIsEnabled)
 
-    def _add_model_node(self, parent: QTreeWidgetItem, tam: str, name: str) -> None:
-        acik = self._norm(tam) in {self._norm(k) for k in self._open_paths}
-        label = "%s  %s" % ("◆" if acik else "◇", name)
+    def _add_model_node(self, parent: QTreeWidgetItem, full: str, name: str) -> None:
+        opened = self._norm(full) in {self._norm(k) for k in self._open_paths}
+        label = "%s  %s" % ("◆" if opened else "◇", name)
         node = QTreeWidgetItem(parent, [label])
         node.setData(0, NODE_ROLE, "model")
-        node.setData(0, PATH_ROLE, tam)
+        node.setData(0, PATH_ROLE, full)
         node.setData(0, LOADED_ROLE, False)
-        node.setToolTip(0, tam + ("\n(open)" if acik else ""))
-        if acik:
+        node.setToolTip(0, full + ("\n(open)" if opened else ""))
+        if opened:
             f = ui_font(9)
             f.setBold(True)
             node.setFont(0, f)
@@ -329,19 +330,19 @@ class WorkspaceTree(QTreeWidget):
         item.takeChildren()
         item.setData(0, LOADED_ROLE, True)
 
-        makine = None
+        machine = None
         for open_path, model in self._open_paths.items():
             if self._norm(open_path) == self._norm(path):
-                makine = model
+                machine = model
                 break
 
-        if makine is None:
+        if machine is None:
             try:
                 with open(path, "r", encoding="utf-8") as fh:
                     text = fh.read()
                 kind = detect_kind(text)
                 if kind == KIND_STATE:
-                    makine = StateMachine.from_json(text)
+                    machine = StateMachine.from_json(text)
                 elif kind == KIND_CLASS:
                     self._fill_class_summary(item, text)
                     return
@@ -354,7 +355,7 @@ class WorkspaceTree(QTreeWidget):
                 self._note(item, "cannot be read: %s" % exc, C.RED)
                 return
 
-        self._fill_model_node(item, makine)
+        self._fill_model_node(item, machine)
 
     def _fill_states(self, parent: QTreeWidgetItem, sm: StateMachine,
                      parent_id: Optional[str]) -> None:
@@ -489,11 +490,11 @@ class WorkspaceTree(QTreeWidget):
         menu = QMenu(self)
         open_ = menu.addAction("Open")
         menu.addSeparator()
-        kaldir = menu.addAction("Remove from workspace…")
+        remove_act = menu.addAction("Remove from workspace…")
         selection = menu.exec(self.viewport().mapToGlobal(pos))
         if selection is open_:
             self.model_activated.emit(path)
-        elif selection is kaldir:
+        elif selection is remove_act:
             self.remove_selected()
 
     def keyPressEvent(self, event) -> None:
@@ -515,9 +516,9 @@ class WorkspaceTree(QTreeWidget):
         if path is None:
             return
 
-        acik = self._norm(path) in {self._norm(k) for k in self._open_paths}
+        opened = self._norm(path) in {self._norm(k) for k in self._open_paths}
         text = "Delete this model file from the workspace?\n\n%s" % path
-        if acik:
+        if opened:
             text += ("\n\nIt is open in the editor and will be closed; "
                       "the canvas will be emptied.")
 

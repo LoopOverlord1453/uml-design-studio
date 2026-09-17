@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Dict, List
 
-from ..core.naming import pascal as _pascal
+from ..core.naming import pascal as _pascal_case
 from .c_generator import (TOOL_NAME, TOOL_VERSION, align_enum,
                           allman,
                           as_expression, as_statement,
@@ -37,7 +37,7 @@ MISRA_NOTE_CPP = [
 
 #: The name conversion lives in the core and the validator uses the SAME
 #: function (see app/core/naming.py). Re-exported here for compatibility.
-pascal = _pascal
+pascal = _pascal_case
 
 
 def section(title: str, indent: str = "") -> str:
@@ -49,8 +49,8 @@ def section(title: str, indent: str = "") -> str:
     """
     queue = " %s --" % title
     width = 79 - len(indent)
-    dolgu = "-" * max(3, width - len("// ") - len(queue))
-    return "%s// %s%s" % (indent, dolgu, queue)
+    padding = "-" * max(3, width - len("// ") - len(queue))
+    return "%s// %s%s" % (indent, padding, queue)
 
 
 def doc(lines: List[str], indent: str = "") -> List[str]:
@@ -111,9 +111,9 @@ class CppGenerator:
         L = ["// The model's behaviours call these. Write them yourself; the",
              "// state machine calls them at the moments the diagram shows.",
              "//"]
-        for sembol in needed:
-            L.append("//   %s" % sembol.summary())
-            L.append("//     -> %s" % ", ".join(sembol.sites))
+        for symbol in needed:
+            L.append("//   %s" % symbol.summary())
+            L.append("//     -> %s" % ", ".join(symbol.sites))
         L += [
             "//",
             "// They are NOT declared here on purpose: their real signatures",
@@ -144,9 +144,9 @@ class CppGenerator:
                          " self-contained."]
         else:
             rows.append("")
-            for sembol in needed:
-                rows.append("- %s" % sembol.summary())
-                rows.append("    used by: %s" % ", ".join(sembol.sites))
+            for symbol in needed:
+                rows.append("- %s" % symbol.summary())
+                rows.append("    used by: %s" % ", ".join(symbol.sites))
             if self.ir.has_context():
                 rows += ["",
                              "The context type '%s' is also yours: every"
@@ -342,7 +342,7 @@ class CppGenerator:
 
         L += ["private:"]
         L += [section("internal helpers", "    ")]
-        gizli = [
+        hidden = [
             ("    bool          evaluateGuard(std::int16_t id) noexcept;",
              "Evaluates the guard with the given id; true when absent."),
             ("    void          executeAction(std::int16_t id) noexcept;",
@@ -386,7 +386,7 @@ class CppGenerator:
              "Executes one transition, named by its table index."),
         ]
         if ir.has_fork_join():
-            gizli += [
+            hidden += [
                 ("    bool          joinReady(std::uint16_t transition)"
                  " const noexcept;",
                  "Is every incoming segment of a join active right now?"),
@@ -395,10 +395,10 @@ class CppGenerator:
                  "Enters the regions a fork names; the rest start by default."),
             ]
         if ir.has_history():
-            gizli.append(
+            hidden.append(
                 ("    std::uint8_t  resolveHistory(std::uint8_t h) noexcept;",
                  "Resolves a history pseudostate to a real state."))
-        gizli += [
+        hidden += [
             ("    std::uint8_t  land(std::uint8_t target) noexcept;",
              "Determines the real leaf state once a target is reached."),
             ("    bool          tryEvent(std::uint8_t event) noexcept;",
@@ -410,7 +410,7 @@ class CppGenerator:
              " state."),
         ]
         if ir.has_deferred():
-            gizli += [
+            hidden += [
                 ("    bool          isDeferred(std::uint8_t event)"
                  " const noexcept;",
                  "Is this event type deferred by the active configuration?"),
@@ -419,12 +419,12 @@ class CppGenerator:
                 ("    void          drainDeferred() noexcept;",
                  "Replays retained occurrences that are no longer deferred."),
             ]
-        for bildirim, description in gizli:
+        for declaration, description in hidden:
             L += doc(["@brief %s" % description], "    ")
-            L += [bildirim, ""]
+            L += [declaration, ""]
 
         L += [section("instance state", "    ")]
-        uyeler = [("State", "state_;", "active leaf state"),
+        members = [("State", "state_;", "active leaf state"),
                   ("Context*", "ctx_;",
                    "user context, visible as 'ctx' in actions"),
                   ("bool", "started_;", "has start() been called"),
@@ -435,7 +435,7 @@ class CppGenerator:
                   ("std::uint8_t", "active_[kRegionCount];",
                    "active leaf of each region (kNone = inactive)")]
         if ir.has_deferred():
-            uyeler += [
+            members += [
                 ("std::uint8_t", "deferred_[kDeferPoolSize];",
                  "retained deferred event occurrences"),
                 ("std::uint8_t", "deferredCount_;",
@@ -444,12 +444,12 @@ class CppGenerator:
                  "the pool was full and one was dropped"),
             ]
         if ir.has_history():
-            uyeler.append(("std::uint8_t", "history_[kRegionCount];",
+            members.append(("std::uint8_t", "history_[kRegionCount];",
                            "last active substate per region"))
-        type_w = max(len(t) for t, _a, _y in uyeler)
-        name_w = max(len(a) for _t, a, _y in uyeler)
-        L += ["    %-*s %-*s  ///< %s" % (type_w, type_name, name_w, ident, yorum)
-              for type_name, ident, yorum in uyeler]
+        type_w = max(len(t) for t, _a, _y in members)
+        name_w = max(len(a) for _t, a, _y in members)
+        L += ["    %-*s %-*s  ///< %s" % (type_w, type_name, name_w, ident, comment)
+              for type_name, ident, comment in members]
         # A BLANK LINE before the closing brace (same layout as the C side).
         L += ["", "};", ""]
         if ir.has_time_events():
@@ -545,12 +545,12 @@ class CppGenerator:
             L += ["// configuration is reached where it is no longer deferred."]
             L += ["constexpr std::uint32_t kDeferMask[] = {"]
             for st in ir.states:
-                maske = 0
+                mask = 0
                 for e in st.deferred:
-                    maske |= (1 << e)
+                    mask |= (1 << e)
                 names = ", ".join(ir.events[e] for e in st.deferred) or "none"
                 L += ["    0x%08XU,  // %-18s %s"
-                      % (maske, c_comment(st.name), c_comment(names))]
+                      % (mask, c_comment(st.name), c_comment(names))]
             L += ["};", ""]
 
         L += ["// Region each vertex lives in."]
@@ -615,11 +615,11 @@ class CppGenerator:
         L += ["};", ""]
 
         if ir.has_fork_join():
-            ekstra = ir.extra_table()
+            extra = ir.extra_table()
             L += ["// Fork targets and join sources, flattened."]
             L += ["constexpr std::uint8_t kExtra[] = {"]
-            if ekstra:
-                for i, v in enumerate(ekstra):
+            if extra:
+                for i, v in enumerate(extra):
                     L += ["    %-6s // %-3u %s" % ("%uU," % v, i,
                                                    c_comment(ir.states[v].name))]
             else:
@@ -778,13 +778,13 @@ class CppGenerator:
 
         # entry / exit / do
         if ir.has_time_events():
-            ucler = ir.time_triggers()
-            gruplu = {}
-            for src, ev, gecikme in ucler:
-                gruplu.setdefault(src, []).append((ev, gecikme))
-            for label, kanca, fiil in (("Start", "timerStart", "Starts"),
+            ends = ir.time_triggers()
+            grouped = {}
+            for src, ev, delay in ends:
+                grouped.setdefault(src, []).append((ev, delay))
+            for label, hook, verb in (("Start", "timerStart", "Starts"),
                                         ("Cancel", "timerCancel", "Cancels")):
-                L += doc(['@brief %s the after() timers of a state.' % fiil,
+                L += doc(['@brief %s the after() timers of a state.' % verb,
                          '',
                          'UML treats a TimeEvent as a trigger; KEEPING TIME IS',
                          "NOT THE MACHINE'S JOB. The generated code only says",
@@ -795,21 +795,21 @@ class CppGenerator:
                       % (cls, label)]
                 L += ["{"]
                 L += ["    switch (state) {"]
-                for src in sorted(gruplu):
+                for src in sorted(grouped):
                     L += ["    case static_cast<std::uint8_t>(State::%s):"
                           % ir.states[src].name]
                     L += ["    {"]
-                    for ev, gecikme in gruplu[src]:
+                    for ev, delay in grouped[src]:
                         if label == "Start":
                             L += ["        %s(*this, state,"
                                   " static_cast<std::uint8_t>(Event::%s),"
                                   " static_cast<std::uint32_t>(%s));"
-                                  % (kanca, self._ev_name(ir.events[ev]),
-                                     gecikme)]
+                                  % (hook, self._ev_name(ir.events[ev]),
+                                     delay)]
                         else:
                             L += ["        %s(*this, state,"
                                   " static_cast<std::uint8_t>(Event::%s));"
-                                  % (kanca, self._ev_name(ir.events[ev]))]
+                                  % (hook, self._ev_name(ir.events[ev]))]
                     L += ["        break;", "    }"]
                 L += ["    default:", "        break;", "    }"]
                 L += ["}", ""]

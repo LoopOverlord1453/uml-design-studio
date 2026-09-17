@@ -134,12 +134,12 @@ class CodePanel(QWidget):
         self.tabs.currentChanged.connect(
             lambda _i: self.find.attach(self.current_editor()))
 
-        for array, islev in ((QKeySequence.StandardKey.Find, self.show_find),
+        for array, function_text in ((QKeySequence.StandardKey.Find, self.show_find),
                             (QKeySequence("F3"), self.find.find_next),
                             (QKeySequence("Shift+F3"), self.find.find_prev)):
-            kisayol = QShortcut(array, self)
-            kisayol.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-            kisayol.activated.connect(islev)
+            shortcut = QShortcut(array, self)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(function_text)
 
     # ------------------------------------------------------------------- API #
 

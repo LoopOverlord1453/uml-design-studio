@@ -60,8 +60,8 @@ def normalize(expr: str) -> str:
     """Converts C/C++ spelling into a Python expression (evaluates nothing)."""
     text = expr.strip()
     text = _CONTEXT.sub(r"\1", text)
-    for kalip, instead in _WORDS:
-        text = kalip.sub(instead, text)
+    for pattern, instead in _WORDS:
+        text = pattern.sub(instead, text)
     text = _NOT.sub(" not ", text)
     return text.strip()
 
@@ -132,22 +132,22 @@ def parse_value(text: str) -> Tuple[bool, object]:
             shows it in red, because inside a guard the result then cannot
             be evaluated.
     """
-    ham = text.strip()
-    if not ham:
+    raw = text.strip()
+    if not raw:
         return False, ""
-    dusuk = ham.lower()
-    if dusuk in ("true", "1", "yes", "on"):
+    low = raw.lower()
+    if low in ("true", "1", "yes", "on"):
         return True, True
-    if dusuk in ("false", "0", "no", "off"):
+    if low in ("false", "0", "no", "off"):
         return True, False
     try:
-        return True, int(ham, 0)
+        return True, int(raw, 0)
     except ValueError:
         pass
     try:
-        return True, float(ham)
+        return True, float(raw)
     except ValueError:
-        return False, ham
+        return False, raw
 
 
 def format_value(value: object) -> str:

@@ -275,13 +275,13 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         """
         self._diff_marks = marks or {}
         added = self._diff_marks.get("added") or set()
-        degisen = self._diff_marks.get("changed") or set()
+        modified = self._diff_marks.get("changed") or set()
 
-        for kimlik, item in list(self.state_items.items()) \
+        for ident, item in list(self.state_items.items()) \
                 + list(self.tran_items.items()):
-            if kimlik in added:
+            if ident in added:
                 new = "added"
-            elif kimlik in degisen:
+            elif ident in modified:
                 new = "changed"
             else:
                 new = ""
@@ -299,7 +299,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         self._ghosts = []
         if not removed:
             return
-        for kimlik, data in removed.items():
+        for ident, data in removed.items():
             # Only elements that HAVE a position can be drawn; transitions and
             # relationships hang off their end points (and the ends may have been
             # deleted too), so they stay in the list as TEXT.
@@ -504,12 +504,12 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             return
 
         if self._label_drag is not None:
-            oge, dx0, dy0, begin = self._label_drag
+            elem, dx0, dy0, begin = self._label_drag
             now = self.mapToScene(event.position().toPoint())
-            fark = now - begin
-            oge.transition.label_dx = round(dx0 + fark.x(), 2)
-            oge.transition.label_dy = round(dy0 + fark.y(), 2)
-            oge.update_path()
+            shift = now - begin
+            elem.transition.label_dx = round(dx0 + shift.x(), 2)
+            elem.transition.label_dy = round(dy0 + shift.y(), 2)
+            elem.update_path()
             self._update_autoscroll(event.position().toPoint())
             event.accept()
             return
@@ -520,9 +520,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         # arrow drifted unnoticed.
         if self._bend_item is None and self._bend_candidate is not None:
             now = self.mapToScene(event.position().toPoint())
-            fark = now - self._bend_origin
-            if abs(fark.x()) >= self.BEND_THRESHOLD \
-                    or abs(fark.y()) >= self.BEND_THRESHOLD:
+            shift = now - self._bend_origin
+            if abs(shift.x()) >= self.BEND_THRESHOLD \
+                    or abs(shift.y()) >= self.BEND_THRESHOLD:
                 self._bend_item = self._bend_candidate
                 self._bend_candidate = None
                 self._bend_before = self.doc.machine.to_json()
@@ -541,19 +541,19 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             pos = self.mapToScene(event.position().toPoint())
             if self.snap_enabled:
                 pos = QPointF(snap(pos.x()), snap(pos.y()))
-            noktalar = self._bend_item.transition.waypoints
+            points = self._bend_item.transition.waypoints
 
             if self._bend_index is None:
-                mode, indis = self._bend_grab or ("insert", 0)
-                if mode == "move" and indis < len(noktalar):
-                    self._bend_index = indis
+                mode, index = self._bend_grab or ("insert", 0)
+                if mode == "move" and index < len(points):
+                    self._bend_index = index
                 else:
-                    indis = max(0, min(indis, len(noktalar)))
-                    noktalar.insert(indis, [round(pos.x(), 2),
+                    index = max(0, min(index, len(points)))
+                    points.insert(index, [round(pos.x(), 2),
                                             round(pos.y(), 2)])
-                    self._bend_index = indis
+                    self._bend_index = index
 
-            noktalar[self._bend_index] = [round(pos.x(), 2), round(pos.y(), 2)]
+            points[self._bend_index] = [round(pos.x(), 2), round(pos.y(), 2)]
             self._bend_item.update_path()
             # Scroll from the edge while bending an arrow too: shaping a long arrow
             # towards the outside of the screen was otherwise impossible.
@@ -576,15 +576,15 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             path.lineTo(end)
             self._rubber_line.setPath(path)
 
-        surukluyor = bool(event.buttons() & Qt.MouseButton.LeftButton)
-        if surukluyor:
+        dragging = bool(event.buttons() & Qt.MouseButton.LeftButton)
+        if dragging:
             # Grow the scene FIRST: the room should be ready while super() moves the
             # item, or the item stops at the scene boundary and jumps on release.
             self._room_for_drag(event.position().toPoint())
 
         super().mouseMoveEvent(event)
 
-        if surukluyor:
+        if dragging:
             self._update_autoscroll(event.position().toPoint())
         else:
             self._stop_autoscroll()
@@ -638,9 +638,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             # button. On the left button the same behaviour would erase the bend on
             # every click made to select the transition. (On the left button we never
             # get here without passing the threshold anyway.)
-            durgun = (event.button() == Qt.MouseButton.RightButton
+            idle = (event.button() == Qt.MouseButton.RightButton
                       and abs(moving.x()) < 3.0 and abs(moving.y()) < 3.0)
-            if durgun and grab and grab[0] == "move" \
+            if idle and grab and grab[0] == "move" \
                     and grab[1] < len(item.transition.waypoints):
                 # A right click ON A POINT: remove only that point. Straightening the whole
                 # arrow should not be necessary to delete a single bend.
@@ -648,7 +648,7 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 item.transition.waypoints.pop(grab[1])
                 item.update_path()
                 self.status_message.emit("Bend point removed.")
-            elif durgun:
+            elif idle:
                 item.transition.waypoints = []
                 item.update_path()
                 self.status_message.emit("Transition straightened.")
@@ -722,23 +722,23 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         Overwritten, the element would be drawn outside its parent.
         """
         skipped = skip or set()
-        kaymalar = {}
+        offsets = {}
         for eid, item in self.state_items.items():
             if eid in skipped:
                 continue
             dx = round(item.pos().x(), 2) - round(item.state.x, 2)
             dy = round(item.pos().y(), 2) - round(item.state.y, 2)
             if dx or dy:
-                kaymalar[eid] = (dx, dy)
+                offsets[eid] = (dx, dy)
             item.state.x = round(item.pos().x(), 2)
             item.state.y = round(item.pos().y(), 2)
             item.state.w = round(item.state.w, 2)
             item.state.h = round(item.state.h, 2)
             self._assign_region(item)
-        if kaymalar:
-            self._shift_waypoints(kaymalar)
+        if offsets:
+            self._shift_waypoints(offsets)
 
-    def _shift_waypoints(self, kaymalar) -> None:
+    def _shift_waypoints(self, offsets) -> None:
         """Moves the WAYPOINTS of a subpicture that is being moved rigidly.
 
         Transition waypoints are stored in ABSOLUTE SCENE coordinates while
@@ -759,10 +759,10 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
             """The total shift of an item ON THE SCENE (itself + every parent)."""
             dx = dy = 0.0
             cur = sid
-            gorulen = set()
-            while cur is not None and cur not in gorulen:
-                gorulen.add(cur)
-                step = kaymalar.get(cur)
+            seen = set()
+            while cur is not None and cur not in seen:
+                seen.add(cur)
+                step = offsets.get(cur)
                 if step is not None:
                     dx += step[0]
                     dy += step[1]
@@ -770,17 +770,17 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
                 cur = st.parent if st is not None else None
             return (round(dx, 2), round(dy, 2))
 
-        onbellek = {}
+        cache = {}
         for tr in sm.transitions.values():
             if not tr.waypoints:
                 continue
             for uc in (tr.source, tr.target):
-                if uc not in onbellek:
-                    onbellek[uc] = scene_shift(uc)
-            kayma = onbellek[tr.source]
-            if kayma != onbellek[tr.target] or kayma == (0.0, 0.0):
+                if uc not in cache:
+                    cache[uc] = scene_shift(uc)
+            offset = cache[tr.source]
+            if offset != cache[tr.target] or offset == (0.0, 0.0):
                 continue
-            tr.waypoints = [[round(x + kayma[0], 2), round(y + kayma[1], 2)]
+            tr.waypoints = [[round(x + offset[0], 2), round(y + offset[1], 2)]
                             for x, y in tr.waypoints]
 
     @staticmethod
@@ -825,9 +825,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         height = max(st.y + st.h for st in roots) - upper
 
         field = host.content_rect()
-        yerel = host.mapFromScene(scene_pos)
-        target_x = yerel.x() - width / 2.0
-        target_y = yerel.y() - height / 2.0
+        local_pt = host.mapFromScene(scene_pos)
+        target_x = local_pt.x() - width / 2.0
+        target_y = local_pt.y() - height / 2.0
         target_x = min(max(target_x, field.left()),
                       max(field.left(), field.right() - width))
         target_y = min(max(target_y, field.top()),
@@ -844,14 +844,14 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
 
         :return: True when something changed in the model
         """
-        degisti = False
+        was_changed = False
         for item in self.state_items.values():
             new = self._region_for(item.parentItem(), item.pos().y(),
                                     item.state.h)
             if int(item.state.region or 0) != new:
                 item.state.region = new
-                degisti = True
-        return degisti
+                was_changed = True
+        return was_changed
 
     def _assign_region(self, item: StateItem) -> None:
         """Marks the item with WHICH region of the parent state it sits in.
@@ -1131,9 +1131,9 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         if scene_pos is not None:
             pos = QPointF(scene_pos)
         else:
-            yerel = self.viewport().mapFromGlobal(self.cursor().pos())
-            if self.viewport().rect().contains(yerel):
-                pos = self.mapToScene(yerel)
+            local_pt = self.viewport().mapFromGlobal(self.cursor().pos())
+            if self.viewport().rect().contains(local_pt):
+                pos = self.mapToScene(local_pt)
             else:
                 pos = self.mapToScene(self.viewport().rect().center())
 
@@ -1248,16 +1248,16 @@ class DiagramCanvas(CanvasNavigation, QGraphicsView):
         Selected items are left OUT: they move TOGETHER with the dragged item, so
         aligning them to each other is meaningless.
         """
-        ebeveyn = item.parentItem()
-        kutular = []
+        parent_of = item.parentItem()
+        boxes = []
         for other in self.state_items.values():
-            if other is item or other.parentItem() is not ebeveyn:
+            if other is item or other.parentItem() is not parent_of:
                 continue
             if other.isSelected():
                 continue
-            kutular.append((other.pos().x(), other.pos().y(),
+            boxes.append((other.pos().x(), other.pos().y(),
                             other.state.w, other.state.h))
-        return kutular
+        return boxes
 
     def drawForeground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawForeground(painter, rect)

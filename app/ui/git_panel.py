@@ -212,7 +212,7 @@ class CommitGraphView(QAbstractScrollArea):
         if not self._commits:
             return 0.0
         metrics = QFontMetricsF(ui_font(8))
-        en_genis = 0.0
+        widest = 0.0
         for commit in self._commits:
             width = 0.0
             for ref in commit.refs[:4]:
@@ -221,8 +221,8 @@ class CommitGraphView(QAbstractScrollArea):
                     if text.startswith(prefix):
                         text = text[len(prefix):]
                 width += metrics.horizontalAdvance(text) + 12.0 + 5.0
-            en_genis = max(en_genis, width)
-        return min(en_genis, 240.0)
+            widest = max(widest, width)
+        return min(widest, 240.0)
 
     def _update_scroll(self) -> None:
         bar = self.verticalScrollBar()
@@ -938,8 +938,8 @@ class GitPanel(QWidget):
                     conflicts: List[GitFile]) -> None:
         keep_s = _current_path(self.list_staged)
         keep_u = _current_path(self.list_unstaged)
-        acik_s = _expanded_folders(self.list_staged)
-        acik_u = _expanded_folders(self.list_unstaged)
+        open_staged = _expanded_folders(self.list_staged)
+        open_unstaged = _expanded_folders(self.list_unstaged)
         self.list_staged.clear()
         self.list_unstaged.clear()
 
@@ -950,8 +950,8 @@ class GitPanel(QWidget):
 
         # Expanded folders and the selected file are KEPT ACROSS A REFRESH;
         # otherwise every F6 would send the user walking down from the root again.
-        _restore_expanded(self.list_staged, acik_s)
-        _restore_expanded(self.list_unstaged, acik_u)
+        _restore_expanded(self.list_staged, open_staged)
+        _restore_expanded(self.list_unstaged, open_unstaged)
         _restore_path(self.list_staged, keep_s)
         _restore_path(self.list_unstaged, keep_u)
         if not staged and not unstaged and not conflicts:
@@ -965,11 +965,11 @@ class GitPanel(QWidget):
         never counted twice (both it and its parent may be selected).
         """
         out: List[str] = []
-        gorulen = set()
+        seen = set()
         for it in lst.selectedItems():
-            for path in _dosyalari(it):
-                if path not in gorulen:
-                    gorulen.add(path)
+            for path in _files(it):
+                if path not in seen:
+                    seen.add(path)
                     out.append(path)
         return out
 
@@ -982,7 +982,7 @@ class GitPanel(QWidget):
         path = item.data(0, PATH_ROLE)
         if not path:
             # A FOLDER node: it has no single diff; a summary is written.
-            files = _dosyalari(item)
+            files = _files(item)
             self.diff_header.setText(
                 "DIFF — %s/   %d file(s)"
                 % (item.data(0, FOLDER_ROLE) or "", len(files)))
@@ -999,18 +999,18 @@ class GitPanel(QWidget):
         # they are left alone.
         model = self._model_diff_text(path, staged=staged, untracked=untracked)
         if model is not None:
-            txt, add, dele, degisen = model
+            txt, add, dele, changed = model
             self.diff_header.setText(
                 "DIFF — %s   +%d −%d ~%d   (model, %s)"
-                % (path, add, dele, degisen,
+                % (path, add, dele, changed,
                    "staged" if staged else "unstaged"))
             self.diff.show_diff(txt, "No model changes.")
             # Show it ON THE PICTURE too: the textual summary says WHAT changed,
             # the diagram shows WHERE.
             if self.repo is not None:
-                tam = os.path.join(self.repo.root, path)
+                full = os.path.join(self.repo.root, path)
                 self.model_diff_requested.emit(
-                    os.path.normpath(tam), "staged" if staged else "head")
+                    os.path.normpath(full), "staged" if staged else "head")
             return
 
         try:
@@ -1041,9 +1041,9 @@ class GitPanel(QWidget):
         try:
             if sha:
                 new_text = self.repo.file_at(sha, path)
-                ebeveyn = "%s^" % sha
+                parent_item = "%s^" % sha
                 try:
-                    old_text = self.repo.file_at(ebeveyn, path)
+                    old_text = self.repo.file_at(parent_item, path)
                 except GitError:
                     old_text = ""      # the first commit: no parent
             elif untracked:
@@ -1066,8 +1066,8 @@ class GitPanel(QWidget):
         rows = model_diff.diff_for(path, old_text, new_text)
         if rows is None:
             return None
-        add, dele, degisen = model_diff.summary(rows)
-        return model_diff.render(rows), add, dele, degisen
+        add, dele, changed = model_diff.summary(rows)
+        return model_diff.render(rows), add, dele, changed
 
     def _on_commit_selected(self, sha: str) -> None:
         if not sha or self.repo is None:
@@ -1303,18 +1303,18 @@ def _header(title: str) -> QLabel:
     return lbl
 
 
-def _dosyalari(item: QTreeWidgetItem) -> List[str]:
+def _files(item: QTreeWidgetItem) -> List[str]:
     """The FILE paths of the node (and of everything under it)."""
     path = item.data(0, PATH_ROLE)
     if path:
         return [path]
     out: List[str] = []
     for i in range(item.childCount()):
-        out += _dosyalari(item.child(i))
+        out += _files(item.child(i))
     return out
 
 
-def _build_tree(tree: QTreeWidget, kayitlar) -> None:
+def _build_tree(tree: QTreeWidget, records) -> None:
     """Lays the file records out as a FOLDER TREE.
 
     Intermediate folders holding a single file are MERGED ("app/ui/", say):
@@ -1337,54 +1337,54 @@ def _build_tree(tree: QTreeWidget, kayitlar) -> None:
         roots[key] = node
         return node
 
-    for gf, colour in kayitlar:
+    for gf, colour in records:
         parts = gf.path.split("/")
         name = parts[-1]
         parent_node = folder(parts[:-1]) if len(parts) > 1 else tree
         txt = "%s  %s" % (gf.label(), name)
         if gf.orig_path:
             txt += "   ← %s" % gf.orig_path
-        oge = QTreeWidgetItem(parent_node, [txt])
-        oge.setData(0, PATH_ROLE, gf.path)
-        oge.setData(0, UNTRACKED_ROLE, gf.untracked)
-        oge.setForeground(0, QBrush(QColor(colour)))
-        oge.setToolTip(0, gf.path)
+        elem = QTreeWidgetItem(parent_node, [txt])
+        elem.setData(0, PATH_ROLE, gf.path)
+        elem.setData(0, UNTRACKED_ROLE, gf.untracked)
+        elem.setForeground(0, QBrush(QColor(colour)))
+        elem.setToolTip(0, gf.path)
 
     # Write how many files are in a folder row: it should inform when collapsed too.
     for node in roots.values():
-        count = len(_dosyalari(node))
+        count = len(_files(node))
         node.setText(0, "%s   (%d)" % (node.text(0), count))
 
 
 def _expanded_folders(tree: QTreeWidget) -> set:
     """The folder keys that are currently EXPANDED."""
-    acik = set()
+    opened = set()
 
-    def gez(node):
+    def walk(node):
         for i in range(node.childCount()):
             kid = node.child(i)
             key = kid.data(0, FOLDER_ROLE)
             if key and kid.isExpanded():
-                acik.add(key)
-            gez(kid)
+                opened.add(key)
+            walk(kid)
 
-    gez(tree.invisibleRootItem())
-    return acik
+    walk(tree.invisibleRootItem())
+    return opened
 
 
-def _restore_expanded(tree: QTreeWidget, acik: set) -> None:
-    if not acik:
+def _restore_expanded(tree: QTreeWidget, opened: set) -> None:
+    if not opened:
         return
 
-    def gez(node):
+    def walk(node):
         for i in range(node.childCount()):
             kid = node.child(i)
             key = kid.data(0, FOLDER_ROLE)
             if key:
-                kid.setExpanded(key in acik)
-            gez(kid)
+                kid.setExpanded(key in opened)
+            walk(kid)
 
-    gez(tree.invisibleRootItem())
+    walk(tree.invisibleRootItem())
 
 
 def _current_path(lst: QTreeWidget) -> str:
@@ -1397,14 +1397,14 @@ def _restore_path(lst: QTreeWidget, path: str) -> None:
     if not path:
         return
 
-    def gez(node):
+    def walk(node):
         for i in range(node.childCount()):
             kid = node.child(i)
             if kid.data(0, PATH_ROLE) == path:
                 lst.setCurrentItem(kid)
                 return True
-            if gez(kid):
+            if walk(kid):
                 return True
         return False
 
-    gez(lst.invisibleRootItem())
+    walk(lst.invisibleRootItem())

@@ -264,9 +264,9 @@ class Simulator:
             st = self.ir.states[node]
             next_ = NONE
             for k in range(st.region_count - 1, -1, -1):
-                aday = self.active[st.first_region + k]
-                if aday != NONE:
-                    next_ = aday
+                candidate = self.active[st.first_region + k]
+                if candidate != NONE:
+                    next_ = candidate
                     break
             if next_ == NONE:
                 return found
@@ -292,27 +292,27 @@ class Simulator:
         state starts all of its regions (14.2.3.2, printed p.307). The regions
         of `target` itself are not opened here; `_descend` does that.
         """
-        zincir: List[int] = []
+        chain: List[int] = []
         s = target
         step = 0
         while s != top and s != NONE and step <= MAX_WALK_STEPS:
-            zincir.append(s)
+            chain.append(s)
             s = self._parent(s)
             step += 1
-        zincir.reverse()
-        for i, cur in enumerate(zincir):
+        chain.reverse()
+        for i, cur in enumerate(chain):
             self._enter_one(cur)
             st = self.ir.states[cur]
             if st.region_count <= 0:
                 continue
-            if i + 1 >= len(zincir):
+            if i + 1 >= len(chain):
                 # The LAST item is `target`; `_descend` opens its regions. Opening them
                 # here too would enter the substates of the target TWICE (the same entry
                 # shows up twice in the trace).
                 continue
-            gecilen = self._region_of(zincir[i + 1])
+            passed = self._region_of(chain[i + 1])
             for r in self.ir.regions_of(cur):
-                if r == gecilen:
+                if r == passed:
                     continue
                 reg = self.ir.regions[r]
                 if reg.initial_state == NONE:
@@ -344,15 +344,15 @@ class Simulator:
         """Turns a history pseudostate into a real target and runs the entry chain."""
         st = self.ir.states[h]
         region_ix = st.region
-        sahip = st.parent
+        owner = st.parent
         stored = self.history[region_ix] if region_ix != REGION_NONE else NONE
         if stored == NONE:
             stored = st.history_default
         if stored == NONE and region_ix != REGION_NONE:
             stored = self.ir.regions[region_ix].initial_state
         if stored == NONE:
-            return sahip                       # safety: the owner of the region
-        self._enter_path(stored, sahip)
+            return owner                       # safety: the owner of the region
+        self._enter_path(stored, owner)
         if st.kind == KIND_HIST_DEEP:
             self._restore_deep(stored)
             return self._leaf_of(stored)
@@ -485,8 +485,8 @@ class Simulator:
         if st.region_count <= 0:
             return True
         for r in self.ir.regions_of(index):
-            etkin = self.active[r]
-            if etkin == NONE or self.ir.states[etkin].kind != KIND_FINAL:
+            active_set = self.active[r]
+            if active_set == NONE or self.ir.states[active_set].kind != KIND_FINAL:
                 return False
         return True
 
@@ -498,7 +498,7 @@ class Simulator:
                 return False
         return True
 
-    def _enter_forked(self, sahip: int, hedefler: List[int]) -> None:
+    def _enter_forked(self, owner: int, targets: List[int]) -> None:
         """FORK: enters the named regions EXPLICITLY, the rest by default.
 
         UML 2.5.1, 14.2.3.7 (printed p.313): a fork splits "an incoming
@@ -506,19 +506,19 @@ class Simulator:
         orthogonal Regions of a composite State". Unnamed regions still start;
         entering an orthogonal state starts ALL of its regions.
         """
-        kapsanan = set()
-        for target in hedefler:
+        covered = set()
+        for target in targets:
             child_node = target
             step = 0
-            while (self._parent(child_node) != sahip and self._parent(child_node) != NONE
+            while (self._parent(child_node) != owner and self._parent(child_node) != NONE
                    and step <= MAX_WALK_STEPS):
                 child_node = self._parent(child_node)
                 step += 1
-            kapsanan.add(self._region_of(child_node))
-            self._enter_path(target, sahip)
+            covered.add(self._region_of(child_node))
+            self._enter_path(target, owner)
             self._activate_below(target)
-        for r in self.ir.regions_of(sahip):
-            if r in kapsanan:
+        for r in self.ir.regions_of(owner):
+            if r in covered:
                 continue
             reg = self.ir.regions[r]
             if reg.initial_state == NONE:
@@ -567,38 +567,38 @@ class Simulator:
         The non-conflicting ones are processed in ASCENDING region order. UML
         does not define that order; the tool fixes it and writes it in the header.
         """
-        secimler = []                      # (region, source, transition)
+        choices = []                      # (region, source, transition)
         for r in range(self.ir.region_count):
             if self.active[r] == NONE:
                 continue
             source, tran = self._select(r, event_index)
             if tran is None:
                 continue
-            secimler.append((r, source, tran))
+            choices.append((r, source, tran))
 
-        if not secimler:
+        if not choices:
             return False
 
         # If two regions picked the same transition it is processed ONCE.
-        benzersiz = []
-        gorulen = set()
-        for r, source, tran in secimler:
-            if tran.index in gorulen:
+        unique = []
+        seen = set()
+        for r, source, tran in choices:
+            if tran.index in seen:
                 continue
-            gorulen.add(tran.index)
-            benzersiz.append((r, source, tran))
+            seen.add(tran.index)
+            unique.append((r, source, tran))
 
         # When the source of one choice is a PROPER ANCESTOR of another choice's
         # source, the outer one is dropped: priority goes to the deeper one.
-        kalan = []
-        for r, source, tran in benzersiz:
+        remaining = []
+        for r, source, tran in unique:
             if any(self._is_ancestor(source, other_one)
-                   for _r2, other_one, _t2 in benzersiz if other_one != source):
+                   for _r2, other_one, _t2 in unique if other_one != source):
                 continue
-            kalan.append((r, source, tran))
+            remaining.append((r, source, tran))
 
-        islendi = False
-        for r, _source, tran in kalan:
+        processed = False
+        for r, _source, tran in remaining:
             # TERMINATE STOPS EVERYTHING.
             #
             # UML 2.5.1, 14.2.3.7: once a terminate pseudostate is entered the
@@ -613,8 +613,8 @@ class Simulator:
             if self.active[r] == NONE and tran.kind != TKIND_INTERNAL:
                 continue
             self._take(tran)
-            islendi = True
-        return islendi
+            processed = True
+        return processed
 
     def _run_to_completion(self) -> None:
         """Processes pending completion events until the configuration is stable.
@@ -633,8 +633,7 @@ class Simulator:
         # transitions drawn on the diagram were NEVER taken. The generated C/C++
         # does not even report it. Scaling with the region count gives every
         # region its own budget while keeping the guard against a cyclic model.
-        # da yerinde kalir.
-        sinir = MAX_RTC_STEPS * max(1, self.ir.region_count)
+        limit = MAX_RTC_STEPS * max(1, self.ir.region_count)
         steps = 0
         while not self.terminated:
             region = REGION_NONE
@@ -644,7 +643,7 @@ class Simulator:
                     break
             if region == REGION_NONE:
                 return
-            if steps >= sinir:
+            if steps >= limit:
                 # REPORT RATHER THAN BREAKING SILENTLY. The previous version left the
                 # loop and carried on; the model stayed unstable and the user was told
                 # nothing.
@@ -652,7 +651,7 @@ class Simulator:
                 self._emit("error",
                            "run-to-completion limit (%d steps) reached: the "
                            "model has a cycle of completion transitions"
-                           % sinir)
+                           % limit)
                 return
             self.completion_pending[region] = False
             if self.active[region] != NONE:
@@ -721,16 +720,16 @@ class Simulator:
             if self.terminated:
                 return                         # a terminated machine processes no event
             step += 1
-            siradaki = None
+            up_next = None
             for index in self.deferred_pool:
                 if not self._is_deferred(index):
-                    siradaki = index
+                    up_next = index
                     break
-            if siradaki is None:
+            if up_next is None:
                 return
-            self.deferred_pool.remove(siradaki)
-            self._emit("recall", self.ir.events[siradaki])
-            if self._try_event(siradaki):
+            self.deferred_pool.remove(up_next)
+            self._emit("recall", self.ir.events[up_next])
+            if self._try_event(up_next):
                 self._run_to_completion()
 
     def dispatch(self, event: str) -> bool:

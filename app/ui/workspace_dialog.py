@@ -17,7 +17,8 @@ from PyQt6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog,
                              QVBoxLayout)
 
 from ..core.workspace import (DEFAULT_GENERATED_DIR, DEFAULT_MODEL_DIR,
-                              Workspace, WorkspaceError)
+                              Workspace, WorkspaceError,
+                              display_path, expand_path)
 from .theme import C, mono_font, ui_font
 
 PATH_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -76,10 +77,12 @@ class WorkspaceDialog(QDialog):
         self.recent_list.setAlternatingRowColors(True)
         for order, path in enumerate(self._recent, start=1):
             name = os.path.basename(path.rstrip(os.sep)) or path
-            item = QListWidgetItem("%2d.  %-24s %s" % (order, name, path))
+            shown = display_path(path)
+            item = QListWidgetItem("%2d.  %-24s %s" % (order, name, shown))
             item.setData(PATH_ROLE, path)
-            # Long paths are elided; the full path stays in the tooltip.
-            item.setToolTip(path)
+            # Long paths are elided; the short form stays in the tooltip too,
+            # so hovering does not put the account name back on screen.
+            item.setToolTip(shown)
             item.setFont(mono_font(9))
             self.recent_list.addItem(item)
         root.addWidget(self.recent_list)
@@ -145,7 +148,7 @@ class WorkspaceDialog(QDialog):
 
         lbl_parent = QLabel("Parent folder")
         lbl_parent.setFont(ui_font(9))
-        self.ed_parent = QLineEdit(_default_parent())
+        self.ed_parent = QLineEdit(display_path(_default_parent()))
         self.ed_parent.setFont(mono_font(9))
         btn_parent = QPushButton("Browse…")
         btn_parent.setFont(ui_font(9))
@@ -246,7 +249,7 @@ class WorkspaceDialog(QDialog):
             item = self.recent_list.item(row)
             path = item.data(PATH_ROLE)
             name = os.path.basename(path.rstrip(os.sep)) or path
-            item.setText("%2d.  %-24s %s" % (row + 1, name, path))
+            item.setText("%2d.  %-24s %s" % (row + 1, name, display_path(path)))
 
     def _forget_selected(self) -> None:
         row = self.recent_list.currentRow()
@@ -306,7 +309,7 @@ class WorkspaceDialog(QDialog):
         else:
             not_ = "creates the folder with %s/ and %s/" % (
                 DEFAULT_MODEL_DIR, DEFAULT_GENERATED_DIR)
-        self.preview.setText(target + chr(10) + not_)
+        self.preview.setText(display_path(target) + chr(10) + not_)
 
     def _target_root(self) -> str:
         mode = self._mode()
@@ -314,27 +317,27 @@ class WorkspaceDialog(QDialog):
             item = self.recent_list.currentItem()
             return item.data(PATH_ROLE) if item else ""
         if mode == "open":
-            return self.ed_open.text().strip()
-        parent = self.ed_parent.text().strip()
+            return expand_path(self.ed_open.text())
+        parent = expand_path(self.ed_parent.text())
         name = self.ed_name.text().strip()
         if not parent or not name:
             return ""
         return os.path.join(parent, name)
 
     def _browse_open(self) -> None:
-        start = self.ed_open.text().strip() or _default_parent()
+        start = expand_path(self.ed_open.text()) or _default_parent()
         path = QFileDialog.getExistingDirectory(self, "Workspace folder",
                                                 start)
         if path:
             self.rb_open.setChecked(True)
-            self.ed_open.setText(path)
+            self.ed_open.setText(display_path(path))
 
     def _browse_parent(self) -> None:
-        start = self.ed_parent.text().strip() or _default_parent()
+        start = expand_path(self.ed_parent.text()) or _default_parent()
         path = QFileDialog.getExistingDirectory(self, "Parent folder", start)
         if path:
             self.rb_new.setChecked(True)
-            self.ed_parent.setText(path)
+            self.ed_parent.setText(display_path(path))
 
     def _accept(self) -> None:
         target = self._target_root()

@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 from ..core.class_model import (ClassModel, Operation, Relation,
                                 RelationKind, Stereotype, UmlClass, Visibility)
 from ..core.naming import lower_camel
-from ..core.naming import pascal as _pascal
+from ..core.naming import pascal as _pascal_case
 from .c_generator import TOOL_NAME, TOOL_VERSION, c_comment
 from .c_generator import allman
 
@@ -31,7 +31,7 @@ CAPACITY_MACRO_DEFAULT = 8
 
 def pascal(name: str) -> str:
     """PascalCase for class model names (see app/core/naming.py)."""
-    return _pascal(name, fallback="Design")
+    return _pascal_case(name, fallback="Design")
 
 
 def is_many(mult: str) -> bool:

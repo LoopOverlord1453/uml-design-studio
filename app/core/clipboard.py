@@ -83,9 +83,9 @@ def copy_fragment(machine, ids) -> Optional[str]:
 
 def _unique_name(base: str, used: Set[str]) -> str:
     """Derives a free name from `base`: Alpha -> Alpha_copy -> Alpha_copy2."""
-    aday = "%s_copy" % base
-    if aday not in used:
-        return aday
+    candidate = "%s_copy" % base
+    if candidate not in used:
+        return candidate
     i = 2
     while "%s_copy%d" % (base, i) in used:
         i += 1

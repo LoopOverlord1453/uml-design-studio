@@ -154,7 +154,7 @@ class IrTransition:
 #:
 #: `if (x)` is NOT a function call; without filtering, the user would be
 #: told "you must write the if function".
-_ANAHTAR = {
+_KEYWORDS = {
     "if", "else", "for", "while", "switch", "case", "default", "do",
     "return", "break", "continue", "goto", "sizeof", "typedef", "struct",
     "union", "enum", "static", "const", "volatile", "extern", "inline",
@@ -166,32 +166,32 @@ _ANAHTAR = {
 
 #: Calls of the form `name(`. A preceding `.`/`->`/`::` makes it a MEMBER
 #: call (like ctx->reset()) and it belongs to the user's context.
-_CAGRI = re.compile(r"(?<![\w.>:])([A-Za-z_]\w*)\s*\(")
+_CALL = re.compile(r"(?<![\w.>:])([A-Za-z_]\w*)\s*\(")
 
 
 def _argument_count(text: str, opening: int) -> int:
     """Counts the arguments by top-level commas, starting at the `(`."""
-    derinlik = 0
+    level = 0
     count = 0
-    gorulen = False
+    seen_ids = False
     i = opening
     while i < len(text):
         ch = text[i]
         if ch in "([{":
-            derinlik += 1
+            level += 1
         elif ch in ")]}":
-            derinlik -= 1
-            if derinlik == 0:
-                return (count + 1) if gorulen else 0
-        elif ch == "," and derinlik == 1:
+            level -= 1
+            if level == 0:
+                return (count + 1) if seen_ids else 0
+        elif ch == "," and level == 1:
             count += 1
-        elif not ch.isspace() and derinlik == 1:
-            gorulen = True
+        elif not ch.isspace() and level == 1:
+            seen_ids = True
         i += 1
     return count
 
 
-def _dizgileri_bosalt(text: str) -> str:
+def _blank_strings(text: str) -> str:
     """Blanks out the INSIDE of string and character literals.
 
     Scanned by hand rather than with a regex: a pattern that handles escape
@@ -199,35 +199,35 @@ def _dizgileri_bosalt(text: str) -> str:
     to miss an escape in this file. The length is preserved so offsets hold.
     """
     out = []
-    tirnak = ""
-    kacis = False
+    quote = ""
+    escape = False
     for ch in text:
-        if tirnak:
-            out.append(" " if ch != tirnak or kacis else ch)
-            if kacis:
-                kacis = False
+        if quote:
+            out.append(" " if ch != quote or escape else ch)
+            if escape:
+                escape = False
             elif ch == chr(92):
-                kacis = True
-            elif ch == tirnak:
-                tirnak = ""
+                escape = True
+            elif ch == quote:
+                quote = ""
             continue
         if ch in ('"', "'"):
-            tirnak = ch
+            quote = ch
             out.append(ch)
             continue
         out.append(ch)
     return "".join(out)
 
 
-def _cagrilar(text: str):
+def _calls(text: str):
     """The (name, argument_count) calls found in the text."""
     # Parentheses inside a string would break the argument count.
-    temiz = _dizgileri_bosalt(text)
-    for m in _CAGRI.finditer(temiz):
+    clean = _blank_strings(text)
+    for m in _CALL.finditer(clean):
         name = m.group(1)
-        if name in _ANAHTAR:
+        if name in _KEYWORDS:
             continue
-        yield name, _argument_count(temiz, m.end() - 1)
+        yield name, _argument_count(clean, m.end() - 1)
 
 
 @dataclass
@@ -243,9 +243,9 @@ class RequiredSymbol:
         """The one-line summary written into the documentation."""
         arg = "no arguments" if self.argc == 0 else (
             "1 argument" if self.argc == 1 else "%d arguments" % self.argc)
-        rol = ("used in a guard, so it must RETURN a value"
+        role = ("used in a guard, so it must RETURN a value"
                if self.in_guard else "called as a statement")
-        return "%s(): %s, %s" % (self.name, arg, rol)
+        return "%s(): %s, %s" % (self.name, arg, role)
 
 
 @dataclass
@@ -338,26 +338,26 @@ class Ir:
         """
         found: Dict[str, RequiredSymbol] = {}
 
-        def tara(text: str, nerede: str, guard: bool) -> None:
-            for name, argc in _cagrilar(text):
+        def scan(text: str, where: str, guard: bool) -> None:
+            for name, argc in _calls(text):
                 record = found.get(name)
                 if record is None:
                     record = RequiredSymbol(name=name, argc=argc)
                     found[name] = record
                 record.argc = max(record.argc, argc)
                 record.in_guard = record.in_guard or guard
-                if nerede not in record.sites:
-                    record.sites.append(nerede)
+                if where not in record.sites:
+                    record.sites.append(where)
 
         for st in self.states:
             for body, label in ((st.entry, "entry"), (st.exit, "exit"),
                                   (st.do, "do")):
                 if body.strip():
-                    tara(body, "%s / %s" % (st.name, label), False)
+                    scan(body, "%s / %s" % (st.name, label), False)
         for action in self.actions:
-            tara(action, "transition effect", False)
-        for kosul in self.guards:
-            tara(kosul, "guard", True)
+            scan(action, "transition effect", False)
+        for condition in self.guards:
+            scan(condition, "guard", True)
         return sorted(found.values(), key=lambda r: r.name)
 
     def time_triggers(self):
@@ -384,18 +384,18 @@ class Ir:
         """
         from ..core.model import time_event_delay
         out = []
-        gorulen = set()
+        seen_ids = set()
         for t in self.transitions:
             if t.event == 0:
                 continue
-            gecikme = time_event_delay(self.events[t.event])
-            if gecikme is None:
+            delay = time_event_delay(self.events[t.event])
+            if delay is None:
                 continue
             key = (t.source, t.event)
-            if key in gorulen:
+            if key in seen_ids:
                 continue
-            gorulen.add(key)
-            out.append((t.source, t.event, gecikme))
+            seen_ids.add(key)
+            out.append((t.source, t.event, delay))
         return sorted(out)
 
     def has_time_events(self) -> bool:
@@ -492,9 +492,9 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
     # --- 1) Vertices to index: everything EXCEPT initial -----------------------
     # Like INITIAL, FORK and JOIN do not enter the table either: all three
     # are flattened into the compound transition (see step 5 below).
-    _ELENEN = (StateKind.INITIAL, StateKind.FORK, StateKind.JOIN,
+    _DROPPED = (StateKind.INITIAL, StateKind.FORK, StateKind.JOIN,
                StateKind.ENTRY_POINT, StateKind.EXIT_POINT)
-    vertices = [s for s in sm.ordered_states() if s.kind not in _ELENEN]
+    vertices = [s for s in sm.ordered_states() if s.kind not in _DROPPED]
     if len(vertices) > MAX_VERTICES:
         raise CodegenError("This model has %d states; at most %d are supported."
                            % (len(vertices), MAX_VERTICES))
@@ -535,7 +535,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
 
     # The defer lists are converted into event indices.
     for i, s_ in enumerate(vertices):
-        indeksler = []
+        indexes = []
         for ident in (s_.deferred or []):
             ident = str(ident).strip()
             if not ident:
@@ -543,9 +543,9 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             if ident not in event_index:
                 raise CodegenError(
                     "State '%s' defers an unknown event: %s" % (s_.name, ident))
-            if event_index[ident] not in indeksler:
-                indeksler.append(event_index[ident])
-        ir.states[i].deferred = sorted(indeksler)
+            if event_index[ident] not in indexes:
+                indexes.append(event_index[ident])
+        ir.states[i].deferred = sorted(indexes)
 
     # THE DEFER MASK IS 32 BITS WIDE.
     #
@@ -620,19 +620,19 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
     # EVERY REGION has its own default entry (14.2.3.2, printed p.307).
     for reg in ir.regions:
         if reg.owner == NONE:
-            sahip_id = None
-            yerel = reg.index - ir.root_regions[0]
+            owner_id = None
+            local = reg.index - ir.root_regions[0]
         else:
-            sahip = ir.states[reg.owner]
-            sahip_id = sahip.model_id
-            yerel = reg.index - sahip.first_region
-        child, act = compile_initial(sahip_id, yerel)
+            owner_of = ir.states[reg.owner]
+            owner_id = owner_of.model_id
+            local = reg.index - owner_of.first_region
+        child, act = compile_initial(owner_id, local)
         if child == NONE:
-            if sahip_id is None:
+            if owner_id is None:
                 raise CodegenError("The root region has no initial pseudostate.")
             raise CodegenError(
                 "Region %d of composite state '%s' has no initial pseudostate."
-                % (yerel + 1, ir.states[reg.owner].name))
+                % (local + 1, ir.states[reg.owner].name))
         reg.initial_state = child
         reg.initial_action = act
 
@@ -723,12 +723,12 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
     fork_ids = {s.id for s in sm.states.values() if s.kind is StateKind.FORK}
     join_ids = {s.id for s in sm.states.values() if s.kind is StateKind.JOIN}
 
-    def _common_owner(idler: List[str]) -> Optional[str]:
+    def _common_owner(ids: List[str]) -> Optional[str]:
         """The COMMON orthogonal owner of the given vertices (None if any)."""
-        if not idler:
+        if not ids:
             return None
-        common = idler[0]
-        for other in idler[1:]:
+        common = ids[0]
+        for other in ids[1:]:
             common = sm.lca(common, other)
             if common is None:
                 return None
@@ -747,50 +747,50 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         point is compiled EXACTLY like a fork; using the same machinery for
         the single-region case beats keeping two separate code paths.
         """
-        nokta = sm.states[entry_id]
-        sahip = nokta.parent
-        if sahip is None or sahip not in index_of:
+        point = sm.states[entry_id]
+        owner_of = point.parent
+        if owner_of is None or owner_of not in index_of:
             raise CodegenError(
                 "The entry point '%s' is not owned by a composite state."
-                % nokta.name)
-        segmentler = sm.outgoing(entry_id)
-        if not segmentler:
+                % point.name)
+        segments = sm.outgoing(entry_id)
+        if not segments:
             raise CodegenError(
                 "The entry point '%s' has no transition into the state."
-                % nokta.name)
-        hedefler = [t.target for t in segmentler]
-        if any(h not in index_of for h in hedefler):
+                % point.name)
+        targets = [t.target for t in segments]
+        if any(h not in index_of for h in targets):
             raise CodegenError(
                 "A transition leaving entry point '%s' could not be resolved."
-                % nokta.name)
-        sirali = sorted(hedefler, key=lambda h: sm.region_of(h))
-        return sahip, [index_of[h] for h in sirali], segmentler
+                % point.name)
+        ordered = sorted(targets, key=lambda h: sm.region_of(h))
+        return owner_of, [index_of[h] for h in ordered], segments
 
     def _exit_cozumle(exit_id: str):
         """Returns the outgoing transition of an exit point."""
-        nokta = sm.states[exit_id]
-        cikislar = sm.outgoing(exit_id)
-        if not cikislar:
+        point = sm.states[exit_id]
+        exits = sm.outgoing(exit_id)
+        if not exits:
             raise CodegenError(
                 "The exit point '%s' has no transition out of the state."
-                % nokta.name)
-        leaving = cikislar[0]
+                % point.name)
+        leaving = exits[0]
         if leaving.target not in index_of:
             raise CodegenError(
                 "The target of the transition leaving exit point '%s' could "
-                "not be resolved." % nokta.name)
+                "not be resolved." % point.name)
         return leaving
 
     def _fork_cozumle(fork_id: str):
         """Resolves the fork segments into (owner, target list)."""
-        segmentler = sm.outgoing(fork_id)
-        hedefler = [t.target for t in segmentler]
-        sahip = _common_owner(hedefler)
-        if sahip is None or sahip not in index_of:
+        segments = sm.outgoing(fork_id)
+        targets = [t.target for t in segments]
+        owner_of = _common_owner(targets)
+        if owner_of is None or owner_of not in index_of:
             raise CodegenError(
                 "The fork '%s' does not target vertices inside one "
                 "orthogonal state." % sm.states[fork_id].name)
-        invalid = [h for h in hedefler if h not in index_of]
+        invalid = [h for h in targets if h not in index_of]
         if invalid:
             raise CodegenError(
                 "A fork segment of '%s' could not be resolved."
@@ -804,7 +804,7 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 st_ = sm.states.get(cur)
                 if st_ is None:
                     return 0
-                if st_.parent == sahip:
+                if st_.parent == owner_of:
                     return sm.region_of(cur)
                 cur = st_.parent
                 step += 1
@@ -813,30 +813,30 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         # Targets are entered in REGION order. Left to the arrow order in the
         # model file, the same diagram could produce two different entry orders
         # and code generation would not be DETERMINISTIC.
-        sirali = sorted(hedefler, key=_region_order)
-        return sahip, [index_of[h] for h in sirali], segmentler
+        ordered = sorted(targets, key=_region_order)
+        return owner_of, [index_of[h] for h in ordered], segments
 
     def _join_cozumle(join_id: str):
         """Resolves join segments into (owner, source list, exit transition)."""
-        segmentler = [t for t in sm.transitions.values() if t.target == join_id]
-        kaynaklar = [t.source for t in segmentler]
-        sahip = _common_owner(kaynaklar)
-        if sahip is None or sahip not in index_of:
+        segments = [t for t in sm.transitions.values() if t.target == join_id]
+        sources = [t.source for t in segments]
+        owner_of = _common_owner(sources)
+        if owner_of is None or owner_of not in index_of:
             raise CodegenError(
                 "The join '%s' does not collect vertices from inside one "
                 "orthogonal state." % sm.states[join_id].name)
-        cikislar = sm.outgoing(join_id)
-        if not cikislar:
+        exits = sm.outgoing(join_id)
+        if not exits:
             raise CodegenError(
                 "The join '%s' has no outgoing transition."
                 % sm.states[join_id].name)
-        invalid = [k for k in kaynaklar if k not in index_of]
+        invalid = [k for k in sources if k not in index_of]
         if invalid:
             raise CodegenError(
                 "A join segment of '%s' could not be resolved."
                 % sm.states[join_id].name)
-        sirali = sorted(kaynaklar, key=lambda k: index_of[k])
-        return sahip, [index_of[k] for k in sirali], cikislar[0]
+        ordered = sorted(sources, key=lambda k: index_of[k])
+        return owner_of, [index_of[k] for k in ordered], exits[0]
     idx = 0
     for st in ir.states:
         first = idx
@@ -878,22 +878,22 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
 
             # ENTRY POINT: compiled like a fork (the spec's own NOTE).
             if tr.target in entry_ids:
-                sahip, hedefler, segmentler = _entry_cozumle(tr.target)
+                owner_of, targets, segments = _entry_cozumle(tr.target)
                 ev_name = tr.event.strip()
                 if ev_name and ev_name not in event_index:
                     raise CodegenError("Unknown event: %s" % ev_name)
-                eylemler = [expand_breaks(tr.action).strip()]
-                eylemler += [expand_breaks(x.action).strip() for x in segmentler]
+                action_list = [expand_breaks(tr.action).strip()]
+                action_list += [expand_breaks(x.action).strip() for x in segments]
                 ir.transitions.append(IrTransition(
                     index=idx,
                     model_id=tr.id,
                     source=st.index,
-                    target=index_of[sahip],
+                    target=index_of[owner_of],
                     event=event_index[ev_name] if ev_name else 0,
                     guard=_dedup_add(ir.guards, _branch_guard(tr.guard)),
-                    action=_dedup_add(ir.actions, _combine_action(eylemler)),
+                    action=_dedup_add(ir.actions, _combine_action(action_list)),
                     kind=_TKIND_MAP[tr.kind],
-                    fork_targets=hedefler,
+                    fork_targets=targets,
                     text="%s --> entry %s" % (st.name,
                                               sm.states[tr.target].name),
                 ))
@@ -905,22 +905,22 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
             # and are entered EXPLICITLY in their regions at run time. Unnamed
             # regions start at their defaults.
             if tr.target in fork_ids:
-                sahip, hedefler, segmentler = _fork_cozumle(tr.target)
+                owner_of, targets, segments = _fork_cozumle(tr.target)
                 ev_name = tr.event.strip()
                 if ev_name and ev_name not in event_index:
                     raise CodegenError("Unknown event: %s" % ev_name)
-                eylemler = [expand_breaks(tr.action).strip()]
-                eylemler += [expand_breaks(x.action).strip() for x in segmentler]
+                action_list = [expand_breaks(tr.action).strip()]
+                action_list += [expand_breaks(x.action).strip() for x in segments]
                 ir.transitions.append(IrTransition(
                     index=idx,
                     model_id=tr.id,
                     source=st.index,
-                    target=index_of[sahip],
+                    target=index_of[owner_of],
                     event=event_index[ev_name] if ev_name else 0,
                     guard=_dedup_add(ir.guards, _branch_guard(tr.guard)),
-                    action=_dedup_add(ir.actions, _combine_action(eylemler)),
+                    action=_dedup_add(ir.actions, _combine_action(action_list)),
                     kind=_TKIND_MAP[tr.kind],
-                    fork_targets=hedefler,
+                    fork_targets=targets,
                     text="%s --> fork %s" % (st.name,
                                              sm.states[tr.target].name),
                 ))
@@ -966,19 +966,19 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
         # (14.2.3.7: "all incoming Transitions have to complete before execution
         # can continue through an outgoing Transition").
         for join_id in sorted(join_ids):
-            sahip, kaynaklar, leaving = _join_cozumle(join_id)
-            if index_of.get(sahip) != st.index:
+            owner_of, sources, leaving = _join_cozumle(join_id)
+            if index_of.get(owner_of) != st.index:
                 continue
             if leaving.target not in index_of:
                 raise CodegenError(
                     "The target of the transition leaving join '%s' could "
                     "not be resolved." % sm.states[join_id].name)
-            segment_eylemleri = [
+            segment_actions = [
                 expand_breaks(t.action).strip()
                 for t in sorted((x for x in sm.transitions.values()
                                  if x.target == join_id),
                                 key=lambda x: x.id)]
-            segment_eylemleri.append(expand_breaks(leaving.action).strip())
+            segment_actions.append(expand_breaks(leaving.action).strip())
             ir.transitions.append(IrTransition(
                 index=idx,
                 model_id=leaving.id,
@@ -987,9 +987,9 @@ def build_ir(sm: StateMachine, resolve=None) -> Ir:
                 event=0,                      # a join carries no trigger
                 guard=-1,                     # a join carries no guard
                 action=_dedup_add(ir.actions,
-                                  _combine_action(segment_eylemleri)),
+                                  _combine_action(segment_actions)),
                 kind=TKIND_EXTERNAL,
-                join_sources=kaynaklar,
+                join_sources=sources,
                 text="join %s --> %s" % (sm.states[join_id].name,
                                          sm.states[leaving.target].name),
             ))

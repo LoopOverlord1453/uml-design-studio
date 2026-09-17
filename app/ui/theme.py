@@ -308,25 +308,25 @@ def apply_theme(name: str) -> str:
 # of the PREVIOUS theme on a theme change and makes an unreadable patch in
 # the interface. That is a bug you could only notice at run time; it is
 # caught at import time.
-_eksik_light = sorted(set(DARK) - set(LIGHT))
-_eksik_dark = sorted(set(LIGHT) - set(DARK))
-if _eksik_light or _eksik_dark:
+_missing_light = sorted(set(DARK) - set(LIGHT))
+_missing_dark = sorted(set(LIGHT) - set(DARK))
+if _missing_light or _missing_dark:
     raise RuntimeError(
         "The theme palettes have drifted apart - missing in LIGHT: %s | "
         "missing in DARK: %s"
-        % (_eksik_light, _eksik_dark))
+        % (_missing_light, _missing_dark))
 
 # A malformed colour value is SILENTLY ignored by Qt: the widget is painted
 # black or transparent and the reason shows up nowhere. It happened once
 # ("#4A5costs"), so the format is validated at import time.
-_bozuk = sorted(
+_broken = sorted(
     "%s.%s = %r" % (ident, map_key, val)
-    for ident, palet in (("DARK", DARK), ("LIGHT", LIGHT))
-    for map_key, val in palet.items()
+    for ident, palette_map in (("DARK", DARK), ("LIGHT", LIGHT))
+    for map_key, val in palette_map.items()
     if not (isinstance(val, str) and len(val) == 7 and val[0] == "#"
             and all(ch in "0123456789abcdefABCDEF" for ch in val[1:])))
-if _bozuk:
-    raise RuntimeError("Invalid colour value: %s" % ", ".join(_bozuk))
+if _broken:
+    raise RuntimeError("Invalid colour value: %s" % ", ".join(_broken))
 
 apply_theme("dark")
 
@@ -385,9 +385,9 @@ def load_bundled_fonts() -> List[str]:
         fid = QFontDatabase.addApplicationFont(os.path.join(root, name))
         if fid < 0:
             continue
-        for aile in QFontDatabase.applicationFontFamilies(fid):
-            if aile not in _loaded_families:
-                _loaded_families.append(aile)
+        for family in QFontDatabase.applicationFontFamilies(fid):
+            if family not in _loaded_families:
+                _loaded_families.append(family)
     return _loaded_families
 
 

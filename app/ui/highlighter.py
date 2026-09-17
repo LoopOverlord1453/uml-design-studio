@@ -153,10 +153,10 @@ class CppHighlighter(QSyntaxHighlighter):
         String and comment regions are OVERWRITTEN by the caller; trying to
         tell them apart here would mean doing the same scan twice.
         """
-        onislemci = _RE_PREPROC.match(text)
-        if onislemci is not None:
-            self.setFormat(onislemci.start(),
-                           onislemci.end() - onislemci.start(), self.f_preproc)
+        preprocessor = _RE_PREPROC.match(text)
+        if preprocessor is not None:
+            self.setFormat(preprocessor.start(),
+                           preprocessor.end() - preprocessor.start(), self.f_preproc)
 
         for m in _RE_FUNCTION.finditer(text):
             self.setFormat(m.start(1), m.end(1) - m.start(1), self.f_function)

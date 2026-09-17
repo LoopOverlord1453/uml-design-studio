@@ -72,14 +72,14 @@ def align_rows(rows, gap: int = 2) -> List[str]:
     BLINKY_TRANSITION_COUNT line drifted away from the others and the file
     looked untidy. The width is COMPUTED from the longest code in THAT BLOCK.
     """
-    kodlar = [k for k, _c in rows]
-    en_uzun = max((len(k) for k in kodlar), default=0)
+    codes = [k for k, _c in rows]
+    longest = max((len(k) for k in codes), default=0)
     out = []
-    for kod, yorum in rows:
-        if yorum:
-            out.append("%s%s%s" % (kod, " " * (en_uzun - len(kod) + gap), yorum))
+    for code_text, comment in rows:
+        if comment:
+            out.append("%s%s%s" % (code_text, " " * (longest - len(code_text) + gap), comment))
         else:
-            out.append(kod)
+            out.append(code_text)
     return out
 
 
@@ -92,9 +92,9 @@ def align_enum(rows, gap: int = 1) -> List[str]:
     name_w = max((len(a) for a, _d, _y in rows), default=0)
     value_w = max((len(d) for _a, d, _y in rows), default=0)
     out = []
-    for name, value, yorum in rows:
+    for name, value, comment in rows:
         left = "%-*s %-*s" % (name_w, name, value_w, value)
-        out.append((left + " " * gap + yorum).rstrip() if yorum else left.rstrip())
+        out.append((left + " " * gap + comment).rstrip() if comment else left.rstrip())
     return out
 
 
@@ -107,7 +107,7 @@ def align_enum(rows, gap: int = 1) -> List[str]:
 #:
 #: String and character literals are stripped FIRST: the brace at the end
 #: of a `printf("{")` line is NOT code.
-_SONDA_SUSLU = re.compile(r"^(?P<pad>\s*)(?P<govde>.*\S)\s*\{\s*$")
+_TRAILING_BRACE = re.compile(r"^(?P<pad>\s*)(?P<govde>.*\S)\s*\{\s*$")
 
 #: A trailing `// ...` note.
 _ROW_NOTE = re.compile(r"\s*(//[^\n]*)$")
@@ -131,7 +131,7 @@ def _paren_balance(code: str) -> int:
 #:
 #: `};` (an unnamed close) and `} while (...);` are OUT OF SCOPE: one has
 #: no name, the other has a parenthesis after the name.
-_ADLI_KAPANIS = re.compile(r"^\s*\}\s*[A-Za-z_]\w*\s*;")
+_NAMED_CLOSE = re.compile(r"^\s*\}\s*[A-Za-z_]\w*\s*;")
 
 
 def blank_before_close(lines: List[str]) -> List[str]:
@@ -145,7 +145,7 @@ def blank_before_close(lines: List[str]) -> List[str]:
     """
     out: List[str] = []
     for line in lines:
-        if (_ADLI_KAPANIS.match(line) and out and out[-1].strip()
+        if (_NAMED_CLOSE.match(line) and out and out[-1].strip()
                 and out[-1].strip() != "{"):
             out.append("")
         out.append(line)
@@ -194,58 +194,58 @@ def allman(lines: List[str]) -> List[str]:
     the layout rules have a single door.
     """
     out: List[str] = []
-    blok_yorumda = False
+    in_block_comment = False
     #: Indentation and paren balance of a control statement not yet finished.
-    acik_pad = None
-    acik_derinlik = 0
+    open_pad = None
+    open_depth = 0
 
     for line in lines:
-        if blok_yorumda:
+        if in_block_comment:
             out.append(line)
             if "*/" in line:
-                blok_yorumda = False
+                in_block_comment = False
             continue
-        siyade = line.strip()
-        if siyade.startswith("/*") and "*/" not in siyade:
-            blok_yorumda = True
+        stripped = line.strip()
+        if stripped.startswith("/*") and "*/" not in stripped:
+            in_block_comment = True
             out.append(line)
             continue
-        if siyade.startswith(("*", "//", "/*")) or not siyade:
+        if stripped.startswith(("*", "//", "/*")) or not stripped:
             out.append(line)
             continue
 
         # A trailing `// ...` note stays WITH THE STATEMENT; sticking it next to
         # the brace would make the note meaningless.
-        notu = ""
-        kod = line
-        eslesme = _ROW_NOTE.search(line)
-        if eslesme is not None:
-            notu = "  " + eslesme.group(1)
-            kod = line[:eslesme.start()]
+        note_text = ""
+        code_text = line
+        hit = _ROW_NOTE.search(line)
+        if hit is not None:
+            note_text = "  " + hit.group(1)
+            code_text = line[:hit.start()]
 
-        m = _SONDA_SUSLU.match(kod)
+        m = _TRAILING_BRACE.match(code_text)
         if m is None:
             # No brace: if an open condition is running, update its balance.
-            if acik_pad is not None:
-                acik_derinlik += _paren_balance(kod)
-                if acik_derinlik <= 0:
-                    acik_pad = None
+            if open_pad is not None:
+                open_depth += _paren_balance(code_text)
+                if open_depth <= 0:
+                    open_pad = None
             else:
-                bas = _CONTROL_START.match(kod)
-                if bas is not None:
-                    fark = _paren_balance(kod)
-                    if fark > 0:
-                        acik_pad = bas.group("pad")
-                        acik_derinlik = fark
+                head = _CONTROL_START.match(code_text)
+                if head is not None:
+                    delta = _paren_balance(code_text)
+                    if delta > 0:
+                        open_pad = head.group("pad")
+                        open_depth = delta
             out.append(line)
             continue
 
         body = m.group("govde").rstrip()
         # Indentation of the brace: the indentation the statement STARTS at when
         # we are inside a multi-line condition, otherwise the line's own.
-        if acik_pad is not None:
-            pad = acik_pad
-            acik_pad = None
+        if open_pad is not None:
+            pad = open_pad
+            open_pad = None
         else:
             pad = m.group("pad")
 
@@ -254,11 +254,11 @@ def allman(lines: List[str]) -> List[str]:
             out.append(m.group("pad") + "}")
             body = body[1:].strip()
             if body:
-                out.append(pad + body + notu)
-            elif notu:
-                out.append(pad + notu.strip())
+                out.append(pad + body + note_text)
+            elif note_text:
+                out.append(pad + note_text.strip())
         else:
-            out.append(m.group("pad") + body + notu)
+            out.append(m.group("pad") + body + note_text)
         out.append(pad + "{")
     return blank_before_close(out)
 
@@ -339,9 +339,9 @@ class CGenerator:
              " * The model's behaviours call these. Write them yourself; the",
              " * state machine calls them at the moments the diagram shows.",
              " *"]
-        for sembol in needed:
-            L.append(" *   %s" % sembol.summary())
-            L.append(" *     -> %s" % ", ".join(sembol.sites))
+        for symbol in needed:
+            L.append(" *   %s" % symbol.summary())
+            L.append(" *     -> %s" % ", ".join(symbol.sites))
         L += [
             " *",
             " * They are NOT declared here on purpose: their real signatures",
@@ -383,9 +383,9 @@ class CGenerator:
                   " */", ""]
             return L
         L += [" *"]
-        for sembol in needed:
-            L.append(" * - %s" % sembol.summary())
-            L.append(" *     used by: %s" % ", ".join(sembol.sites))
+        for symbol in needed:
+            L.append(" * - %s" % symbol.summary())
+            L.append(" *     used by: %s" % ", ".join(symbol.sites))
         if self.ir.has_context():
             L += [" *",
                   " * The context type '%s' is also yours: every action and"
@@ -409,9 +409,9 @@ class CGenerator:
         neutral expression is returned.
         """
         for row in self.ir.user_includes:
-            eslesme = re.search(r'[<"]([^>"]+)[>"]', row)
-            if eslesme is not None:
-                return eslesme.group(1)
+            hit = re.search(r'[<"]([^>"]+)[>"]', row)
+            if hit is not None:
+                return hit.group(1)
         return "your own header"
 
     def type_obj(self) -> str:
@@ -553,8 +553,8 @@ class CGenerator:
                             "history[%s_REGION_COUNT];" % self.P,
                             "/**< last active substate PER REGION */"))
         type_w = max(len(t) for t, _a, _y in fields)
-        L += align_rows([("    %-*s %s" % (type_w, type_name, name), yorum)
-                         for type_name, name, yorum in fields])
+        L += align_rows([("    %-*s %s" % (type_w, type_name, name), comment)
+                         for type_name, name, comment in fields])
         # A BLANK LINE before the close: the body and "} type;" were stuck
         # together.
         L += ["", "} %s;" % self.type_obj(), ""]
@@ -752,8 +752,8 @@ class CGenerator:
         L += ["/** @brief Parent of each state (255 = root region). */"]
         L += ["static const uint8_t %s_parent[%s_STATE_COUNT] = {" % (self.p, self.P)]
         for st in ir.states:
-            par = "255U" if st.parent == NONE else "%uU" % st.parent
-            L += ["    %-5s /* %-3u %s */" % (par + ",", st.index, c_comment(st.name))]
+            parent_ix = "255U" if st.parent == NONE else "%uU" % st.parent
+            L += ["    %-5s /* %-3u %s */" % (parent_ix + ",", st.index, c_comment(st.name))]
         L += ["};", ""]
 
         L += ["/** @brief Kind of each state (simple/composite/final/choice/terminate/history). */"]
@@ -798,12 +798,12 @@ class CGenerator:
 
         # -- transition table
         if ir.has_fork_join():
-            ekstra = ir.extra_table()
+            extra = ir.extra_table()
             L += ["/** @brief Fork targets and join sources, flattened. */"]
             L += ["static const uint8_t %s_extra[%uU] = {"
-                  % (self.p, max(1, len(ekstra)))]
-            if ekstra:
-                for i, v in enumerate(ekstra):
+                  % (self.p, max(1, len(extra)))]
+            if extra:
+                for i, v in enumerate(extra):
                     L += ["    %-5s /* %-3u %s */"
                           % ("%uU," % v, i, c_comment(ir.states[v].name))]
             else:
@@ -861,12 +861,12 @@ class CGenerator:
             L += ["static const uint32_t %s_defer_mask[%s_STATE_COUNT] = {"
                   % (self.p, self.P)]
             for st in ir.states:
-                maske = 0
+                mask = 0
                 for e in st.deferred:
-                    maske |= (1 << e)
+                    mask |= (1 << e)
                 names = ", ".join(ir.events[e] for e in st.deferred) or "none"
                 L += ["    0x%08XU,  /* %-20s %s */"
-                      % (maske, c_comment(st.name), c_comment(names))]
+                      % (mask, c_comment(st.name), c_comment(names))]
             L += ["};", ""]
 
         L += ["/** @brief Region each vertex lives in. */"]
@@ -1042,13 +1042,13 @@ class CGenerator:
         common and hard-to-find bug.
         """
         ir = self.ir
-        ucler = ir.time_triggers()
-        if not ucler:
+        ends = ir.time_triggers()
+        if not ends:
             return []
         p = self.p
         obj = self.type_obj()
         L: List[str] = []
-        for label, kanca, description in (
+        for label, hook, description in (
                 ("start", "%s_timer_start" % p, "starts"),
                 ("cancel", "%s_timer_cancel" % p, "cancels")):
             L += ["/* --------------------------------------------------- timer %s -- */"
@@ -1061,13 +1061,13 @@ class CGenerator:
                   % (p, label, obj)]
             L += ["{"]
             L += ["    switch (state) {"]
-            gruplu = {}
-            for src, ev, gecikme in ucler:
-                gruplu.setdefault(src, []).append((ev, gecikme))
-            for src in sorted(gruplu):
+            grouped = {}
+            for src, ev, delay in ends:
+                grouped.setdefault(src, []).append((ev, delay))
+            for src in sorted(grouped):
                 L += ["    case %s:" % self.state_enum(ir.states[src])]
                 L += ["    {"]
-                for ev, gecikme in gruplu[src]:
+                for ev, delay in grouped[src]:
                     if label == "start":
                         # THE DELAY IS CAST TO THE PARAMETER TYPE. The expression is not
                         # always a constant: an int value such as `after(timeout_ms())`
@@ -1076,11 +1076,11 @@ class CGenerator:
                         # exactly the flags the README guarantees.
                         # da README'nin garanti ettigi bayraklarla.
                         L += ["        %s(me, (uint8_t)%s, (uint8_t)%s, (uint32_t)(%s));"
-                              % (kanca, self.state_enum(ir.states[src]),
-                                 self.event_enum(ir.events[ev]), gecikme)]
+                              % (hook, self.state_enum(ir.states[src]),
+                                 self.event_enum(ir.events[ev]), delay)]
                     else:
                         L += ["        %s(me, (uint8_t)%s, (uint8_t)%s);"
-                              % (kanca, self.state_enum(ir.states[src]),
+                              % (hook, self.state_enum(ir.states[src]),
                                  self.event_enum(ir.events[ev]))]
                 L += ["        break;", "    }"]
             L += ["    default:", "        break;", "    }"]

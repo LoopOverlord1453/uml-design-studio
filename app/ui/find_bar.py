@@ -130,48 +130,48 @@ class FindBar(QFrame):
 
     # ------------------------------------------------------------- search -- #
 
-    def _flags(self, geri: bool = False) -> QTextDocument.FindFlag:
+    def _flags(self, back: bool = False) -> QTextDocument.FindFlag:
         flags = QTextDocument.FindFlag(0)
         if self.case.isChecked():
             flags |= QTextDocument.FindFlag.FindCaseSensitively
         if self.whole.isChecked():
             flags |= QTextDocument.FindFlag.FindWholeWords
-        if geri:
+        if back:
             flags |= QTextDocument.FindFlag.FindBackward
         return flags
 
     def _on_text(self, _text: str) -> None:
         self._refresh()
-        self._seek(geri=False, baslangictan=True)
+        self._seek(back=False, from_start=True)
 
     def find_next(self) -> None:
-        self._seek(geri=False)
+        self._seek(back=False)
 
     def find_prev(self) -> None:
-        self._seek(geri=True)
+        self._seek(back=True)
 
-    def _seek(self, geri: bool, baslangictan: bool = False) -> None:
+    def _seek(self, back: bool, from_start: bool = False) -> None:
         """Goes to the next/previous match; WRAPS AROUND at the end."""
         if self._editor is None:
             return
-        desen = self.field.text()
-        if not desen:
+        pattern = self.field.text()
+        if not pattern:
             return
 
-        if baslangictan:
-            imlec = self._editor.textCursor()
-            imlec.setPosition(imlec.selectionStart())
-            self._editor.setTextCursor(imlec)
+        if from_start:
+            caret = self._editor.textCursor()
+            caret.setPosition(caret.selectionStart())
+            self._editor.setTextCursor(caret)
 
-        if self._editor.find(desen, self._flags(geri)):
+        if self._editor.find(pattern, self._flags(back)):
             return
 
         # Wrap: go back to the start (the end when searching backwards) and retry.
-        imlec = self._editor.textCursor()
-        imlec.movePosition(QTextCursor.MoveOperation.End if geri
+        caret = self._editor.textCursor()
+        caret.movePosition(QTextCursor.MoveOperation.End if back
                            else QTextCursor.MoveOperation.Start)
-        self._editor.setTextCursor(imlec)
-        self._editor.find(desen, self._flags(geri))
+        self._editor.setTextCursor(caret)
+        self._editor.find(pattern, self._flags(back))
 
     # ---------------------------------------------------------- highlights -- #
 
@@ -198,33 +198,33 @@ class FindBar(QFrame):
             self.count.setText("")
             return
 
-        desen = self.field.text()
-        if not desen:
+        pattern = self.field.text()
+        if not pattern:
             self.count.setText("")
             self._clear_highlights()
             self.field.setStyleSheet("")
             return
 
-        secimler = []
-        belge = self._editor.document()
-        imlec = QTextCursor(belge)
+        choices = []
+        doc_obj = self._editor.document()
+        caret = QTextCursor(doc_obj)
         color = QColor(C.ACCENT)
         color.setAlpha(70)
 
         while True:
-            imlec = belge.find(desen, imlec, self._flags())
-            if imlec.isNull():
+            caret = doc_obj.find(pattern, caret, self._flags())
+            if caret.isNull():
                 break
             # ExtraSelection is an inner class of QTextEdit; it DOES NOT EXIST on
             # QPlainTextEdit. In PyQt6 the wrong name was not a catchable exception
             # but killed the process outright.
             sel = QTextEdit.ExtraSelection()
-            sel.cursor = imlec
+            sel.cursor = caret
             sel.format.setBackground(color)
-            secimler.append(sel)
+            choices.append(sel)
 
-        self._push(self._editor, secimler)
-        n = len(secimler)
+        self._push(self._editor, choices)
+        n = len(choices)
         self.count.setText("%d match%s" % (n, "" if n == 1 else "es"))
         # An unmatched pattern paints the field red -- instant feedback while typing.
         self.field.setStyleSheet(

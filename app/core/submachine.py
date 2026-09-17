@@ -82,7 +82,7 @@ def normalise_ref(ref: str) -> str:
     return os.path.normcase(os.path.normpath((ref or "").strip()))
 
 
-def qualified_name(disari: str, iceri: str) -> str:
+def qualified_name(outward: str, inward: str) -> str:
     """The name of the expanded vertex.
 
     Because the name is part of the generated C identifier, it must stay a
@@ -91,12 +91,12 @@ def qualified_name(disari: str, iceri: str) -> str:
     submachine therefore produce different names, and the V010 name-collision
     rule can tell them apart.
     """
-    return "%s_%s" % (disari, iceri)
+    return "%s_%s" % (outward, inward)
 
 
 def flatten(sm: StateMachine, resolve: Resolver,
             _depth: int = 0,
-            _yigin: Optional[Set[str]] = None) -> StateMachine:
+            _stack: Optional[Set[str]] = None) -> StateMachine:
     """SUBSTITUTES the submachine references; returns a new machine.
 
     The input IS NOT CHANGED: the caller keeps the user's document, while
@@ -109,7 +109,7 @@ def flatten(sm: StateMachine, resolve: Resolver,
             "Submachine references are nested more than %d levels deep."
             % MAX_SUBMACHINE_DEPTH)
 
-    stack = set(_yigin or set())
+    stack = set(_stack or set())
     result = copy.deepcopy(sm)
 
     for outer in submachine_states(sm):
@@ -186,18 +186,18 @@ def _merge_includes(target: StateMachine, inner: StateMachine) -> None:
     the outer machine first, then the new ones from the inner machine.
     """
     rows = (target.user_includes or "").splitlines()
-    gorulen = {ln.strip() for ln in rows if ln.strip()}
+    seen = {ln.strip() for ln in rows if ln.strip()}
     added = []
     for ln in (inner.user_includes or "").splitlines():
         key = ln.strip()
-        if key and key not in gorulen:
-            gorulen.add(key)
+        if key and key not in seen:
+            seen.add(key)
             added.append(ln)
     if added:
         target.user_includes = "\n".join(rows + added).strip("\n")
 
 
-def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
+def workspace_resolver(ws, opened: Optional[Dict[str, StateMachine]] = None
                        ) -> Resolver:
     """Builds a resolver that reads the files in the workspace.
 
@@ -206,15 +206,15 @@ def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
     make the generated code disagree with the diagram on screen. That is the
     hardest kind of bug to notice.
     """
-    onbellek: Dict[str, StateMachine] = {}
-    acik_map = {normalise_ref(k): v for k, v in (acik or {}).items()}
+    cache: Dict[str, StateMachine] = {}
+    opened_map = {normalise_ref(k): v for k, v in (opened or {}).items()}
 
-    def cozumle(ref: str) -> Optional[StateMachine]:
+    def resolve_ref(ref: str) -> Optional[StateMachine]:
         key = normalise_ref(ref)
-        if key in acik_map:
-            return acik_map[key]
-        if key in onbellek:
-            return onbellek[key]
+        if key in opened_map:
+            return opened_map[key]
+        if key in cache:
+            return cache[key]
         if ws is None:
             return None
         try:
@@ -225,10 +225,10 @@ def workspace_resolver(ws, acik: Optional[Dict[str, StateMachine]] = None
             return None
         try:
             with open(fpath, encoding="utf-8") as fh:
-                makine = StateMachine.from_json(fh.read())
+                machine = StateMachine.from_json(fh.read())
         except Exception:                       # noqa: BLE001
             return None
-        onbellek[key] = makine
-        return makine
+        cache[key] = machine
+        return machine
 
-    return cozumle
+    return resolve_ref

@@ -56,8 +56,8 @@ from ..core.samples import (demo_class_model, demo_machine, empty_class_model,
                             empty_machine)
 from ..core.validator import Issue, has_errors, validate
 from ..core.model_diff import element_status
-from ..core.workspace import (Workspace, WorkspaceError, normalise_recent,
-                              push_recent)
+from ..core.workspace import (Workspace, WorkspaceError, display_path,
+                              normalise_recent, push_recent)
 from . import icons
 from .canvas import DiagramCanvas, Tool
 from .class_canvas import ClassCanvas, ClassTool
@@ -74,10 +74,12 @@ from .workspace_tree import WorkspaceTree
 
 APP_NAME = "UML Design Studio"
 APP_VERSION = "2.0.0"
+#: Where the project lives. This is the ONLY address the application
+#: knows about; it is shown, never contacted.
+PROJECT_URL = "https://github.com/LoopOverlord1453/uml-design-studio"
 
 #: The icon size on the top bar. Kept small for a tidy, Astah-like strip;
 #: it also sets the height when the three rows are reduced to one.
-#: buradan belirlenir.
 TOOLBAR_ICON = 16
 #: The point size of the menu buttons on the top bar. The rest of the
 #: interface is 9 point; inside the icon-mode strip the menus looked smaller still.
@@ -101,8 +103,8 @@ def app_settings() -> QSettings:
     When `UMLSTUDIO_SETTINGS_SCOPE` is set it is appended to the application
     name, so what the test processes write never touches the user's settings.
     """
-    kapsam = os.environ.get("UMLSTUDIO_SETTINGS_SCOPE", "").strip()
-    name = "%s-%s" % (SETTINGS_APP, kapsam) if kapsam else SETTINGS_APP
+    scope = os.environ.get("UMLSTUDIO_SETTINGS_SCOPE", "").strip()
+    name = "%s-%s" % (SETTINGS_APP, scope) if scope else SETTINGS_APP
     return QSettings(SETTINGS_ORG, name)
 SM_FILTER = "State machine (*.usm);;JSON (*.json);;All files (*)"
 CD_FILTER = "Class diagram (*.ucd);;JSON (*.json);;All files (*)"
@@ -236,10 +238,10 @@ class DesignWindow(QMainWindow):
         self.on_close = on_close
 
     def closeEvent(self, event) -> None:
-        geri = self.on_close
+        back = self.on_close
         self.on_close = None
-        if geri is not None:
-            geri()
+        if back is not None:
+            back()
         event.accept()
 
 
@@ -490,7 +492,7 @@ class MainWindow(QMainWindow):
         bar.addPermanentWidget(self.lbl_zoom)
         bar.addPermanentWidget(self.progress)
 
-    def _panels_for_git(self, girildi: bool) -> None:
+    def _panels_for_git(self, entered: bool) -> None:
         """HIDES the code and simulation panels on the repository tab.
 
         Both are FOR THE DIAGRAM: the code panel shows the generated source and
@@ -501,7 +503,7 @@ class MainWindow(QMainWindow):
         The user's PREFERENCE is kept: on leaving the tab the panels return to
         the state they were in before.
         """
-        if girildi:
+        if entered:
             if self._git_panel_state is not None:
                 return                      # we are already in repository mode
             # THE RIGHT SOURCE FOR EACH PANEL:
@@ -529,8 +531,8 @@ class MainWindow(QMainWindow):
         self._git_panel_state = None
         if previous is None:
             return
-        kod_acik, sim_acik = previous
-        if kod_acik:
+        code_open, sim_acik = previous
+        if code_open:
             self.a_code_panel.blockSignals(True)
             self.a_code_panel.setChecked(True)
             self.a_code_panel.blockSignals(False)
@@ -550,14 +552,14 @@ class MainWindow(QMainWindow):
         stack = QStackedWidget()
         stack.addWidget(page)
 
-        yer_tutucu = QLabel(
+        placeholder = QLabel(
             "%s is open in a separate window.\n\n"
             "Close that window (or use Tool ▸ Design Window) to bring it "
             "back here." % title)
-        yer_tutucu.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        yer_tutucu.setWordWrap(True)
-        self._placeholders.append(yer_tutucu)
-        stack.addWidget(yer_tutucu)
+        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        placeholder.setWordWrap(True)
+        self._placeholders.append(placeholder)
+        stack.addWidget(placeholder)
         return stack
 
     def toggle_design_window(self, checked: bool) -> None:
@@ -1047,16 +1049,16 @@ class MainWindow(QMainWindow):
         # THE LANGUAGE LABELS COME FROM ONE SOURCE (code_panel.LANGUAGES). Written
         # by hand, the labels of the menu and of the right panel drifted apart. The
         # access letters are added here; the text itself is unchanged.
-        _KOD_HARF = {"c": "&C", "cpp": "C&++", "puml": "Plant&UML"}
+        _CODE_LETTER = {"c": "&C", "cpp": "C&++", "puml": "Plant&UML"}
         for text, key in LANGUAGES:
-            isaretli = text
-            for duz, harfli in (("PlantUML", _KOD_HARF["puml"]),
-                                ("C++", _KOD_HARF["cpp"]),
-                                ("C", _KOD_HARF["c"])):
-                if text.startswith(duz):
-                    isaretli = harfli + text[len(duz):]
+            marked = text
+            for flat, lettered in (("PlantUML", _CODE_LETTER["puml"]),
+                                ("C++", _CODE_LETTER["cpp"]),
+                                ("C", _CODE_LETTER["c"])):
+                if text.startswith(flat):
+                    marked = lettered + text[len(flat):]
                     break
-            a = QAction(isaretli, self)
+            a = QAction(marked, self)
             a.setCheckable(True)
             a.triggered.connect(lambda _c, kk=key: self.set_language(kk))
             self.lang_group.addAction(a)
@@ -1297,7 +1299,7 @@ class MainWindow(QMainWindow):
         # GENERATION; that moved onto the Build button.
         self._validate_active()
 
-    def _git_model_diff(self, path: str, taban: str) -> None:
+    def _git_model_diff(self, path: str, base: str) -> None:
         """Shows the diff of the model selected in the repository panel ON THE DIAGRAM.
 
         A textual diff is unreadable on a JSON model: moving one box produces
@@ -1309,14 +1311,14 @@ class MainWindow(QMainWindow):
         the repository panel picked: the index for a staged file, else HEAD.
         """
         try:
-            acik = None
+            opened = None
             target = os.path.normcase(os.path.abspath(path))
             for doc in (self.doc, self.class_doc):
                 if doc.path and os.path.normcase(
                         os.path.abspath(doc.path)) == target:
-                    acik = doc
+                    opened = doc
                     break
-            if acik is None:
+            if opened is None:
                 self.canvas.set_diff_marks(None)
                 self.class_canvas.set_diff_marks(None)
                 self.flash_warning(
@@ -1327,13 +1329,13 @@ class MainWindow(QMainWindow):
             repo = getattr(self.git_panel, "repo", None)
             if repo is None:
                 return
-            goreli = os.path.relpath(path, repo.root).replace(os.sep, "/")
-            old = (repo.staged_text(goreli) if taban == "staged"
-                    else repo.file_at("HEAD", goreli))
+            rel_path = os.path.relpath(path, repo.root).replace(os.sep, "/")
+            old = (repo.staged_text(rel_path) if base == "staged"
+                    else repo.file_at("HEAD", rel_path))
             if not old:
                 return
-            marks = element_status(old, acik.machine.to_json())
-            view = (self.class_canvas if acik is self.class_doc
+            marks = element_status(old, opened.machine.to_json())
+            view = (self.class_canvas if opened is self.class_doc
                      else self.canvas)
             other = (self.canvas if view is self.class_canvas
                      else self.class_canvas)
@@ -1342,7 +1344,7 @@ class MainWindow(QMainWindow):
             self.flash("%s — %d added, %d removed, %d changed (vs %s)."
                        % (os.path.basename(path), len(marks["added"]),
                           len(marks["removed"]), len(marks["changed"]),
-                          "staged" if taban == "staged" else "HEAD"))
+                          "staged" if base == "staged" else "HEAD"))
         except Exception as exc:                   # noqa: BLE001
             self.flash_error("Could not compare '%s': %s"
                              % (os.path.basename(path), exc))
@@ -1393,7 +1395,7 @@ class MainWindow(QMainWindow):
             return
         try:
             with open(path, "r", encoding="utf-8") as fh:
-                diskteki = fh.read()
+                on_disk = fh.read()
         except OSError:
             return
 
@@ -1418,10 +1420,10 @@ class MainWindow(QMainWindow):
             # THE TYPO WAS HERE: with HEAD as the base the marks were computed but
             # `None` was sent to the canvas; that is why the "what I have not
             # committed" view WAS NEVER DRAWN.
-            source = ("uncommitted changes" if new == diskteki
+            source = ("uncommitted changes" if new == on_disk
                       else "uncommitted + unsaved changes")
         else:
-            old, source = diskteki, "unsaved changes"
+            old, source = on_disk, "unsaved changes"
 
         marks = element_status(old, new)
         # A diff is only meaningful in the mode of that model.
@@ -1452,10 +1454,10 @@ class MainWindow(QMainWindow):
         if repo is None:
             return None
         try:
-            goreli = os.path.relpath(path, repo.root).replace(os.sep, "/")
-            if goreli.startswith(".."):
+            rel_path = os.path.relpath(path, repo.root).replace(os.sep, "/")
+            if rel_path.startswith(".."):
                 return None            # outside the repository
-            text = repo.file_at("HEAD", goreli)
+            text = repo.file_at("HEAD", rel_path)
             return text or None
         except Exception:
             # The repository may be empty (no HEAD) or the file may never have been
@@ -1534,14 +1536,14 @@ class MainWindow(QMainWindow):
         """
         from ..core.submachine import workspace_resolver
 
-        acik = {}
+        opened = {}
         path = getattr(self.doc, "path", "") or ""
         if path and self.workspace is not None:
             try:
-                acik[self.workspace.relative(path)] = self.doc.machine
+                opened[self.workspace.relative(path)] = self.doc.machine
             except Exception:                  # noqa: BLE001
                 pass
-        return workspace_resolver(self.workspace, acik)
+        return workspace_resolver(self.workspace, opened)
 
     def force_validate(self) -> None:
         issues = self._validate_active()
@@ -1577,10 +1579,10 @@ class MainWindow(QMainWindow):
         """
         from PyQt6.QtWidgets import (QApplication, QLineEdit,
                                      QPlainTextEdit, QTextEdit)
-        odak = QApplication.focusWidget()
-        if isinstance(odak, (QLineEdit, QPlainTextEdit, QTextEdit)) \
-                and self.isAncestorOf(odak):
-            return odak
+        focus_widget = QApplication.focusWidget()
+        if isinstance(focus_widget, (QLineEdit, QPlainTextEdit, QTextEdit)) \
+                and self.isAncestorOf(focus_widget):
+            return focus_widget
         return None
 
     def _canvas_focused(self) -> bool:
@@ -1591,11 +1593,11 @@ class MainWindow(QMainWindow):
         this condition does not block them.
         """
         from PyQt6.QtWidgets import QApplication
-        odak = QApplication.focusWidget()
-        if odak is None:
+        focus_widget = QApplication.focusWidget()
+        if focus_widget is None:
             return True
         canvas = self.active_canvas()
-        return odak is canvas or canvas.isAncestorOf(odak)
+        return focus_widget is canvas or canvas.isAncestorOf(focus_widget)
 
     def _delete_selection(self) -> None:
         if self.active_mode() == "git":
@@ -1775,10 +1777,10 @@ class MainWindow(QMainWindow):
         can change the state machine while on the class tab (with an undo, say),
         so looking at the ACTIVE mode would be wrong.
         """
-        gonderen = self.sender()
-        if gonderen is self.class_doc:
+        sender_obj = self.sender()
+        if sender_obj is self.class_doc:
             mode = "class"
-        elif gonderen is self.doc:
+        elif sender_obj is self.doc:
             mode = "state"
         else:
             mode = self.active_mode()
@@ -1987,7 +1989,7 @@ class MainWindow(QMainWindow):
         self.a_auto_write.setChecked(workspace.auto_write)
         self.git_panel.set_root(workspace.root)
         self.lbl_workspace.setText("▣ %s" % workspace.name)
-        self.lbl_workspace.setToolTip(workspace.root)
+        self.lbl_workspace.setToolTip(display_path(workspace.root))
         self._last_export_dir = workspace.generated_path
         self.refresh_workspace_tree()
         self._update_title()
@@ -2177,11 +2179,11 @@ class MainWindow(QMainWindow):
         tools it teaches plus the relevant UML 2.5.1 clause, so the user can
         read from the menu which example to open and why.
         """
-        gal = parent_menu.addMenu("&Examples")
-        self._menus_examples = gal
+        gallery = parent_menu.addMenu("&Examples")
+        self._menus_examples = gallery
         for heading, items, mode in (("&State Machine", STATE_EXAMPLES, "state"),
                                    ("&Class Diagram", CLASS_EXAMPLES, "class")):
-            submenu = gal.addMenu(heading)
+            submenu = gallery.addMenu(heading)
             for example in items:
                 action = QAction(example.title, self)
                 tooltip = "%s\n%s\nUML 2.5.1 §%s" % (
@@ -2192,15 +2194,15 @@ class MainWindow(QMainWindow):
                     lambda _c=False, o=example, k=mode: self.load_example(o, k))
                 submenu.addAction(action)
             submenu.setToolTipsVisible(True)
-        gal.setToolTipsVisible(True)
+        gallery.setToolTipsVisible(True)
 
     def load_example(self, example, mode: str) -> None:
         """Loads an example from the gallery and switches to the right mode."""
-        belge = self.class_doc if mode == "class" else self.doc
-        if not self._confirm_discard(belge):
+        doc_obj = self.class_doc if mode == "class" else self.doc
+        if not self._confirm_discard(doc_obj):
             return
         self.mode_tabs.setCurrentIndex(1 if mode == "class" else 0)
-        belge.replace(example.build(), None)
+        doc_obj.replace(example.build(), None)
         if mode == "state":
             self.set_tool(Tool.SELECT)
         view = self.class_canvas if mode == "class" else self.canvas
@@ -2601,15 +2603,15 @@ class MainWindow(QMainWindow):
 
     def _sync_code_panel_action(self, *_args) -> None:
         """Syncs the menu tick with reality when the splitter is dragged."""
-        acik = self.code_panel_open()
-        if acik == self.a_code_panel.isChecked():
+        opened = self.code_panel_open()
+        if opened == self.a_code_panel.isChecked():
             return
         # CHANGING the tick would trigger the action (toggle_code_panel would hand
         # out a share again and the splitter the user dragged would spring back).
         self.a_code_panel.blockSignals(True)
-        self.a_code_panel.setChecked(acik)
+        self.a_code_panel.setChecked(opened)
         self.a_code_panel.blockSignals(False)
-        self.flash("Code panel hidden." if not acik else "Code panel shown.")
+        self.flash("Code panel hidden." if not opened else "Code panel shown.")
 
     def toggle_code_panel(self, checked: bool) -> None:
         self.code_panel.setVisible(checked)
@@ -2640,17 +2642,17 @@ class MainWindow(QMainWindow):
         if total <= 0:
             return
         share = max(1, int(total * ratio))
-        kalan = total - share
-        digerler = [i for i in range(len(sizes)) if i != index]
-        if not digerler:
+        remaining = total - share
+        others = [i for i in range(len(sizes)) if i != index]
+        if not others:
             return
         # Share the rest among the neighbours KEEPING THEIR RATIOS; split evenly if all are 0.
-        old = sum(sizes[i] for i in digerler)
-        for i in digerler:
+        old = sum(sizes[i] for i in others)
+        for i in others:
             if old > 0:
-                sizes[i] = max(1, int(kalan * sizes[i] / old))
+                sizes[i] = max(1, int(remaining * sizes[i] / old))
             else:
-                sizes[i] = max(1, kalan // len(digerler))
+                sizes[i] = max(1, remaining // len(others))
         sizes[index] = share
         splitter.setSizes(sizes)
 
@@ -2710,12 +2712,12 @@ class MainWindow(QMainWindow):
         # mercy of Python's garbage collector; for a QMainWindow without a parent
         # that can mean being deleted while it is still shown.
         # anlamina gelebilir.
-        mevcut = getattr(self, "_spec_window", None)
+        existing_set = getattr(self, "_spec_window", None)
         self._spec_window = None
-        if mevcut is not None:
+        if existing_set is not None:
             try:
-                mevcut.close()
-                mevcut.deleteLater()
+                existing_set.close()
+                existing_set.deleteLater()
             except Exception:                  # noqa: BLE001
                 pass
         try:
@@ -2760,13 +2762,16 @@ class MainWindow(QMainWindow):
             "<p>The generated code uses no dynamic memory and no recursion; it "
             "compiles warning-free with <code>-Wall -Wextra -pedantic "
             "-Werror</code>.</p>"
-            "<p>A personal side project by <b>Kubilay Közleme</b>, built to "
-            "make the work of embedded software engineers simpler: the model "
-            "stays the single source of truth, and the firmware that ships is "
-            "generated from it rather than hand-written and kept in sync by "
-            "memory.</p>"
-            "<p>© 2026 Kubilay Közleme — licensed under the GNU GPL v3.</p>"
-            % (APP_NAME, APP_VERSION))
+            "<p>Built to make the work of embedded software engineers "
+            "simpler: the model stays the single source of truth, and the "
+            "firmware that ships is generated from it rather than "
+            "hand-written and kept in sync by memory.</p>"
+            "<p>Free software, and open to contributions — issues and "
+            "pull requests are welcome at<br>"
+            "<a href='%s'>%s</a></p>"
+            "<p>© 2026 the %s contributors — licensed under the "
+            "GNU GPL v3.</p>"
+            % (APP_NAME, APP_VERSION, PROJECT_URL, PROJECT_URL, APP_NAME))
 
     def show_shortcuts(self) -> None:
         rows = [
@@ -2878,9 +2883,9 @@ class MainWindow(QMainWindow):
                                (self.a_grid, "show_grid")):
             record = self.settings.value(key)
             if record is not None:
-                acik = record in (True, "true", "True", 1, "1")
-                action.setChecked(acik)
-                action.triggered.emit(acik)
+                opened = record in (True, "true", "True", 1, "1")
+                action.setChecked(opened)
+                action.triggered.emit(opened)
 
         theme = self.settings.value("theme", "dark")
         if theme != active_theme():
