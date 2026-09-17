@@ -81,7 +81,10 @@ repo.checkout(base)
 with open(os.path.join(gen, first), "a", encoding="utf-8") as fh:
     fh.write("\n/* fix on main */\n")
 commit("small fix on main")
-subprocess.run(["git", "merge", "--no-ff", "-m", "merge feature/calibration",
+subprocess.run(["git",
+                "-c", "user.name=%s" % AUTHOR[0],
+                "-c", "user.email=%s" % AUTHOR[1],
+                "merge", "--no-ff", "-m", "merge feature/calibration",
                 "feature/calibration"], cwd=ws.root,
                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 

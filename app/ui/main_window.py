@@ -1943,10 +1943,21 @@ class MainWindow(QMainWindow):
             stored = [stored]
         return normalise_recent(list(stored or []))
 
+    def set_recent_workspaces(self, paths: List[str]) -> None:
+        """Stores the recent list -- used when the user forgets an entry.
+
+        Writing happens AT ONCE, not when the dialog is accepted: forgetting a
+        folder is a decision of its own, and pressing Cancel afterwards must
+        not bring the entry back at the next start-up.
+        """
+        self.settings.setValue("recent_workspaces", list(paths))
+        self.settings.sync()
+
     def choose_workspace(self) -> bool:
         """Opens the workspace dialog; applies the workspace if one is chosen."""
         workspace, init_git = pick_workspace(self.recent_workspaces(), self,
-                                             allow_cancel=True)
+                                             allow_cancel=True,
+                                             on_forget=self.set_recent_workspaces)
         if workspace is None:
             return False
         self.apply_workspace(workspace, init_git=init_git)
@@ -3011,8 +3022,9 @@ def run(argv: Optional[List[str]] = None) -> int:
         except WorkspaceError as exc:
             QMessageBox.warning(window, "Workspace", str(exc))
     else:
-        workspace, init_git = pick_workspace(window.recent_workspaces(),
-                                             None, allow_cancel=True)
+        workspace, init_git = pick_workspace(
+            window.recent_workspaces(), None, allow_cancel=True,
+            on_forget=window.set_recent_workspaces)
         if workspace is not None:
             window.apply_workspace(workspace, init_git=init_git)
 

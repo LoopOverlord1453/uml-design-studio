@@ -1,5 +1,9 @@
+import os
 import sys
-sys.path.insert(0, r"C:\Users\kubilay.kozleme\Desktop\UML-State-Diagram-Tool")
+
+# Kok, DOSYANIN KENDISINDEN bulunur. Sabit bir mutlak yol yalnizca onu yazan
+# makinede calisir ve o makinenin kullanici adini depoya sokar.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app.core.samples import demo_machine
 from app.core.validator import validate, has_errors
 from app.codegen.c_generator import generate_c

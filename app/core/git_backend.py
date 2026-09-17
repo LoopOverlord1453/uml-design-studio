@@ -250,7 +250,7 @@ class Repo:
         """The root folder of the repository we are in (None if none).
 
         git returns a path with forward slashes and LONG names; on Windows the
-        caller may be holding a short name (``KUBILA~1``), so it is normalised
+        caller may be holding a short name (``RUNNER~1``), so it is normalised
         with ``realpath``.
         """
         if not os.path.isdir(self.root):

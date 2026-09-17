@@ -27,13 +27,17 @@ class WorkspaceDialog(QDialog):
     """Select / create a workspace."""
 
     def __init__(self, recent: List[str], parent=None,
-                 allow_cancel: bool = True) -> None:
+                 allow_cancel: bool = True, on_forget=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Workspace")
         self.setModal(True)
         self.resize(720, 600)
         self._result: Optional[Workspace] = None
         self._recent = list(recent)
+        #: Called with the trimmed list when the user forgets an entry.
+        #: The dialog does not touch the settings itself -- whoever knows
+        #: where the list is stored is the one that persists it.
+        self._on_forget = on_forget
 
         root = QVBoxLayout(self)
         root.setContentsMargins(18, 16, 18, 14)
@@ -80,12 +84,37 @@ class WorkspaceDialog(QDialog):
             self.recent_list.addItem(item)
         root.addWidget(self.recent_list)
 
-        if not self._recent:
-            empty = QLabel("No workspace has been opened yet.")
-            empty.setFont(ui_font(9))
-            empty.setStyleSheet("color: %s;" % C.TEXT_DIM)
-            empty.setContentsMargins(22, 0, 0, 4)
-            root.addWidget(empty)
+        # THE LIST CAN BE EMPTIED FROM HERE.
+        #
+        # The entries are paths the user has opened before, and one of them
+        # may be a folder they would rather not see announced every time the
+        # application starts. Without a way out of the interface the only
+        # remedy is editing the settings store by hand, which nobody should
+        # have to do to forget a folder.
+        self.empty_note = QLabel("No workspace has been opened yet.")
+        self.empty_note.setFont(ui_font(9))
+        self.empty_note.setStyleSheet("color: %s;" % C.TEXT_DIM)
+        self.empty_note.setContentsMargins(22, 0, 0, 4)
+        root.addWidget(self.empty_note)
+
+        forget_row = QHBoxLayout()
+        forget_row.setContentsMargins(22, 0, 0, 0)
+        self.btn_forget = QPushButton("Forget selected")
+        self.btn_forget.setFont(ui_font(9))
+        self.btn_forget.setToolTip(
+            "Remove the selected folder from this list. The folder itself and "
+            "everything in it are left alone.")
+        self.btn_forget.clicked.connect(self._forget_selected)
+        self.btn_forget_all = QPushButton("Clear list")
+        self.btn_forget_all.setFont(ui_font(9))
+        self.btn_forget_all.setToolTip(
+            "Empty the list. No folder is deleted.")
+        self.btn_forget_all.clicked.connect(self._forget_all)
+        forget_row.addWidget(self.btn_forget)
+        forget_row.addWidget(self.btn_forget_all)
+        forget_row.addStretch(1)
+        root.addLayout(forget_row)
+        self._sync_recent_visibility()
 
         # ------------------------------------------------------------ existing
         self.rb_open = QRadioButton("Open an existing folder")
@@ -184,6 +213,67 @@ class WorkspaceDialog(QDialog):
 
     def workspace(self) -> Optional[Workspace]:
         return self._result
+
+    def remaining_recent(self) -> List[str]:
+        """What is left of the recent list after any forgetting."""
+        return list(self._recent)
+
+    # ------------------------------------------------------------- forgetting
+
+    def _sync_recent_visibility(self) -> None:
+        """Shows the list or the 'nothing yet' note, never both."""
+        has_any = bool(self._recent)
+        self.recent_list.setVisible(has_any)
+        self.empty_note.setVisible(not has_any)
+        self.btn_forget.setVisible(has_any)
+        self.btn_forget_all.setVisible(has_any)
+        if not has_any and self.rb_recent.isChecked():
+            # The mode the user was in no longer exists; land somewhere valid
+            # instead of leaving the dialog with nothing selectable.
+            self.rb_new.setChecked(True)
+        self.rb_recent.setEnabled(has_any)
+
+    def _announce_forget(self) -> None:
+        if self._on_forget is not None:
+            self._on_forget(list(self._recent))
+        self._sync_recent_visibility()
+        self._renumber()
+        self._sync()
+
+    def _renumber(self) -> None:
+        """Keeps the leading 1..N numbering correct after a removal."""
+        for row in range(self.recent_list.count()):
+            item = self.recent_list.item(row)
+            path = item.data(PATH_ROLE)
+            name = os.path.basename(path.rstrip(os.sep)) or path
+            item.setText("%2d.  %-24s %s" % (row + 1, name, path))
+
+    def _forget_selected(self) -> None:
+        row = self.recent_list.currentRow()
+        if row < 0:
+            return
+        item = self.recent_list.takeItem(row)
+        if item is None:
+            return
+        path = item.data(PATH_ROLE)
+        self._recent = [p for p in self._recent if p != path]
+        self._announce_forget()
+
+    def _forget_all(self) -> None:
+        if not self._recent:
+            return
+        reply = QMessageBox.question(
+            self, "Clear the list",
+            "Remove all %d entries from the recent list?\n\n"
+            "No folder is deleted -- only this list is emptied."
+            % len(self._recent),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self.recent_list.clear()
+        self._recent = []
+        self._announce_forget()
 
     # ----------------------------------------------------------- internals
 
@@ -299,9 +389,15 @@ def _default_parent() -> str:
 
 
 def pick_workspace(recent: List[str], parent=None,
-                   allow_cancel: bool = True):
-    """Shows the dialog; returns ``(Workspace | None, init_git)``."""
-    dlg = WorkspaceDialog(recent, parent, allow_cancel=allow_cancel)
+                   allow_cancel: bool = True, on_forget=None):
+    """Shows the dialog; returns ``(Workspace | None, init_git)``.
+
+    ``on_forget`` is called with the trimmed list whenever the user removes an
+    entry -- including when they then press Cancel, because forgetting a folder
+    is a decision of its own and should not depend on opening another one.
+    """
+    dlg = WorkspaceDialog(recent, parent, allow_cancel=allow_cancel,
+                          on_forget=on_forget)
     if dlg.exec() != QDialog.DialogCode.Accepted:
         return None, False
     return dlg.workspace(), dlg.init_git

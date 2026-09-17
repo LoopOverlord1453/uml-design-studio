@@ -298,6 +298,12 @@ system that is arranged differently:
 
 ## The interface
 
+At start-up the application asks for a **workspace** — the folder that holds
+your models, the generated code and the git repository. Folders you have opened
+before are offered as a list; `Forget selected` and `Clear list` take an entry
+off it without touching the folder itself, so a project you no longer want
+announced on every start does not have to stay there.
+
 The window is one workspace with three tabs — **State Diagram**, **Class Diagram**
 and **Repository (Git)** — and four working areas:
 
