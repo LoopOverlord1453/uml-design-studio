@@ -105,6 +105,11 @@ If something goes wrong the launcher says what and keeps the window open — you
 only need the manual steps below when you want to control the environment
 yourself.
 
+To get a **standalone executable** instead — one file that runs on a machine
+with no Python installed — run `build.bat` / `./build.sh` and collect the result
+from `dist/`. Exact paths per platform are in
+[Building a standalone executable](#building-a-standalone-executable).
+
 ### What you need
 
 | | Package | Needed for |
@@ -158,6 +163,23 @@ a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
    ```
 
    or just double-click **`run.bat`**, which finds the environment itself.
+
+6. *(Optional)* **Build a standalone `.exe`.** Double-click **`build.bat`**, or
+   do it by hand:
+
+   ```powershell
+   .venv\Scripts\python.exe -m pip install pyinstaller
+   .venv\Scripts\python.exe -m PyInstaller --clean --noconfirm UML-Design-Studio.spec
+   ```
+
+   The executable is written to:
+
+   ```
+   dist\UML-Design-Studio.exe
+   ```
+
+   One file, about 36 MB. Copy it anywhere — it needs no Python and no PyQt6 on
+   the target machine, and it opens no console window.
 
 > If your Python came from the Microsoft Store, `pip install PyQt6` can fail
 > because of path length. The in-project virtual environment above avoids it.
@@ -217,6 +239,22 @@ a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
    ./run.sh
    ```
 
+4. *(Optional)* **Build a standalone binary:**
+
+   ```bash
+   chmod +x build.sh
+   ./build.sh
+   ```
+
+   The binary is written to:
+
+   ```
+   dist/UML-Design-Studio
+   ```
+
+   No extension, already executable. Start it with `./dist/UML-Design-Studio`.
+   It needs no Python and no PyQt6 on the target machine.
+
 > On a headless machine or over plain SSH there is no display, and Qt will exit
 > with `could not connect to display`. Use X11 forwarding (`ssh -X`), a desktop
 > session, or a virtual display such as `xvfb-run`.
@@ -238,6 +276,27 @@ a Windows `.exe` has to be built on Windows, a Linux binary on Linux.
    .venv/bin/python main.py
    ```
 
+3. *(Optional)* **Build a standalone app:**
+
+   ```bash
+   chmod +x build.sh
+   ./build.sh
+   ```
+
+   Two things are written to `dist/`:
+
+   ```
+   dist/UML Design Studio.app     <- double-click this; no Terminal appears
+   dist/UML-Design-Studio         <- the plain binary, for a shell
+   ```
+
+   Gatekeeper blocks the first launch of an app you built yourself, because it
+   is unsigned. Right-click it and choose *Open* once, or clear the flag:
+
+   ```bash
+   xattr -dr com.apple.quarantine "dist/UML Design Studio.app"
+   ```
+
 ## Building a standalone executable
 
 Run the build script on the system you want the executable for:
@@ -247,10 +306,23 @@ build.bat        # Windows -- double-clicking it works too
 ./build.sh       # Linux / macOS  (chmod +x build.sh the first time)
 ```
 
-It installs PyInstaller into the same `.venv`, packages the application and
-prints where the result landed. The output is one self-contained file that runs
-on a machine with **no Python and no PyQt6 installed** — the interpreter, Qt, the
-GPL text and the sample diagram all travel inside it.
+It installs PyInstaller into the same `.venv` and packages the application.
+
+**The result always lands in the `dist/` folder next to the build script**, and
+the script prints the full path when it finishes:
+
+```
+Windows   dist\UML-Design-Studio.exe
+Linux     dist/UML-Design-Studio
+macOS     dist/UML Design Studio.app     (plus dist/UML-Design-Studio)
+```
+
+That output is one self-contained file that runs on a machine with **no Python
+and no PyQt6 installed** — the interpreter, Qt, the GPL text and the sample
+diagram all travel inside it.
+
+`build/` appears next to it as well; that is PyInstaller's scratch folder and
+can be deleted. Both are in `.gitignore`.
 
 ### One build per platform
 
