@@ -1,8 +1,8 @@
-"""Canli koyu tema renk paleti ve Qt stil sayfasi.
+"""The live dark theme colour palette and the Qt style sheet.
 
-Koyu lacivert zemin uzerinde doygun, canli vurgular kullanilir; diyagram
-tuvali ile kod editoru ayni paleti paylasir ve arayuz tek bir urun gibi
-gorunur.
+Saturated, lively accents are used on a dark navy background; the diagram
+canvas and the code editor share one palette so the interface looks like a
+single product.
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from typing import List, Optional
 from PyQt6.QtGui import QColor, QFont, QFontDatabase
 
 
-#: KOYU palet (varsayilan). Anahtarlar iki palette de AYNI olmali;
-#: eksik anahtar tema degisiminde eski rengin kalmasina yol acar --
-#: apply_theme() bunu denetler.
+#: The DARK palette (the default). The keys must be THE SAME in both
+#: palettes; a missing key leaves the old colour in place on a theme
+#: change -- apply_theme() checks for that.
 DARK = {
-    # -- yuzeyler
+    # surfaces
     "WINDOW": "#20242F",
     "PANEL": "#252A38",
     "PANEL_DARK": "#1C202B",
@@ -25,31 +25,31 @@ DARK = {
     "CANVAS_BG": "#191D27",
     "GUTTER_BG": "#1C202B",
     "BORDER": "#141821",
-    # Ayirici cizgiler panel zemininden AYIRT EDILEBILIR olmali;
-    # #3A4356 ile oran 1.44 idi ve cizgiler kayboluyordu.
+    # Separator lines must be DISTINGUISHABLE from the panel background;
+    # with #3A4356 the ratio was 1.44 and the lines disappeared.
     "BORDER_LIGHT": "#454F66",
     "HOVER": "#323A4E",
     "SELECTION": "#2456A6",
     "CURRENT_LINE": "#232838",
-    # -- metin
+    # text
     "TEXT": "#D6DBE6",
     "TEXT_DIM": "#8A93A6",
     "TEXT_BRIGHT": "#EDF1F8",
     "GUTTER_TEXT": "#5A6377",
-    # -- uretilen kod paneli (TEMAYI IZLER)
+    # the generated code panel (IT FOLLOWS THE THEME)
     #
-    # Panel eskiden Visual Studio klasik semasini kullaniyor ve arayuz
-    # temasindan BAGIMSIZ olarak hep beyaz kaliyordu; koyu temada ekranin
-    # yarisi beyaz parliyordu. Artik tema ile birlikte degisir ve sema
-    # sadelestirilmistir: YALNIZCA yorumlar yesil, kodun geri kalani duz
-    # metin rengindedir.
+    # The panel used to use the classic Visual Studio scheme and stayed white
+    # REGARDLESS of the interface theme; in the dark theme half the screen
+    # glared white. It now changes with the theme and the scheme has been
+    # simplified: ONLY comments are green, the rest of the code is in the
+    # plain text colour.
     "CODE_BG": "#171A22",
     "CODE_TEXT": "#DCE3EF",
     "CODE_COMMENT": "#6A9955",
-    # Sozdizimi semasi -- KOYU zemin icin. Ton sayisi bilerek sinirli:
-    # her belirtec turune ayri renk vermek kodu alacali yapar ve
-    # okunurlugu DUSURUR. Bes anlam grubu var: anahtar kelime, tip,
-    # dize, sayi/sabit, onislemci.
+    # The syntax scheme -- for a DARK background. The number of tones is
+    # deliberately limited: a separate colour per token type makes the code
+    # mottled and REDUCES readability. There are five meaning groups:
+    # keyword, type, string, number/constant, preprocessor.
     "CODE_KEYWORD": "#569CD6",
     "CODE_TYPE": "#4EC9B0",
     "CODE_STRING": "#CE9178",
@@ -60,29 +60,29 @@ DARK = {
     "CODE_GUTTER_BG": "#12151C",
     "CODE_GUTTER_TEXT": "#8994AC",
     "CODE_GUTTER_CUR": "#EDF1F8",
-    # Kod panelindeki uyari / hata bandinin zemini.
-    # Uzerine RED yazilir; #4B2B2B ile oran 4.13 idi (4.5 alti).
+    # The background of the warning / error band in the code panel.
+    # RED is written on it; with #4B2B2B the ratio was 4.13 (below 4.5).
     "BANNER_ERROR_BG": "#3A2020",
     "BANNER_WARN_BG": "#4A4326",
-    # -- vurgular
-    "ACCENT": "#4D9FFF",  # secim / odak mavisi
+    # accents
+    "ACCENT": "#4D9FFF",  # selection / focus blue
     "ACCENT_DARK": "#2456A6",
-    "ORANGE": "#FF9F43",  # anahtar kelime
-    "YELLOW": "#FFD166",  # fonksiyon adi
-    "GREEN": "#3DDC84",  # dize / basari
-    "BLUE": "#6FB3FF",  # sayi
-    "PURPLE": "#B983FF",  # sabit / makro
-    "OLIVE": "#C7D66D",  # onislemci
-    "DOC_GREEN": "#5FBF87",  # dokuman yorumu
-    "RED": "#FF5C5C",  # hata
-    "WARN": "#FFB020",  # uyari
-    "INFO": "#4D9FFF",  # bilgi
-    "CYAN": "#35D0BA",  # ikincil vurgu
-    # -- diyagram
+    "ORANGE": "#FF9F43",  # keyword
+    "YELLOW": "#FFD166",  # function name
+    "GREEN": "#3DDC84",  # string / success
+    "BLUE": "#6FB3FF",  # number
+    "PURPLE": "#B983FF",  # constant / macro
+    "OLIVE": "#C7D66D",  # preprocessor
+    "DOC_GREEN": "#5FBF87",  # documentation comment
+    "RED": "#FF5C5C",  # error
+    "WARN": "#FFB020",  # warning
+    "INFO": "#4D9FFF",  # information
+    "CYAN": "#35D0BA",  # secondary accent
+    # diagram
     "STATE_FILL": "#2A3145",
-    "STATE_FILL_ALT": "#273041",  # bilesik durumun govdesi
-    "STATE_HEADER": "#3B6FD4",  # basit durum baslik seridi
-    "STATE_HEADER_ALT": "#2E9E8F",  # bilesik durum baslik seridi
+    "STATE_FILL_ALT": "#273041",  # the body of a composite state
+    "STATE_HEADER": "#3B6FD4",  # the title strip of a simple state
+    "STATE_HEADER_ALT": "#2E9E8F",  # the title strip of a composite state
     "STATE_BORDER": "#5B6B8F",
     "STATE_TEXT": "#D6DBE6",
     "STATE_TITLE": "#FFFFFF",
@@ -93,62 +93,62 @@ DARK = {
     "GRID_MAJOR": "#262C3C",
     "TRANSITION": "#9FB0CC",
     "TRANSITION_SEL": "#4D9FFF",
-    # Gecis etiketinin zemini: TUVAL rengiyle ayni. Amaci altindaki oku
-    # maskelemek, kutucuk gibi gorunmek DEGIL.
+    # The background of a transition label: the same as the CANVAS colour. Its
+    # purpose is to mask the arrow beneath it, NOT to look like a little box.
     "LABEL_BG": "#191D27",
     "LABEL_TEXT": "#F2F5FA",
-    "SIM_ACTIVE": "#2EE59D",  # simulasyonda etkin durum halesi
+    "SIM_ACTIVE": "#2EE59D",  # the halo of the active state in simulation
     "PSEUDO_FILL": "#E8ECF4",
-    # INITIAL ve FINAL, UML 2.5.1 §14.2.4.7'deki gibi TEK RENK cizilir:
-    # initial dolu bir daire, final ic ice iki daire. Standart bunlari SIYAH
-    # gosterir; koyu temada duz siyah, koyu tuval uzerinde (1.2:1) gorunmez
-    # olurdu, bu yuzden ayni MUREKKEP acik tona cevrilir. Acik temada
-    # gercekten siyahtir.
-    "INITIAL_FILL": "#E8ECF4",  # initial sozde-durumu (murekkep)
-    "FINAL_RING": "#E8ECF4",  # final durumun halkasi ve cekirdegi
-    "CHOICE_FILL": "#FFB020",  # choice/junction elmasi
-    "HISTORY_FILL": "#B983FF",  # tarih sozde-durumlari
-    "TERMINATE_FILL": "#FF5C5C",  # terminate sozde-durumu
-    # -- sinif diyagrami
-    "CLASS_HEADER": "#7E57C2",  # sinif baslik seridi
-    "IFACE_HEADER": "#00897B",  # <<interface>> baslik seridi
-    "ABSTRACT_HEADER": "#5C6BC0",  # soyut sinif baslik seridi
+    # INITIAL and FINAL are drawn in ONE COLOUR, as in UML 2.5.1 §14.2.4.7:
+    # initial a filled circle, final two nested circles. The standard shows
+    # them BLACK; in the dark theme plain black would be invisible on the dark
+    # canvas (1.2:1), so the same INK is converted to a light tone. In the
+    # light theme it really is black.
+    "INITIAL_FILL": "#E8ECF4",  # the initial pseudostate (ink)
+    "FINAL_RING": "#E8ECF4",  # the ring and the core of the final state
+    "CHOICE_FILL": "#FFB020",  # the choice/junction diamond
+    "HISTORY_FILL": "#B983FF",  # the history pseudostates
+    "TERMINATE_FILL": "#FF5C5C",  # the terminate pseudostate
+    # class diagram
+    "CLASS_HEADER": "#7E57C2",  # the class title strip
+    "IFACE_HEADER": "#00897B",  # the <<interface>> title strip
+    "ABSTRACT_HEADER": "#5C6BC0",  # the abstract class title strip
     "CLASS_FILL": "#2A3145",
     "CLASS_TEXT": "#D6DBE6",
-    # -- git paneli
-    "GIT_ADD": "#3DDC84",  # eklenen satir metni
-    "GIT_ADD_BG": "#1B3A2A",  # eklenen satir zemini
-    "GIT_DEL": "#FF7A7A",  # silinen satir metni
-    "GIT_DEL_BG": "#3A1F24",  # silinen satir zemini
-    "GIT_HUNK": "#6FB3FF",  # @@ basligi
-    "GIT_META": "#8A93A6",  # diff/index basliklari
-    "GIT_NODE": "#EDF1F8",  # commit dugumu cekirdegi
-    "GIT_HEAD_RING": "#FFD166",  # HEAD halkasi
-    "GIT_REF_BRANCH": "#2E7D5B",  # dal etiketi zemini
-    "GIT_REF_REMOTE": "#4A5568",  # uzak dal etiketi zemini
-    "GIT_REF_TAG": "#7A5C1E",  # etiket (tag) zemini
-    "GIT_REF_HEAD": "#2456A6",  # HEAD etiketi zemini
-    "GIT_STAGED": "#3DDC84",  # hazirlanmis dosya isareti
-    "GIT_UNSTAGED": "#FF9F43",  # hazirlanmamis dosya isareti
-    "GIT_CONFLICT": "#FF5C5C",  # cakisma
-    # -- ZITLIK belirteci: zemin uzerine yazilan metnin rengi. Sabit bir
-    # "#FFFFFF" iki temada da dogru OLAMAZ; her yuzey icin ayri tutulur.
-    "ON_ACCENT": "#FFFFFF",  # vurgu (accent) zemini uzerindeki metin
-    "SELECTED_TEXT": "#FFFFFF",  # secili liste satirinin metni
-    "SELECTION_TEXT": "#FFFFFF",  # metin alanindaki secimin rengi
-    "ALT_ROW": "#20242F",  # siralamali listelerde tek satir zemini
-    "SCROLL_HANDLE": "#4E5254",  # kaydirma cubugu tutamagi
+    # git panel
+    "GIT_ADD": "#3DDC84",  # added line text
+    "GIT_ADD_BG": "#1B3A2A",  # added line background
+    "GIT_DEL": "#FF7A7A",  # removed line text
+    "GIT_DEL_BG": "#3A1F24",  # removed line background
+    "GIT_HUNK": "#6FB3FF",  # the @@ header
+    "GIT_META": "#8A93A6",  # the diff/index headers
+    "GIT_NODE": "#EDF1F8",  # the core of a commit node
+    "GIT_HEAD_RING": "#FFD166",  # the HEAD ring
+    "GIT_REF_BRANCH": "#2E7D5B",  # the background of a branch label
+    "GIT_REF_REMOTE": "#4A5568",  # the background of a remote branch label
+    "GIT_REF_TAG": "#7A5C1E",  # the background of a tag
+    "GIT_REF_HEAD": "#2456A6",  # the background of the HEAD label
+    "GIT_STAGED": "#3DDC84",  # the mark of a staged file
+    "GIT_UNSTAGED": "#FF9F43",  # the mark of an unstaged file
+    "GIT_CONFLICT": "#FF5C5C",  # a conflict
+    # the CONTRAST token: the colour of text written on a background. A fixed
+    # "#FFFFFF" CANNOT be right in both themes; it is kept per surface.
+    "ON_ACCENT": "#FFFFFF",  # text on an accent background
+    "SELECTED_TEXT": "#FFFFFF",  # the text of a selected list row
+    "SELECTION_TEXT": "#FFFFFF",  # the colour of a selection inside a text field
+    "ALT_ROW": "#20242F",  # the background of alternate rows in striped lists
+    "SCROLL_HANDLE": "#4E5254",  # the scroll bar handle
     "SCROLL_HANDLE_HOVER": "#5E6365",
 }
 
-#: ACIK palet. Anahtar kumesi DARK ile BIREBIR AYNIDIR.
+#: The LIGHT palette. Its key set is IDENTICAL to DARK.
 #:
-#: Renkler koyu paletten mekanik olarak ters cevrilmedi: dogrudan cevirme
-#: vurgu renklerini beyaz zeminde okunmaz hale getirir (ornegin #3DDC84
-#: yesili beyazda kayboluyor). Her vurgu, acik zeminde AYNI ANLAMI tasiyan
-#: ama kontrasti yeterli bir tona ayri ayri esitlendi.
+#: The colours were not inverted mechanically from the dark palette: a
+#: direct inversion makes the accents unreadable on white (the #3DDC84
+#: green, for instance, vanishes on white). Every accent was matched
+#: separately to a tone carrying THE SAME MEANING with enough contrast.
 LIGHT = {
-    # -- yuzeyler
+    # surfaces
     "WINDOW": "#EEF1F6",
     "PANEL": "#F7F9FC",
     "PANEL_DARK": "#E7EBF2",
@@ -160,17 +160,17 @@ LIGHT = {
     "HOVER": "#DCE3EF",
     "SELECTION": "#B7D4FF",
     "CURRENT_LINE": "#EDF2FB",
-    # -- metin
+    # text
     "TEXT": "#1F2733",
     "TEXT_DIM": "#5E6A7D",
     "TEXT_BRIGHT": "#0C1119",
     "GUTTER_TEXT": "#98A2B3",
-    # -- uretilen kod paneli (bkz. DARK'taki aciklama)
+    # the generated code panel (see the note in DARK)
     "CODE_BG": "#FFFFFF",
     "CODE_TEXT": "#14181F",
     "CODE_COMMENT": "#007A1F",
-    # Sozdizimi semasi -- ACIK zemin icin. Ayni bes anlam grubu, beyaz
-    # uzerinde 4.5:1 kontrasti gecen tonlarla.
+    # The syntax scheme -- for a LIGHT background. The same five meaning
+    # groups, in tones that pass 4.5:1 contrast on white.
     "CODE_KEYWORD": "#0033B3",
     "CODE_TYPE": "#00627A",
     "CODE_STRING": "#A31515",
@@ -181,11 +181,11 @@ LIGHT = {
     "CODE_GUTTER_BG": "#F3F5F9",
     "CODE_GUTTER_TEXT": "#5A6478",
     "CODE_GUTTER_CUR": "#0C1119",
-    # Acik temada bant da ACIK olmali; koyu tema degerleri sabit kalinca
-    # beyaz arayuzde koyu kahverengi lekeler olusuyordu.
+    # In the light theme the band must be LIGHT too; with the dark theme
+    # values hard-coded, dark brown patches appeared in a white interface.
     "BANNER_ERROR_BG": "#FDECEC",
     "BANNER_WARN_BG": "#FFF6E0",
-    # -- vurgular
+    # accents
     "ACCENT": "#1668D6",
     "ACCENT_DARK": "#0F4EA8",
     "ORANGE": "#B45309",
@@ -199,11 +199,11 @@ LIGHT = {
     "WARN": "#A65B00",
     "INFO": "#1668D6",
     "CYAN": "#0A6E63",
-    # -- diyagram
-    # Acik temada diyagram: beyaz govde + doygun baslik seridi. Baslik
-    # tonlari, uzerlerindeki BEYAZ yazi 4.5:1 kontrasti gecsin diye
-    # koyulastirildi; govde ile tuval arasindaki fark da kutulari zeminden
-    # ayirmaya yetecek kadar acik birakildi.
+    # diagram
+    # The diagram in the light theme: a white body plus a saturated title
+    # strip. The title tones were darkened so that the WHITE text on them
+    # passes 4.5:1; the difference between body and canvas was left just
+    # light enough to separate the boxes from the background.
     "STATE_FILL": "#FFFFFF",
     "STATE_FILL_ALT": "#EEF3FB",
     "STATE_HEADER": "#2563C7",
@@ -218,27 +218,27 @@ LIGHT = {
     "GRID_MAJOR": "#D9E0EC",
     "TRANSITION": "#44506A",
     "TRANSITION_SEL": "#1668D6",
-    # Acik temada beyaz kutucuklar acik gri tuvalde "etrafi belirgin
-    # olmayan" lekeler gibi duruyordu; zemin tuvalle ayni, yazi SIMSIYAH.
+    # In the light theme white boxes looked like patches "with no clear edge"
+    # on the light grey canvas; the background matches the canvas, text PITCH BLACK.
     "LABEL_BG": "#F6F8FC",
     "LABEL_TEXT": "#000000",
-    # Acik zeminde okunacak kadar KOYU olmali: simulasyondaki etkin durum
-    # etiketi acik gri panel uzerine yazilir ve panelin en kritik bilgisidir.
+    # It has to be DARK enough to read on a light background: the active state
+    # label in simulation is written on a light grey panel and is its key fact.
     "SIM_ACTIVE": "#0A6B3A",
     "PSEUDO_FILL": "#2A3145",
-    # Acik temada murekkep SIYAHTIR (bkz. DARK'taki aciklama).
+    # In the light theme the ink is BLACK (see the note in DARK).
     "INITIAL_FILL": "#0B0F16",
     "FINAL_RING": "#0B0F16",
     "CHOICE_FILL": "#C98000",
     "HISTORY_FILL": "#6B34C4",
     "TERMINATE_FILL": "#C62828",
-    # -- sinif diyagrami
+    # class diagram
     "CLASS_HEADER": "#5E35B1",
     "IFACE_HEADER": "#00695C",
     "ABSTRACT_HEADER": "#3949AB",
     "CLASS_FILL": "#FFFFFF",
     "CLASS_TEXT": "#1F2733",
-    # -- git paneli
+    # git panel
     "GIT_ADD": "#137A46",
     "GIT_ADD_BG": "#DFF5E8",
     "GIT_DEL": "#C62828",
@@ -254,14 +254,14 @@ LIGHT = {
     "GIT_STAGED": "#137A46",
     "GIT_UNSTAGED": "#B45309",
     "GIT_CONFLICT": "#C62828",
-    # Acik temada secim zemini KOYU mavidir (ACCENT_DARK), bu yuzden uzerindeki
-    # metin beyaz kalir; ama siralamali satir zemini ve kaydirma tutamagi acik
-    # tonlara ceker -- koyu paletten kopyalanirsa beyaz uzerinde koyu lekeler
-    # olusur ve satirlar okunmaz.
+    # In the light theme the selection background is DARK blue (ACCENT_DARK), so
+    # the text on it stays white; but the striped row background and the scroll
+    # handle pull towards light tones -- copied from the dark palette they would
+    # make dark patches on white and the rows would be unreadable.
     "ON_ACCENT": "#FFFFFF",
     "SELECTED_TEXT": "#FFFFFF",
-    # Metin alanlarinda secim zemini ACIK mavidir (SELECTION); uzerine beyaz
-    # yazmak metni yok eder, bu yuzden burada KOYU on plan kullanilir.
+    # In text fields the selection background is LIGHT blue (SELECTION); writing
+    # white on it erases the text, so a DARK foreground is used here.
     "SELECTION_TEXT": "#0C1119",
     "ALT_ROW": "#F0F3F9",
     "SCROLL_HANDLE": "#B4BECD",
@@ -269,19 +269,19 @@ LIGHT = {
 }
 
 
-#: Kullanilabilir temalar (ayar dosyasinda saklanan anahtar -> gorunen ad).
+#: The available themes (the key stored in the settings -> the display name).
 THEMES = {"dark": "Dark", "light": "Light"}
 
 _active = ["dark"]
 
 
 class C:
-    """CANLI tema renkleri.
+    """The LIVE theme colours.
 
-    Nitelikleri ``apply_theme()`` doldurur. Sinif govdesinde sabit deger
-    TUTULMAZ: iki paletin ayni anahtar kumesini tasidigi tek yerden
-    (asagidaki denetim) dogrulanabilsin ve tema degistiginde TEK kaynak
-    guncellensin diye.
+    ``apply_theme()`` fills the attributes in. No fixed value is KEPT in the
+    class body: so that the two palettes carrying the same key set can be
+    verified in one place (the check below), and so that a theme change
+    updates a SINGLE source.
     """
 
 
@@ -290,10 +290,10 @@ def active_theme() -> str:
 
 
 def apply_theme(name: str) -> str:
-    """Paleti degistirir; gecerli tema adini dondurur.
+    """Switches the palette; returns the name of the active theme.
 
-    Bilinmeyen ad KOYU temaya duser -- ayar dosyasindaki bozuk bir deger
-    yuzunden uygulama acilmamazlik etmemeli.
+    An unknown name falls back to the DARK theme -- the application must not
+    refuse to start over a corrupt value in the settings file.
     """
     if name not in THEMES:
         name = "dark"
@@ -304,10 +304,10 @@ def apply_theme(name: str) -> str:
     return name
 
 
-# Iki palet ayni anahtarlari tasimali: eksik bir anahtar tema degisiminde
-# ONCEKI temanin rengini birakir ve arayuzde okunmaz bir leke olusur.
-# Bu, ancak calisma aninda fark edilebilecek bir hatadir; import aninda
-# yakalanir.
+# The two palettes must carry the same keys: a missing key leaves the colour
+# of the PREVIOUS theme on a theme change and makes an unreadable patch in
+# the interface. That is a bug you could only notice at run time; it is
+# caught at import time.
 _eksik_light = sorted(set(DARK) - set(LIGHT))
 _eksik_dark = sorted(set(LIGHT) - set(DARK))
 if _eksik_light or _eksik_dark:
@@ -315,9 +315,9 @@ if _eksik_light or _eksik_dark:
         "Tema paletleri ayrismis - LIGHT'ta eksik: %s | DARK'ta eksik: %s"
         % (_eksik_light, _eksik_dark))
 
-# Bozuk bir renk degeri Qt tarafindan SESSIZCE yok sayilir: widget siyah
-# yada saydam cizilir ve sebebi hicbir yerde gorunmez. Bir kez oldu
-# ("#4A5costs"), bu yuzden bicim import aninda dogrulanir.
+# A malformed colour value is SILENTLY ignored by Qt: the widget is painted
+# black or transparent and the reason shows up nowhere. It happened once
+# ("#4A5costs"), so the format is validated at import time.
 _bozuk = sorted(
     "%s.%s = %r" % (ad, anahtar, deger)
     for ad, palet in (("DARK", DARK), ("LIGHT", LIGHT))
@@ -337,21 +337,21 @@ def qc(name: str, alpha: int = 255) -> QColor:
 
 
 # --------------------------------------------------------------------------- #
-#  Yazi tipleri  --  JetBrains Mono
+#   Fonts  --  JetBrains Mono
 # --------------------------------------------------------------------------- #
 #
-# Arayuzun tamami JetBrains Mono ile yazilir. Yazi tipi SISTEME KURULU OLMAK
-# ZORUNDA DEGILDIR: varsa `assets/fonts/` altindaki .ttf dosyalari uygulama
-# icine yuklenir (QFontDatabase.addApplicationFont). Boylece paketlenmis
-# EXE'de de ayni gorunum elde edilir.
+# The whole interface is set in JetBrains Mono. The font DOES NOT HAVE TO BE
+# INSTALLED ON THE SYSTEM: when present, the .ttf files under `assets/fonts/`
+# are loaded into the application (QFontDatabase.addApplicationFont). That
+# gives the same look in a packaged EXE as well.
 #
-# Dosya yoksa uygulama COKMEZ; asagidaki yedek zinciri devreye girer ve
-# arayuz calismaya devam eder. Yazi tipi bir suslemedir, calisma sarti degil.
+# Without the files the application DOES NOT CRASH; the fallback chain below
+# takes over and the interface keeps working. The font is decoration, not a
 
 FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))), "..", "assets", "fonts")
 
-#: Tercih sirasi: once JetBrains, sonra platformun makul karsiliklari.
+#: Preference order: JetBrains first, then the sensible platform equivalents.
 MONO_STACK = ("JetBrains Mono", "JetBrains Mono NL", "Cascadia Mono",
               "Consolas", "DejaVu Sans Mono", "Courier New")
 UI_STACK = ("JetBrains Mono", "JetBrains Sans", "Inter",
@@ -362,13 +362,13 @@ _loaded_families: List[str] = []
 
 
 def load_bundled_fonts() -> List[str]:
-    """`assets/fonts/*.ttf|*.otf` dosyalarini uygulamaya yukler.
+    """Loads the `assets/fonts/*.ttf|*.otf` files into the application.
 
-    Bir kez calisir; yuklenen aile adlarini dondurur. QApplication
-    olusturulduktan SONRA cagrilmalidir -- oncesinde font veritabani yoktur.
+    Runs once; returns the loaded family names. It must be called AFTER the
+    QApplication has been created -- before that there is no font database.
     """
-    # `_loaded_families` YERINDE degistirilir (append), yeniden baglanmaz;
-    # bu yuzden global bildirimi yalnizca `_fonts_loaded` icindir.
+    # `_loaded_families` is modified IN PLACE (append), never rebound; so the
+    # global declaration is only for `_fonts_loaded`.
     global _fonts_loaded
     if _fonts_loaded:
         return _loaded_families
@@ -398,24 +398,24 @@ def _first_available(stack) -> Optional[str]:
     return None
 
 
-#: Arayuzdeki TUM yazi boyutlarina uygulanan kaydirma (punto).
+#: The offset applied to EVERY font size in the interface (points).
 #:
-#: Kullanici: "yazilari fontlari biraz kucult, astah uml gibi olsun,
-#: tuval buyuk olsun." Boyutlar 100'den fazla cagri yerinde tek tek
-#: yaziliyor; tek bir kaydirma hepsini ORANTIYI BOZMADAN kucultur.
+#: The user: "shrink the fonts a bit, make it like astah uml, let the
+#: canvas be big." The sizes are written out at more than 100 call sites;
+#: a single offset shrinks them all WITHOUT BREAKING THE PROPORTIONS.
 FONT_DELTA = -1
 
-#: Punto bu degerin altina dusmez (okunaksizlik siniri).
+#: The point size never falls below this (the legibility limit).
 FONT_MIN_PT = 7
 
 
 def scaled_pt(size: int) -> int:
-    """Cagri yerindeki puntoyu arayuz olceginde dondurur."""
+    """Returns the point size at the call site, scaled for the interface."""
     return max(FONT_MIN_PT, size + FONT_DELTA)
 
 
 def mono_font(size: int = 11) -> QFont:
-    """Kod ve tablolar icin tek aralikli yazi tipi (JetBrains Mono)."""
+    """The monospaced font for code and tables (JetBrains Mono)."""
     load_bundled_fonts()
     size = scaled_pt(size)
     name = _first_available(MONO_STACK)
@@ -426,7 +426,7 @@ def mono_font(size: int = 11) -> QFont:
 
 
 def ui_font(size: int = 9) -> QFont:
-    """Arayuz yazi tipi (JetBrains Mono; yoksa yedek zinciri)."""
+    """The interface font (JetBrains Mono; a fallback chain when absent)."""
     load_bundled_fonts()
     size = scaled_pt(size)
     name = _first_available(UI_STACK)
@@ -436,7 +436,7 @@ def ui_font(size: int = 9) -> QFont:
 
 
 def font_report() -> str:
-    """Yardim > Hakkinda icin: hangi yazi tipi gercekten kullaniliyor."""
+    """For Help > About: which font is actually being used."""
     load_bundled_fonts()
     return "UI: %s   Mono: %s" % (_first_available(UI_STACK) or "sans-serif",
                                   _first_available(MONO_STACK) or "monospace")
@@ -458,7 +458,7 @@ QMainWindow, QDialog {{
     background: {panel};
 }}
 
-/* ------------------------------------------------------------ menu / arac */
+/* --------------------------------------------------------- menu / toolbar */
 QMenuBar {{
     background: {panel};
     border-bottom: 1px solid {border};
@@ -508,12 +508,12 @@ QToolButton {{
     padding: 4px 7px;
     color: {text};
 }}
-/* Uc serit tek satira indirildi; menu dugmeleri dar tutulmazsa
-   diyagram araclari sagdan tasip tasma dugmesine dusuyor. */
+/* The three strips were reduced to one line; unless the menu buttons are
+   kept narrow, the diagram tools spill over into the overflow button. */
 QToolBar#topBar QToolButton {{ padding: 3px 5px; margin: 0 1px; }}
 QToolBar#topBar QToolButton::menu-indicator {{ image: none; width: 0; }}
-/* SECILI ARAC BELLI OLSUN: kullanici "sectigi toolu gorsun" dedi.
-   Sadece zemin degil, KALIN yazi da ayirt edicidir. */
+/* THE SELECTED TOOL MUST BE OBVIOUS: the user asked to "see the tool they
+   picked". Not just the background -- BOLD text distinguishes it too. */
 QToolBar#topBar QToolButton:checked {{ font-weight: 700; }}
 QToolButton:hover  {{ background: {hover}; border-color: {borderlight}; }}
 QToolButton:pressed{{ background: {accentdark}; }}
@@ -542,7 +542,7 @@ QSplitter::handle:horizontal {{ width: 3px; }}
 QSplitter::handle:vertical   {{ height: 3px; }}
 QSplitter::handle:hover      {{ background: {accentdark}; }}
 
-/* --------------------------------------------------------------- sekmeler */
+/* ------------------------------------------------------------------- tabs */
 QTabWidget::pane {{
     border: 1px solid {border};
     background: {editor};
@@ -564,7 +564,7 @@ QTabBar::tab:selected {{
     border-bottom: 2px solid {orange};
 }}
 
-/* ---------------------------------------------------------------- girisler */
+/* ------------------------------------------------------------------ inputs */
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{
     background: {editor};
     border: 1px solid {borderlight};
@@ -632,7 +632,7 @@ QPushButton:pressed {{ background: {accentdark}; }}
 QPushButton:default {{ border-color: {accent}; }}
 QPushButton:disabled {{ color: {dim}; border-color: {border}; }}
 
-/* --------------------------------------------------------------- listeler */
+/* ------------------------------------------------------------------ lists */
 QTreeWidget, QListWidget, QTableWidget {{
     background: {editor};
     border: 1px solid {border};
@@ -663,7 +663,7 @@ QHeaderView::section {{
     border-bottom: 1px solid {border};
 }}
 
-/* ----------------------------------------------------------- kaydirma cubugu */
+/* ---------------------------------------------------------------- scroll bar */
 QScrollBar:vertical {{
     background: transparent;
     width: 12px;
@@ -691,7 +691,7 @@ QScrollBar::handle:horizontal:hover {{ background: {scrollhover}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
-/* -------------------------------------------------------------- durum cub. */
+/* -------------------------------------------------------------- status bar */
 QStatusBar {{
     background: {paneldark};
     border-top: 1px solid {border};
@@ -700,13 +700,13 @@ QStatusBar {{
 QStatusBar::item {{ border: none; }}
 QStatusBar QLabel {{ padding: 0 8px; background: transparent; }}
 
-/* Derleme ilerleme cubugu (durum cubugunun en saginda).
+/* The build progress bar (at the far right of the status bar).
 
-   METIN YOKTUR ve bu bilincli bir tercihtir: yuzde yazisi hem DOLU hem BOS
-   kismin uzerinden gecer, dolayisiyla TEK bir renk iki zeminde birden
-   okunamaz (koyu temada parlak metin, mavi dolgu uzerinde 2.4:1 kaliyordu;
-   dolguya gore secilen renk de bos izde okunmuyordu). Hangi adimin
-   calistigi zaten durum cubugunun SOLUNDA yaziyla gorunur. */
+   IT HAS NO TEXT, and that is deliberate: a percentage would run over both
+   the FILLED and the EMPTY part, so ONE colour cannot be readable on both
+   backgrounds (in the dark theme bright text stayed at 2.4:1 over the blue
+   fill; a colour chosen for the fill was unreadable on the empty track).
+   Which step is running is already written on the LEFT of the status bar. */
 QProgressBar {{
     background: {editor};
     border: 1px solid {border};
