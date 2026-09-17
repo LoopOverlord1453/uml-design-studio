@@ -5245,7 +5245,7 @@ def test_spec_viewer_does_not_freeze() -> None:
             pencere.a_fit_width.trigger()
             bekle(0.4)
             sigan = gorunum._w[0]
-            check(gorunum.fit_mode() == "genislik", "genislige sigdirma kipi")
+            check(gorunum.fit_mode() == "width", "genislige sigdirma kipi")
             check(abs(sigan + 2 * gorunum.MARGIN
                       - gorunum.viewport().width()) <= 4.0,
                   "genislige sigdirma gorunume oturuyor",

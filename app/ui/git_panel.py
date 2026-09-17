@@ -1086,11 +1086,11 @@ class GitPanel(QWidget):
         # The semantic view is given only when the commit carries model files
         # alone; when code and model are mixed, the textual diff offers one
         # consistent view, so it is left in place.
-        model_yollari = [f.path for f in files
+        model_paths = [f.path for f in files
                          if f.path.lower().endswith((".usm", ".ucd"))]
-        if model_yollari and len(model_yollari) == len(files):
+        if model_paths and len(model_paths) == len(files):
             parts, ta, td, tm = [], 0, 0, 0
-            for fpath in model_yollari:
+            for fpath in model_paths:
                 result = self._model_diff_text(fpath, sha=sha)
                 if result is None:
                     parts = []
@@ -1102,7 +1102,7 @@ class GitPanel(QWidget):
                 self.diff_header.setText(
                     "DIFF — %s  %s   %d model  +%d −%d ~%d"
                     % (commit.short if commit else sha[:8], subject,
-                       len(model_yollari), ta, td, tm))
+                       len(model_paths), ta, td, tm))
                 self.diff.show_diff("\n\n".join(parts), "This commit is empty.")
                 return
 

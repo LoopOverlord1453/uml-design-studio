@@ -312,7 +312,8 @@ _eksik_light = sorted(set(DARK) - set(LIGHT))
 _eksik_dark = sorted(set(LIGHT) - set(DARK))
 if _eksik_light or _eksik_dark:
     raise RuntimeError(
-        "Tema paletleri ayrismis - LIGHT'ta eksik: %s | DARK'ta eksik: %s"
+        "The theme palettes have drifted apart - missing in LIGHT: %s | "
+        "missing in DARK: %s"
         % (_eksik_light, _eksik_dark))
 
 # A malformed colour value is SILENTLY ignored by Qt: the widget is painted

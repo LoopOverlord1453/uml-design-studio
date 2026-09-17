@@ -454,7 +454,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._temel = max(1.0, float(self.logicalDpiX())) / 72.0
         self._zoom = 1.0
         self._scale = self._temel
-        self._mode = "genislik"
+        self._mode = "width"
 
         self._w: List[float] = []
         self._h: List[float] = []
@@ -678,10 +678,10 @@ class ContinuousPdfView(QAbstractScrollArea):
         self.viewport().update()
 
     def fit_width(self) -> None:
-        self._fit("genislik")
+        self._fit("width")
 
     def fit_page(self) -> None:
-        self._fit("sayfa")
+        self._fit("page")
 
     def _fit(self, mode: str) -> None:
         wpt, hpt = self._measure(self._current)
@@ -691,7 +691,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         # the view width, or fitting would oscillate.
         field_w = max(1.0, self.viewport().width() - 2.0 * self.MARGIN - 1.0)
         scale = field_w / wpt
-        if mode == "sayfa":
+        if mode == "page":
             field_y = max(1.0, self.viewport().height() - 2.0 * self.MARGIN)
             scale = min(scale, field_y / hpt)
         self.set_zoom(scale / self._temel, mode)
@@ -885,7 +885,7 @@ class ContinuousPdfView(QAbstractScrollArea):
     def resizeEvent(self, event) -> None:       # noqa: N802 - Qt naming
         super().resizeEvent(event)
         capa = self._capa_al()
-        if self._mode in ("genislik", "sayfa"):
+        if self._mode in ("width", "page"):
             self._fit(self._mode)
         # The scroll range depends ON THE VIEW HEIGHT and has to be refreshed even
         # when the scale does not change at all.

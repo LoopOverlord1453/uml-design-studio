@@ -90,7 +90,7 @@ class SpecRef:
         return record.get("title", "")
 
     def citation(self) -> str:
-        """Panelde gosterilen kisa atif: 'UML 2.5.1 §14.5.11.8, p. 361'."""
+        """The short reference shown in the panel: 'UML 2.5.1 §14.5.11.8, p. 361'."""
         if self.is_tool_rule:
             return "Tool rule - no UML 2.5.1 counterpart"
         page_no = self.page

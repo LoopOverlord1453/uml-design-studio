@@ -133,8 +133,8 @@ def paste_fragment(machine, payload: str,
         machine.add_state(st)
 
     # Map parent ids in a second pass: the parent may come LATER in the list.
-    for old_id, yeni_id in old_new.items():
-        st = machine.states[yeni_id]
+    for old_id, fresh_id in old_new.items():
+        st = machine.states[fresh_id]
         if st.parent in old_new:
             st.parent = old_new[st.parent]
 
