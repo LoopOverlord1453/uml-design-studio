@@ -496,9 +496,80 @@ project and bugs are absolutely possible — in the UI, in the generated code, o
 a corner of the UML semantics.
 
 If you run into one, please open an issue with the model file and what you
-expected to happen. Bug reports, debugging notes and pull requests are genuinely
-welcome and nothing will be taken personally — a reported problem is far more
-useful than a silent workaround.
+expected to happen. Nothing will be taken personally — a reported problem is far
+more useful than a silent workaround.
+
+---
+
+## Contributing — please do
+
+**This project is looking for contributors.** It began as one engineer's side
+project, and it is not meant to stay that way. A code generator for embedded
+targets only gets good by being pointed at real firmware, on real toolchains, by
+people who will notice what it gets wrong. If you write embedded C or C++, you
+are exactly who this needs.
+
+You do not need to be a UML expert to help:
+
+| What you have | What to do with it |
+| --- | --- |
+| A model that behaves oddly | Open an issue and attach the `.usm` file |
+| Generated code that breaks a MISRA rule | Issue with the rule number and the emitted line |
+| A compiler or board this output fails on | Issue with the toolchain, the flags and the error |
+| A platform where the launcher or the build script misbehaves | Issue with your OS and the terminal output |
+| A feature you keep having to work around | Open an issue before writing code — it may already be half-built |
+| A fix, a test, a generator backend | Send a pull request |
+
+**Sending a change**
+
+1. Fork the repository and branch off `main`.
+2. Make the change, and keep `tools/check_all.py` green — all ten steps. It is
+   the gate; nothing else is.
+3. Add a test for what you fixed. The existing tests are written as *what went
+   wrong and why this check exists*, not as bare assertions — follow that style
+   and the next person will understand your test in a year.
+4. Match the code around you: type hints, English comments, no dynamic memory or
+   recursion in anything the generators emit.
+5. Open the pull request and describe the behaviour, not the diff.
+
+**Where help would go furthest right now**
+
+- More generator backends — Rust, Ada/SPARK, or a second C flavour for
+  freestanding targets.
+- Deeper MISRA coverage, and a checker that proves it rather than asserting it.
+- Import/export against other tools: XMI in, PlantUML round-trip, Astah files.
+- Linux and macOS packaging — the launchers and build scripts are written for
+  all three systems, but the GUI has so far been verified on Windows only.
+- Plain proofreading of the generated comments and the UI text.
+
+Everything lands under the **GNU GPL v3**, same as the rest of the project.
+
+---
+
+## Privacy — what the application touches
+
+A design tool has no business collecting anything about the person using it, so
+this one does not. Concretely, and you can check every line of it:
+
+- **No telemetry, no analytics, no crash reporting, no update check.** There is
+  no code in `app/` that reports usage anywhere.
+- **Exactly one outbound network request exists in the whole program**, in
+  [app/ui/spec_window.py](app/ui/spec_window.py): downloading the OMG UML 2.5.1
+  specification PDF from `omg.org`, and only after you ask for it from the
+  **References** window. It sends a fixed `User-Agent` and nothing else. Decline,
+  and the application never opens a socket.
+- **Your git identity stays local.** `user.name` and `user.email` are read from
+  your own git config only to write the commits in your own repository — exactly
+  what `git commit` would do — and are never transmitted.
+- **Models and generated code never leave your disk.** Everything is written
+  inside the workspace folder you picked.
+- **Paths are displayed as `~/…`**, so the account name does not end up in
+  screenshots, in the recent-workspace list, or in a screen share. The real path
+  is still what the tool operates on.
+- **The recent-workspace list is yours to erase.** The start-up dialog has
+  *Forget selected* and *Clear list*; neither touches the folders themselves. The
+  list lives in the normal OS settings store (registry on Windows, `~/.config`
+  on Linux, preferences plist on macOS) under `UmlDesignStudio`.
 
 ---
 
