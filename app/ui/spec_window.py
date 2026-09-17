@@ -1,19 +1,19 @@
-"""OMG UML 2.5.1 spesifikasyonunu AYRI BIR PENCEREDE gosteren PDF okuyucu.
+"""A PDF reader that shows the OMG UML 2.5.1 specification IN A SEPARATE WINDOW.
 
-Arac, dogrulama bulgularinda spesifikasyonun bolum ve sayfa numarasini
-zaten yaziyor (bkz. app/core/uml_spec.py). Bu pencere o atiflari
-IZLENEBILIR kilar: kullanici bulguyu gordugu yerden belgeye gecebilir.
+The tool already writes the clause and page number of the specification next
+to every validation finding (see app/core/uml_spec.py). This window makes
+those references FOLLOWABLE: the user can go from the finding to the document.
 
-PDF NEDEN PAKETE GOMULMEZ
--------------------------
-Belge OMG'nin telif hakki altindadir; serbestce INDIRILEBILIR ama
-yeniden dagitilamaz. Uygulamanin EXE'sine gomulseydi musteriye teslim
-edilen her kopya bir yeniden dagitim olurdu. Ayrica dosya 18 MB'dir ve
-kullanicilarin cogu ona hic bakmaz.
+WHY THE PDF IS NOT EMBEDDED IN THE PACKAGE
+------------------------------------------
+The document is under OMG's copyright; it may be DOWNLOADED freely but not
+redistributed. Embedded in the application's EXE, every copy delivered to a
+customer would be a redistribution. The file is also 18 MB and most users
+never look at it.
 
-Bunun yerine: dosya YERELDE varsa acilir; yoksa kullaniciya sorulur ve
-ONUN ONAYIYLA resmi adresten kendi makinesine indirilir. Indirilen kopya
-uygulama veri klasorunde durur, depoda degil.
+Instead: the file is opened when it exists LOCALLY; otherwise the user is
+asked and, WITH THEIR CONSENT, it is downloaded from the official address to
+their own machine. The downloaded copy lives in the application data folder,
 """
 
 from __future__ import annotations
@@ -35,27 +35,27 @@ from PyQt6.QtWidgets import (QAbstractScrollArea, QHBoxLayout, QLabel,
 
 from .theme import C, ui_font
 
-#: Resmi indirme adresi (OMG). 2026-09 itibariyla application/pdf, ~18 MB.
+#: The official download address (OMG). As of 2026-09: application/pdf, ~18 MB.
 SPEC_URL = "https://www.omg.org/spec/UML/2.5.1/PDF"
-#: Belgenin insan tarafindan okunabilir adresi (tarayicida acilir).
+#: The human-readable address of the document (opens in a browser).
 SPEC_PAGE = "https://www.omg.org/spec/UML/"
-#: Yerel kopyanin dosya adi.
+#: The file name of the local copy.
 SPEC_FILE = "OMG-UML-2.5.1.pdf"
 
-#: Arayuzun kullandigi kimlikler (bkz. main_window.APP_NAME / SETTINGS_ORG).
+#: The identifiers the interface uses (see main_window.APP_NAME / SETTINGS_ORG).
 #:
-#: BURADA TEKRARLANIR, cunku `main_window` bu modulu iceri aktarir; ters
-#: yonde bir alim dairesel bagimlilik olurdu. Deger kaymasin diye bir
-#: regresyon ikisinin ayni oldugunu dogrular.
+#: REPEATED HERE, because `main_window` imports this module; importing the
+#: other way round would be a circular dependency. A regression test verifies
+#: that the two stay the same, so the values cannot drift apart.
 GUI_ORG = "UmlDesignStudio"
 GUI_APP = "UML Design Studio"
 
 
 def spec_pdf_path() -> str:
-    """Yerel kopyanin durdugu (ya da duracagi) tam yol.
+    """The full path where the local copy is (or will be).
 
-    Uygulama VERI klasoru kullanilir; kurulum klasoru salt-okunur
-    olabilir ve EXE'nin yanina yazmak yonetici hakki isteyebilir.
+    The application DATA folder is used; the installation folder may be
+    read-only and writing next to the EXE may require administrator rights.
     """
     from PyQt6.QtCore import QCoreApplication
 
@@ -63,17 +63,17 @@ def spec_pdf_path() -> str:
         QStandardPaths.StandardLocation.AppDataLocation)
     if not kok:
         kok = os.path.expanduser("~")
-    # AppDataLocation, uygulama adi AYARLIYSA zaten onu icerir
-    # (bkz. main_window.run -> setApplicationName). Ayarli degilse
-    # (testler, dogrudan betik kosumu) yol yorumlayicinin adina gore
-    # olusur; o durumda kendi klasorumuzu ekleriz.
+    # AppDataLocation already includes the application name WHEN IT IS SET
+    # (see main_window.run -> setApplicationName). When it is not set (tests,
+    # running a script directly) the path is built from the name of the
+    # interpreter; in that case we append our own folder.
     if not QCoreApplication.applicationName():
         kok = os.path.join(kok, "UML-Design-Studio")
     return os.path.join(kok, SPEC_FILE)
 
 
 def bundled_spec_path() -> Optional[str]:
-    """Kullanici kendi kopyasini uygulamanin yanina koyduysa onu bulur."""
+    """Finds the copy the user put next to the application, if any."""
     kok = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.abspath(__file__))))
     for aday in (os.path.join(kok, "docs", SPEC_FILE),
@@ -84,16 +84,16 @@ def bundled_spec_path() -> Optional[str]:
 
 
 def spec_pdf_candidates() -> List[str]:
-    """PDF'in bulunabilecegi TUM yollar, oncelik sirasiyla.
+    """EVERY path the PDF may be found at, in order of priority.
 
-    ARAYUZ ile BETIKLER AYNI DOSYAYI GORMELIDIR.
+    THE INTERFACE AND THE SCRIPTS MUST SEE THE SAME FILE.
 
-    YASANAN HATA: `QStandardPaths.AppDataLocation`, uygulama adi
-    AYARLIYSA onu icerir. Arayuz `main_window.run()` icinde adi kurar ve
-    dosya `.../Roaming/UmlDesignStudio/UML Design Studio/` altina iner.
-    Bir betik (tools/ altindaki testler, surum araclari) o adi kurmadigi
-    icin ayni cagri BASKA bir klasor donduruyor ve arayuzun sorunsuz
-    actigi PDF "bulunamadi" sayiliyordu. Iki yazim da denenir.
+    THE BUG WE HIT: `QStandardPaths.AppDataLocation` includes the application
+    name WHEN IT IS SET. The interface sets it in `main_window.run()` and the
+    file lands under `.../Roaming/UmlDesignStudio/UML Design Studio/`. A script
+    (the tests under tools/, the release tools) does not set that name, so the
+    same call returned ANOTHER folder and a PDF the interface opened fine
+    counted as "not found". Both spellings are tried.
     """
     adaylar: List[str] = []
     yanindaki = bundled_spec_path()
@@ -116,7 +116,7 @@ def spec_pdf_candidates() -> List[str]:
 
 
 def find_spec_pdf() -> Optional[str]:
-    """Varsa yerel PDF'in yolu."""
+    """The path of the local PDF, if there is one."""
     for yol in spec_pdf_candidates():
         if os.path.isfile(yol):
             return yol
@@ -124,25 +124,25 @@ def find_spec_pdf() -> Optional[str]:
 
 
 class _Downloader(QThread):
-    """PDF'i AYRI IS PARCACIGINDA indirir; arayuz donmasin.
+    """Downloads the PDF ON A SEPARATE THREAD so the interface does not freeze.
 
-    SONUC SINYALLE DEGIL, ALANLARDA tasinir.
+    THE RESULT TRAVELS IN FIELDS, NOT THROUGH A SIGNAL.
 
-    YASANAN HATA: sonuc `finished_ok` sinyaliyle gonderiliyordu. Sinyal
-    is parcacigindan ana parcaciga KUYRUKLA teslim edilir; oysa bekleyen
-    taraf `isRunning()` yanlis olur olmaz donguden cikiyordu. Iki olay
-    arasinda bir yaris vardi ve ana pencere mesgulken (zamanlayicilar,
-    git is parcacigi) yaris KAYBEDILIYORDU: dosya eksiksiz iniyor, ama
-    cagiran taraf "sonuc yok" gorup None donuyordu -- PDF indi, pencere
-    acilmadi. Duz alan okumasinda yaris yoktur.
+    THE BUG WE HIT: the result was sent with a `finished_ok` signal. A signal is
+    delivered from the thread to the main thread THROUGH A QUEUE, while the
+    waiting side left its loop as soon as `isRunning()` went false. There was a
+    race between the two events, and when the main window was busy (timers, the
+    git thread) the race WAS LOST: the file downloaded completely, but the
+    caller saw "no result" and returned None -- the PDF arrived and the window
+    did not open. Reading plain fields has no race.
     """
 
-    progress = pyqtSignal(int, int)          # (inen bayt, toplam bayt)
+    progress = pyqtSignal(int, int)          # (bytes downloaded, total bytes)
 
     def __init__(self, hedef: str, parent=None) -> None:
         super().__init__(parent)
         self.hedef = hedef
-        #: run() bitince doldurulur; ANA PARCACIK bunlari okur.
+        #: Filled in when run() finishes; THE MAIN THREAD reads these.
         self.sonuc_yol = ""
         self.sonuc_hata = ""
         self.iptal_edildi = False
@@ -151,7 +151,7 @@ class _Downloader(QThread):
     def cancel(self) -> None:
         self._iptal = True
 
-    def run(self) -> None:                   # pragma: no cover - is parcacigi
+    def run(self) -> None:                   # pragma: no cover - thread
         gecici = self.hedef + ".part"
         try:
             os.makedirs(os.path.dirname(self.hedef), exist_ok=True)
@@ -160,10 +160,10 @@ class _Downloader(QThread):
             with urllib.request.urlopen(istek, timeout=30) as cevap:
                 toplam = int(cevap.headers.get("Content-Length") or 0)
                 inen = 0
-                # Ilerleme SEYREK bildirilir. 64 KB'lik her parcada sinyal
-                # yaymak 18 MB icin 280'den fazla GUI guncellemesi demekti;
-                # modal QProgressDialog.setValue() kendi icinde olay
-                # isledigi icin bu, derin ve gereksiz bir ic ice girme
+                # Progress is reported SPARSELY. Emitting a signal on every 64 KB chunk
+                # meant more than 280 GUI updates for 18 MB; and because a modal
+                # QProgressDialog.setValue() processes events itself, that produced deep
+                # and pointless re-entrancy.
                 # uretiyordu.
                 adim = max(64 * 1024, (toplam // 100) if toplam else 0)
                 son_bildirim = 0
@@ -183,8 +183,8 @@ class _Downloader(QThread):
                 if toplam and inen != toplam:
                     raise IOError(
                         "incomplete download: %d of %d bytes" % (inen, toplam))
-            # Yarim dosya ASLA hedefe konmaz: bir sonraki acilis onu
-            # gecerli sanip bozuk bir PDF gostermesin.
+            # A half-written file is NEVER put at the destination: the next start-up
+            # must not take it for valid and show a corrupt PDF.
             os.replace(gecici, self.hedef)
             self.sonuc_yol = self.hedef
         except InterruptedError:
@@ -204,11 +204,11 @@ class _Downloader(QThread):
 
 
 def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
-    """Yerel PDF'i dondurur; yoksa KULLANICIYA SORARAK indirir.
+    """Returns the local PDF; downloads it AFTER ASKING THE USER if absent.
 
-    Indirme kendiliginden BASLAMAZ. Bir masaustu uygulamasinin kullaniciya
-    sormadan internetten 18 MB cekmesi kabul edilebilir degil; ayrica
-    kurumsal aglarda disari cikis engelli olabilir.
+    The download DOES NOT START by itself. A desktop application pulling 18 MB
+    off the internet without asking is not acceptable; and on a corporate
+    network, outbound access may be blocked.
     """
     var = find_spec_pdf()
     if var:
@@ -258,17 +258,17 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
     isci.progress.connect(adim)
     ilerleme.canceled.connect(isci.cancel)
 
-    # BEKLEME: elle `processEvents()` dongusu YERINE yerel bir olay
-    # dongusu. Elle donmek, indirme boyunca butun uygulamayi yeniden
-    # girilebilir kiliyordu (zamanlayicilar, yeniden cizim, git is
-    # parcacigi) ve dongunun cikis kosulu sinyal teslimiyle YARISIYORDU.
+    # WAITING: a local event loop INSTEAD OF a manual `processEvents()` loop.
+    # Spinning by hand made the whole application re-entrant for the duration
+    # of the download (timers, redraws, the git thread), and the exit
+    # condition of the loop RACED with the signal delivery.
     dongu = QEventLoop()
     isci.finished.connect(dongu.quit)
     isci.start()
     if isci.isRunning():
         dongu.exec()
-    # Is parcaciginin GERCEKTEN bittiginden emin ol; alanlar ancak o
-    # zaman guvenle okunur.
+    # Make sure the thread has REALLY finished; only then are the fields safe
+    # to read.
     isci.wait()
     ilerleme.close()
 
@@ -284,7 +284,7 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
         return None
     if isci.sonuc_yol and os.path.isfile(isci.sonuc_yol):
         return isci.sonuc_yol
-    # Buraya dusmek beklenmez; yine de sessiz kalmak yerine SOYLE.
+    # Falling through here is not expected; still, say so rather than stay silent.
     QMessageBox.critical(
         parent, "Download failed",
         "The download finished but the file could not be found at:\n\n%s"
@@ -293,28 +293,28 @@ def ensure_spec_pdf(parent: QWidget) -> Optional[str]:
 
 
 class _PageRenderer(QThread):
-    """Sayfalari AYRI IS PARCACIGINDA cizer.
+    """Renders the pages ON A SEPARATE THREAD.
 
-    Neden kendi is parcacigimiz: pdfium bir sayfayi ILK erisimde acmak
-    zorunda ve bu belgede sayfa basina 30-40 ms suruyor. Ana parcacikta
-    yapilsaydi her yeni sayfa gorunume girdiginde arayuz o kadar
-    takilirdi. Olcumler:
+    Why our own thread: pdfium has to open a page ON FIRST ACCESS and in this
+    document that takes 30-40 ms per page. Done on the main thread, the
+    interface would stutter that much every time a new page came into view.
+    The measurements:
 
-        render(sayfa)          7-38 ms
-        pagePointSize(sayfa)   ayni yuklemeyi paylasir
+        render(page)          7-38 ms
+        pagePointSize(page)   shares the same load
 
-    Olcu ve cizim BIRLIKTE burada yapilir; boylece sayfa bir kez yuklenir.
+    Measuring and rendering happen TOGETHER here, so a page is loaded once.
 
-    QPdfDocument bu kullanim icin guvenlidir: Qt'nin kendi
-    QPdfPageRenderer sinifi da belgeyi bir isci parcacigindan kullanir.
-    Ayrica olculdu -- arka planda 120 sayfa olcusu alinirken ana
-    parcacikta 40 sayfa cizildi, cokme yok ve degerler dogru.
+    QPdfDocument is safe for this use: Qt's own QPdfPageRenderer class also
+    uses the document from a worker thread. It was measured as well -- 120 page
+    measurements were taken in the background while 40 pages were rendered on
+    the main thread, with no crash and correct values.
     """
 
-    #: (sayfa, piksel genisligi, goruntu, genislik_pt, yukseklik_pt)
+    #: (page, pixel width, image, width_pt, height_pt)
     hazir = pyqtSignal(int, int, QImage, float, float)
 
-    #: Kuyrukta en fazla bu kadar istek tutulur.
+    #: At most this many requests are held in the queue.
     KUYRUK_SINIRI = 24
 
     def __init__(self, belge, parent=None) -> None:
@@ -326,12 +326,12 @@ class _PageRenderer(QThread):
         self._dur = False
 
     def iste(self, sayfa: int, genislik: int, yukseklik: int) -> List[int]:
-        """Bir sayfayi siraya koyar.
+        """Queues a page.
 
-        DUSURULEN isteklerin sayfa numaralarini dondurur. Cagiran taraf
-        bunlari kendi "bekliyor" listesinden silmek ZORUNDA: aksi halde
-        kuyruk sinirina takilip dusmus bir istek sonsuza dek bekliyor
-        sayilir ve o sayfa bir daha hic cizilmezdi.
+        Returns the page numbers of the requests that were DROPPED. The caller
+        MUST remove those from its own "pending" list: otherwise a request that
+        hit the queue limit and was dropped would count as pending forever and
+        that page would never be drawn again.
         """
         self._kilit.lock()
         try:
@@ -348,7 +348,7 @@ class _PageRenderer(QThread):
             self._kilit.unlock()
 
     def durdur(self) -> None:
-        """Is parcacigini bitirir. Belge yok edilmeden ONCE cagrilmali."""
+        """Ends the thread. It must be called BEFORE the document is destroyed."""
         self._kilit.lock()
         try:
             self._dur = True
@@ -358,7 +358,7 @@ class _PageRenderer(QThread):
             self._kilit.unlock()
         self.wait(5000)
 
-    def run(self) -> None:                     # pragma: no cover - is parcacigi
+    def run(self) -> None:                     # pragma: no cover - thread
         while True:
             self._kilit.lock()
             while not self._kuyruk and not self._dur:
@@ -366,9 +366,9 @@ class _PageRenderer(QThread):
             if self._dur:
                 self._kilit.unlock()
                 return
-            # LIFO: en SON istenen sayfa once cizilir. Kullanici hizla
-            # kaydirdiginda sirada bekleyen eski sayfalar degil, su an
-            # bakilan sayfa oncelik alir.
+            # LIFO: the page requested LAST is rendered first. When the user scrolls
+            # quickly, the page being looked at now takes priority over the older ones
+            # waiting in the queue.
             sayfa, genislik, yukseklik = self._kuyruk.pop()
             self._kilit.unlock()
             try:
@@ -384,54 +384,54 @@ class _PageRenderer(QThread):
 
 
 class ContinuousPdfView(QAbstractScrollArea):
-    """Belgenin TAMAMINI tek bir surekli serit olarak gosteren gorunum.
+    """A view that shows the WHOLE document as one continuous strip.
 
-    NEDEN QPdfView KULLANILMIYOR
-    ----------------------------
-    Qt'nin hazir gorunumunde iki secenek var ve ikisi de bu belgeye
+    WHY QPdfView IS NOT USED
+    -----------------------
+    Qt's ready-made view offers two options and neither fits this document:
     uymuyor:
 
-      * SinglePage  -- kaydirma cubugu YALNIZCA gecerli sayfayi kapsar;
-                       796 sayfada gezinmek mumkun degil.
-      * MultiPage   -- belgenin tamaminin yerlesimini PESIN hesaplar:
-                       her sayfa icin pagePointSize() cagirir. Olculdu:
-                       dosyadan 47 804 ms, bellekten yuklemede bile
-                       22 848 ms -- hepsi ana parcacikta, yani uygulama
-                       yarim dakikadan uzun DONUYOR.
+      * SinglePage  -- the scroll bar covers ONLY the current page; navigating
+                       796 pages is impossible.
+      * MultiPage   -- it computes the layout of the whole document UP FRONT,
+                       calling pagePointSize() for every page. Measured: 47 804
+                       ms from file and 22 848 ms even when loaded from memory
+                       -- all on the main thread, so the application FREEZES
+                       for more than half a minute.
 
-    Bu gorunum ikisini de yapmaz: yerlesimi ILK sayfanin olcusunden
-    tahmin eder (tek bir ucuz cagri), kaydirma cubugunu butun belgeye
-    yayar ve YALNIZCA gorunen sayfalari, o da ayri bir is parcaciginda
-    cizer. Bir sayfanin gercek olcusu cizildiginde ogrenilir; tahminden
-    farkliysa yerlesim kendini duzeltir.
+    This view does neither: it estimates the layout from the size of the FIRST
+    page (a single cheap call), spreads the scroll bar over the whole document,
+    and renders ONLY the visible pages, and those on a separate thread. The real
+    size of a page is learned when it is rendered; when it differs from the
+    estimate the layout corrects itself.
 
-    Yakinlastirma da buradadir: olcek "nokta basina piksel" olarak
-    tutulur, sayfalar her olcekte yeniden cizilir (yeniden orneklenmis
-    goruntu buyutulmez), bu yuzden yazi her yakinlikta net kalir.
+    Zooming lives here too: the scale is kept as "pixels per point" and the
+    pages are re-rendered at every scale (a resampled image is never scaled up),
+    so the text stays sharp at every zoom level.
     """
 
-    #: Gecerli sayfa degistiginde (0 tabanli).
+    #: When the current page changes (0-based).
     sayfa_degisti = pyqtSignal(int)
-    #: Yakinlastirma orani degistiginde (1.0 = %100).
+    #: When the zoom ratio changes (1.0 = 100%).
     olcek_degisti = pyqtSignal(float)
 
-    BOSLUK = 14                                # sayfalar arasi bosluk
-    KENAR = 12                                 # serit kenar payi
+    BOSLUK = 14                                # the gap between pages
+    KENAR = 12                                 # the margin of the strip
     ZOOM_MIN = 0.20
     ZOOM_MAX = 4.00
     ZOOM_ADIM = 1.25
-    #: Tek bir sayfa goruntusunun ust piksel siniri (kenar ve toplam).
-    #: %400 yakinlikta bir A4 3173x4224 piksel, yani 53 MB eder; alan
-    #: siniri bunu 32 MB'a indirir. Kayip yalnizca en uc yakinlikta
-    #: gorunur ve orada bile sayfa basina 300 nokta/inc'in ustundedir.
+    #: The upper pixel bound of a single page image (edge and total).
+    #: At 400% zoom an A4 is 3173x4224 pixels, that is 53 MB; the area bound
+    #: brings it down to 32 MB. The loss shows only at the most extreme zoom,
+    #: and even there it stays above 300 dots per inch per page.
     PIKSEL_SINIRI = 4000
     ALAN_SINIRI = 8_000_000
-    #: Cizilmis sayfa onbelleginin hedef ust siniri. Genislige
-    #: sigdirilmis bir A4 yaklasik 4,7 MB tutar.
+    #: The target upper bound of the rendered page cache. An A4 fitted to the
+    #: width takes about 4.7 MB.
     ONBELLEK_BAYT = 48 * 1024 * 1024
-    #: Kaydirma durduktan sonra cizim istenene kadar beklenen sure (ms).
+    #: How long to wait after scrolling stops before requesting a render (ms).
     ISTEK_GECIKMESI = 90
-    #: Bir fare tekerlegi centi (Qt birimleri).
+    #: One mouse wheel notch (Qt units).
     CENT = 120
 
     def __init__(self, belge, parent=None) -> None:
@@ -443,8 +443,8 @@ class ContinuousPdfView(QAbstractScrollArea):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         self.viewport().setAutoFillBackground(False)
 
-        # Olcu bilgisi: yalnizca ILK sayfa pesin okunur (tek cagri).
-        # Digerleri cizildikce ogrenilir; o ana kadar bu tahmin gecerli.
+        # Size information: only the FIRST page is read up front (a single call).
+        # The others are learned as they are rendered; until then this estimate holds.
         ilk = belge.pagePointSize(0) if self._sayi else QSizeF(595.0, 792.0)
         if ilk.width() <= 0.0 or ilk.height() <= 0.0:
             ilk = QSizeF(595.0, 792.0)
@@ -468,7 +468,7 @@ class ContinuousPdfView(QAbstractScrollArea):
             OrderedDict()
         self._bekleyen: Dict[int, Tuple[int, int]] = {}
 
-        # Hizli kaydirmada cizim ISTENMEZ; bkz. _gecikmeli_istek.
+        # While scrolling fast NO render is requested; see _delayed_request.
         self._hizli = False
         self._istek_zamanlayici = QTimer(self)
         self._istek_zamanlayici.setSingleShot(True)
@@ -482,14 +482,14 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._yerlesim()
         self._cubuklari_guncelle()
 
-    # ------------------------------------------------------- yasam dongusu
+    # life cycle
 
     def shutdown(self) -> None:
-        """Isci parcacigini durdurur ve bellegi birakir.
+        """Stops the worker thread and releases the memory.
 
-        Belge yok edilmeden ONCE cagrilmalidir: isci hala pdfium icinde
-        olabilir. Cizim onbellegi de burada bosaltilir; onlarca megabayt
-        tutan goruntuler kapatilmis bir pencerenin pesinde surunmemeli.
+        It must be called BEFORE the document is destroyed: the worker may still
+        be inside pdfium. The render cache is emptied here too; images holding
+        tens of megabytes must not linger behind a closed window.
         """
         self._istek_zamanlayici.stop()
         if self._isci is not None:
@@ -498,19 +498,19 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._onbellek.clear()
         self._bekleyen.clear()
 
-    # ---------------------------------------------------------------- yerlesim
+    # layout
 
     def _olcu(self, sayfa: int) -> Tuple[float, float]:
         return self._pt.get(sayfa, self._varsayilan)
 
     def _yerlesim(self) -> None:
-        """Sayfa dikdortgenlerini bastan hesaplar (796 oge: mikrosaniyeler).
+        """Recomputes the page rectangles (796 items: microseconds).
 
-        Olculer TAM PIKSELE yuvarlanir. Kesirli bir hedef dikdortgen,
-        cizilmis goruntuyu Qt'nin 1:1 kopyalama yolundan cikarip
-        yeniden orneklemeye sokar; olculdu: kenar karsitligi %65'e
-        duserek yazi surekli yumusak gorunur. Tam piksel, "yazi her
-        yakinlikta net kalir" ozelliginin on kosulu.
+        The sizes are rounded TO WHOLE PIXELS. A fractional target rectangle
+        takes the rendered image out of Qt's 1:1 blit path and into resampling;
+        measured: edge contrast dropped to 65% and the text looked permanently
+        soft. Whole pixels are the precondition of "the text stays sharp at
+        every zoom level".
         """
         self._w = []
         self._h = []
@@ -549,10 +549,10 @@ class ContinuousPdfView(QAbstractScrollArea):
             return float(int((gorunur - genislik) / 2.0))
         return float(self.KENAR - self.horizontalScrollBar().value())
 
-    # ------------------------------------------------------------------- capa
+    # anchor
 
     def _capa_al(self) -> Tuple[int, float]:
-        """Olcek degismeden once bakilan noktayi sayfaya gore saklar."""
+        """Records the point being looked at, relative to the page, before a scale change."""
         deger = float(self.verticalScrollBar().value())
         sayfa = self._sayfa_at(deger)
         yukseklik = self._h[sayfa] if self._h else 1.0
@@ -574,7 +574,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         i = bisect.bisect_right(self._alt, y)
         return max(0, min(i, self._sayi - 1))
 
-    # ---------------------------------------------------------------- gezinme
+    # navigation
 
     def current_page(self) -> int:
         return self._gecerli
@@ -583,14 +583,14 @@ class ContinuousPdfView(QAbstractScrollArea):
         return self._sayi
 
     def goto(self, sayfa: int) -> None:
-        """Istenen sayfaya gider ve onu GECERLI sayfa yapar.
+        """Goes to the requested page and makes it the CURRENT page.
 
-        Kaydirmadan turetilen "en cok yer kaplayan sayfa" kurali burada
-        YETMEZ. Belgenin sonuna yakin bir sayfa istendiginde kaydirma
-        cubugu daha asagi inemez; istenen sayfa gorunume girer ama en
-        uste gelemez. O durumda turetilen deger baska bir sayfayi
-        gosterir ve kullanici sayfa kutusuna 9 yazip 12 gorur. Istenen
-        sayfa GERCEKTEN gorunuyorsa istek her zaman kazanir.
+        The "page covering the most area", derived from the scroll position, IS
+        NOT ENOUGH here. When a page near the end of the document is requested,
+        the scroll bar cannot go further down; the requested page comes into
+        view but cannot reach the top. The derived value then points at another
+        page and the user types 9 into the page box and sees 12. When the
+        requested page IS REALLY VISIBLE, the request always wins.
         """
         if not self._y:
             return
@@ -603,21 +603,21 @@ class ContinuousPdfView(QAbstractScrollArea):
             self.sayfa_degisti.emit(sayfa)
 
     def _gecerli_guncelle(self) -> None:
-        """Gecerli sayfa: gorunumde EN COK YER KAPLAYAN sayfa.
+        """The current page: the page COVERING THE MOST AREA in the view.
 
-        Sabit bir sonda -- ornegin "gorunumun ust ucte birindeki sayfa"
-        -- kullanilamaz. Cok uzaklastirildiginda gorunume bes alti
-        sayfa siginca o nokta bakilan sayfanin degil, birkac
-        altindakinin uzerine duser. OLCULDU: 1453 piksel yuksekliginde
-        bir pencerede %20 yakinlikta 16. sayfaya gidilince sayac 18
+        A fixed probe -- "the page in the top third of the view", say -- cannot
+        be used. Zoomed far out, five or six pages fit in the view and that
+        point falls not on the page being looked at but a few below it.
+        MEASURED: in a 1453 pixel high window at 20% zoom, going to page 16 made
+        the counter say 18; the user typed 16 into the page box and saw 18.
         yaziyordu; kullanici sayfa kutusuna 16 yazip 18 goruyordu.
-
-        ESITLIK genelde EN USTTEKI sayfaya verilir; boylece goto(n) her
-        yakinlikta n sonucunu doner. Tek istisna belgenin SONU: orada
-        kaydirma cubugu daha fazla inemedigi icin son sayfa hicbir zaman
-        en uste gelemez, esitlik ustteki lehine bozulursa SON SAYFA
-        secilemez olurdu (olculdu: 400 sayfalik belgede son sayfa tam
-        ekrandayken sayac 399 yaziyordu). Cubuk sonundayken esitlik en
+        A TIE normally goes to the TOPMOST page, so that goto(n) returns n at
+        every zoom. The one exception is the END of the document: there the
+        scroll bar can go no further, so the last page can never reach the top,
+        and breaking the tie in favour of the upper page would make THE LAST
+        PAGE unselectable (measured: on a 400 page document the counter said 399
+        while the last page filled the screen). With the bar at the end, a tie
+        goes to the BOTTOMMOST fully visible page.
         ALTTAKI tam gorunen sayfaya verilir.
         """
         if not self._alt:
@@ -627,8 +627,8 @@ class ContinuousPdfView(QAbstractScrollArea):
         alt = ust + self.viewport().height()
         sonda = cubuk.value() >= cubuk.maximum() and cubuk.maximum() > 0
         ilk, sonu = self._gorunur_aralik()
-        # Tarama ust sinirla korunur: en kucuk olcekte gorunume cok
-        # sayfa sigabilir, ama hepsi tam gorundugu icin zaten esittir.
+        # The scan is bounded: at the smallest scale many pages can fit in the
+        # view, but they are all fully visible and therefore already tied.
         sonu = min(sonu, ilk + 64)
         en_iyi = ilk
         en_cok = -1.0
@@ -645,7 +645,7 @@ class ContinuousPdfView(QAbstractScrollArea):
             self._gecerli = en_iyi
             self.sayfa_degisti.emit(en_iyi)
 
-    # ------------------------------------------------------------ yakinlastirma
+    # zoom
 
     def zoom_factor(self) -> float:
         return self._zoom
@@ -670,8 +670,8 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._yerlesim()
         self._cubuklari_guncelle()
         self._capa_uygula(capa)
-        # Capa uygulamak kaydirma uretir; ama bu kullanicinin surukledigi
-        # bir kaydirma degil. Yeni olcekteki sayfalar HEMEN istenmeli.
+        # Applying the anchor produces a scroll; but that is not a scroll the user
+        # dragged. The pages at the new scale must be requested IMMEDIATELY.
         self._hizli = False
         self._gecerli_guncelle()
         self.olcek_degisti.emit(self._zoom)
@@ -687,8 +687,8 @@ class ContinuousPdfView(QAbstractScrollArea):
         wpt, hpt = self._olcu(self._gecerli)
         if wpt <= 0.0 or hpt <= 0.0:
             return
-        # 1 piksel pay: yuvarlama yuzunden yatay cubuk cikip gorunum
-        # genisligini degistirmesin, yoksa sigdirma salinim yapar.
+        # A 1 pixel margin: rounding must not bring up a horizontal bar and change
+        # the view width, or fitting would oscillate.
         alan_g = max(1.0, self.viewport().width() - 2.0 * self.KENAR - 1.0)
         olcek = alan_g / wpt
         if kip == "sayfa":
@@ -696,9 +696,9 @@ class ContinuousPdfView(QAbstractScrollArea):
             olcek = min(olcek, alan_y / hpt)
         self.set_zoom(olcek / self._temel, kip)
 
-    # -------------------------------------------------------------------- cizim
+    # painting
 
-    def paintEvent(self, olay) -> None:        # noqa: N802 - Qt adlandirmasi
+    def paintEvent(self, olay) -> None:        # noqa: N802 - Qt naming
         boyaci = QPainter(self.viewport())
         boyaci.fillRect(self.viewport().rect(), QColor(C.PANEL_DARK))
         if not self._sayi:
@@ -728,14 +728,14 @@ class ContinuousPdfView(QAbstractScrollArea):
             boyaci.drawRect(hedef)
         boyaci.end()
 
-        # HIZLI KAYDIRMADA CIZIM ISTENMEZ.
+        # NO RENDER IS REQUESTED WHILE SCROLLING FAST.
         #
-        # Kullanici kaydirma cubugunu belge boyunca surukledigi surece
-        # her ara konum icin sayfa istemek, hicbiri goruntulenmeyecek
-        # onlarca cizim uretir. Olculdu: boyle bir suruklemede tek bir
-        # kaydirma adimi 225 ms'ye kadar cikiyordu ve maliyetin neredeyse
-        # tamami istek uretmekteydi. Istekler kaydirma DURDUKTAN sonra
-        # verilir; bu arada sayfalar yer tutucu olarak gorunur.
+        # As long as the user drags the scroll bar through the document, requesting
+        # a page for every intermediate position produces dozens of renders none of
+        # which will be displayed. Measured: during such a drag a single scroll step
+        # reached 225 ms, and almost all of the cost was in producing the requests.
+        # The requests are issued AFTER the scrolling STOPS; until then the pages
+        # show as placeholders.
         if self._hizli:
             self._istek_zamanlayici.start()
         else:
@@ -743,7 +743,7 @@ class ContinuousPdfView(QAbstractScrollArea):
             self._istekleri_yenile(ilk2, sonu2)
 
     def _gorunur_aralik(self) -> Tuple[int, int]:
-        """Gorunumde (kismen de olsa) yer alan ilk ve son sayfa."""
+        """The first and last page (even partly) present in the view."""
         if not self._alt:
             return (0, 0)
         ust = float(self.verticalScrollBar().value())
@@ -756,13 +756,13 @@ class ContinuousPdfView(QAbstractScrollArea):
         return (ilk, sonu)
 
     def _istek_araligi(self) -> Tuple[int, int]:
-        """Cizimi istenecek sayfa araligi.
+        """The range of pages to request for rendering.
 
-        Gorunenlerin bir onu ve bir arkasi da istenir ki yavas
-        kaydirmada sayfa bos cerceve olarak gorunmesin. Ama bu ON
-        YUKLEME yalnizca butce elveriyorsa yapilir: cok yakinda tek bir
-        sayfa goruntusu onlarca megabayt tutar, komsulari da istemek
-        onbellegi asar ve atma-yeniden cizme dongusune sokardi.
+        One before and one after the visible ones are requested too, so a page
+        does not show as an empty frame during slow scrolling. But this
+        PREFETCH only happens when the budget allows: zoomed far in, a single
+        page image takes tens of megabytes, and requesting its neighbours too
+        would blow the cache and start an evict-and-redraw loop.
         """
         ilk, sonu = self._gorunur_aralik()
         tahmin = self._tahmini_bayt(self._gecerli)
@@ -772,7 +772,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         return (ilk, sonu)
 
     def _piksel_olcu(self, sayfa: int) -> Tuple[int, int]:
-        """Sayfanin istenecek GERCEK piksel olcusu."""
+        """The REAL pixel size the page will be requested at."""
         oran = self.devicePixelRatioF() or 1.0
         g = max(1, int(round(self._w[sayfa] * oran)))
         y = max(1, int(round(self._h[sayfa] * oran)))
@@ -793,7 +793,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         return max(1, g * y * 4)
 
     def _istekleri_yenile(self, ilk: int, sonu: int) -> None:
-        # Gorunum disinda kalmis bekleyen istekler temizlenir.
+        # Pending requests that have left the view are cleared.
         for sayfa in list(self._bekleyen):
             if sayfa < ilk or sayfa > sonu:
                 del self._bekleyen[sayfa]
@@ -807,8 +807,8 @@ class ContinuousPdfView(QAbstractScrollArea):
             self._bekleyen[sayfa] = gerek
             if self._isci is not None:
                 for dusen in self._isci.iste(sayfa, gerek[0], gerek[1]):
-                    # Kuyruktan DUSEN istek bir daha gelmez; bekliyor
-                    # isaretini kaldirmazsak o sayfa sonsuza dek yer
+                    # A request DROPPED from the queue never comes back; without removing
+                    # the pending mark, that page would stay a placeholder forever.
                     # tutucu olarak kalirdi.
                     self._bekleyen.pop(dusen, None)
 
@@ -821,9 +821,9 @@ class ContinuousPdfView(QAbstractScrollArea):
             return
         self._onbellege_koy(sayfa, genislik, goruntu.height(), goruntu)
 
-        # Gercek olcu tahminden farkli cikarsa yerlesim duzeltilir.
-        # Bu belgede butun sayfalar ayni olcude oldugu icin normalde
-        # hic calismaz; farkli olculu bir belgede ise gorunum kendini
+        # When the real size differs from the estimate the layout is corrected.
+        # Because every page in this document is the same size it normally never
+        # runs; on a document with mixed sizes the view pulls itself together.
         # toparlar.
         onceki = self._pt.get(sayfa)
         self._pt[sayfa] = (wpt, hpt)
@@ -837,19 +837,19 @@ class ContinuousPdfView(QAbstractScrollArea):
 
     def _onbellege_koy(self, sayfa: int, genislik: int, yukseklik: int,
                        goruntu: QImage) -> None:
-        """Cizimi saklar; ISTENEN ARALIKTAKI sayfalar ASLA atilmaz.
+        """Stores a render; pages IN THE REQUESTED RANGE are NEVER evicted.
 
-        YASANAN HATA: atma dongusu "en az iki girdi kalsin" diyordu,
-        oysa her boyamada gorunenler artı birer komsu, yani en az UC
-        sayfa isteniyordu. Uc goruntu butceyi asinca N'yi onbellege
-        koymak N-1'i atiyor, bir sonraki boyama N-1'i yeniden istiyor ve
-        dongu hic bitmiyordu. OLCULDU: pencere HICBIR girdi almadan,
-        %200 yakinlikta 3 saniyede 118 kez yeniden boyaniyor, %250'de
-        okunan sayfa 29 kez yer tutucuya donuyordu -- bir islemci
+        THE BUG WE HIT: the eviction loop said "keep at least two entries", while
+        every paint requested the visible pages plus one neighbour each -- at
+        least THREE pages. Once three images exceeded the budget, caching N
+        evicted N-1, the next paint requested N-1 again and the loop never
+        ended. MEASURED: with NO input at all, the window repainted 118 times in
+        3 seconds at 200% zoom, and at 250% the page being read fell back to a
+        placeholder 29 times -- one CPU core was busy for nothing.
         cekirdegi bosuna doluydu.
 
-        Cozum: istenen aralik korunur. Butce asilabilir, ama asim
-        aralik kadardir ve sinirlidir; sonsuz dongu ise sinirsizdi.
+        The fix: the requested range is protected. The budget may be exceeded,
+        but the excess is that range and is bounded; an endless loop was not.
         """
         self._onbellek.pop(sayfa, None)
         self._onbellek[sayfa] = (genislik, yukseklik, goruntu)
@@ -863,7 +863,7 @@ class ContinuousPdfView(QAbstractScrollArea):
             toplam -= self._onbellek.pop(anahtar)[2].sizeInBytes()
 
     def _gecikmeli_istek(self) -> None:
-        """Kaydirma durdu: artik gercekten bakilan sayfalar istenir."""
+        """Scrolling stopped: now the pages really being looked at are requested."""
         self._hizli = False
         if not self._sayi:
             return
@@ -871,31 +871,31 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._istekleri_yenile(ilk, sonu)
         self.viewport().update()
 
-    # ------------------------------------------------------------------ olaylar
+    # events
 
     def scrollContentsBy(self, dx: int, dy: int) -> None:   # noqa: N802
         super().scrollContentsBy(dx, dy)
-        # Kaydirma suruyor kabul edilir; zamanlayici her adimda yeniden
-        # baslar, yani cizim ancak kaydirma DURUNCA istenir.
+        # Scrolling is assumed to continue; the timer restarts on every step, so a
+        # render is requested only once the scrolling STOPS.
         self._hizli = True
         self._istek_zamanlayici.start()
         self._gecerli_guncelle()
         self.viewport().update()
 
-    def resizeEvent(self, olay) -> None:       # noqa: N802 - Qt adlandirmasi
+    def resizeEvent(self, olay) -> None:       # noqa: N802 - Qt naming
         super().resizeEvent(olay)
         capa = self._capa_al()
         if self._kip in ("genislik", "sayfa"):
             self._sigdir(self._kip)
-        # Kaydirma araligi GORUNUM YUKSEKLIGINE baglidir ve olcek hic
-        # degismese bile yenilenmelidir.
+        # The scroll range depends ON THE VIEW HEIGHT and has to be refreshed even
+        # when the scale does not change at all.
         #
-        # YASANAN HATA: yalnizca yukseklik degisen bir boyutlandirmada
-        # genislige sigdirma ayni olcegi uretiyor, set_zoom erken
-        # donuyor ve cubuk eski araliginda kaliyordu. OLCULDU: 796
-        # sayfalik belgede pencere 900'den 480 piksele kisaltilinca
-        # belgenin son 408 pikseline HICBIR yolla inilemiyor, ustelik
-        # pageStep eski kaldigi icin her PageDown 408 piksellik metni
+        # THE BUG WE HIT: on a resize that changed only the height, fitting to the
+        # width produced the same scale, set_zoom returned early and the bar kept
+        # its old range. MEASURED: on a 796 page document, shortening the window
+        # from 900 to 480 pixels made the last 408 pixels of the document
+        # unreachable by any means, and because pageStep stayed stale every
+        # PageDown skipped 408 pixels of text.
         # atliyordu.
         self._cubuklari_guncelle()
         self._capa_uygula(capa)
@@ -903,14 +903,14 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._gecerli_guncelle()
         self.viewport().update()
 
-    def wheelEvent(self, olay) -> None:        # noqa: N802 - Qt adlandirmasi
+    def wheelEvent(self, olay) -> None:        # noqa: N802 - Qt naming
         if olay.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            # Cent BIRIKTIRILIR.
+            # THE NOTCHES ARE ACCUMULATED.
             #
-            # YASANAN HATA: yalnizca isaret okunuyor ve her olay tam bir
-            # 1,25 katı uyguluyordu. Windows hassas dokunmatik yuzeyi tek
-            # bir harekette birkac birimlik ONLARCA olay gonderir:
-            # olculdu, tek centin %40'i kadar bir harekette yakinlik
+            # THE BUG WE HIT: only the sign was read and every event applied a full
+            # 1.25 factor. A Windows precision touchpad sends DOZENS of events of a few
+            # units for a single gesture: measured, a gesture worth 40% of one notch
+            # made the zoom jump from 108% to 400%.
             # %108'den %400'e firliyordu.
             if olay.phase() == Qt.ScrollPhase.ScrollBegin:
                 self._tekerlek = 0
@@ -926,7 +926,7 @@ class ContinuousPdfView(QAbstractScrollArea):
         self._tekerlek = 0
         super().wheelEvent(olay)
 
-    def keyPressEvent(self, olay) -> None:     # noqa: N802 - Qt adlandirmasi
+    def keyPressEvent(self, olay) -> None:     # noqa: N802 - Qt naming
         if olay.modifiers() == Qt.KeyboardModifier.NoModifier:
             if olay.key() == Qt.Key.Key_Home:
                 self.verticalScrollBar().setValue(0)
@@ -941,14 +941,14 @@ class ContinuousPdfView(QAbstractScrollArea):
 
 
 class SpecWindow(QMainWindow):
-    """UML 2.5.1 PDF'ini gosteren AYRI pencere.
+    """A SEPARATE window that shows the UML 2.5.1 PDF.
 
-    Ana pencereden bagimsizdir: kullanici modeli cizerken belgeyi ikinci
-    ekranda acik tutabilir. Belge butun sayfalari boyunca kesintisiz
-    kaydirilir ve yakinlastirilabilir (bkz. ContinuousPdfView).
+    It is independent of the main window: the user can keep the document open on
+    a second screen while drawing the model. The document scrolls continuously
+    through all of its pages and can be zoomed (see ContinuousPdfView).
     """
 
-    #: Belgenin kimligi; durum cubugunda kalici olarak durur.
+    #: The identity of the document; it stays permanently in the status bar.
     SURUM = "OMG UML 2.5.1 (formal/2017-12-05)"
 
     def __init__(self, pdf_path: str, parent=None) -> None:
@@ -959,15 +959,15 @@ class SpecWindow(QMainWindow):
 
         from PyQt6.QtPdf import QPdfDocument
 
-        # Belge BILEREK ust nesnesizdir: boylece omru Python
-        # basvurularina baglidir ve cizim iscisi de bir basvuru tutar.
-        # Ust nesneli olsaydi pencere yikilirken belge iscinin ALTINDAN
-        # cekilebilir, isci pdfium icinde serbest birakilmis bellege
-        # dokunurdu.
+        # The document is DELIBERATELY without a parent object: its lifetime then
+        # depends on the Python references, and the render worker holds one too.
+        # With a parent, the document could be pulled OUT FROM UNDER the worker
+        # while the window was being destroyed, and the worker would touch freed
+        # memory inside pdfium.
         self.doc = QPdfDocument(None)
         durum = self.doc.load(pdf_path)
-        # Bozuk ya da yarim bir dosyada SESSIZCE bos pencere acmak yerine
-        # hata verilir; cagiran taraf bunu kullaniciya bildirir.
+        # On a corrupt or truncated file an error is raised rather than opening an
+        # empty window SILENTLY; the caller reports it to the user.
         if durum != QPdfDocument.Error.None_:
             raise RuntimeError("the PDF could not be opened (%s)"
                                % durum.name.rstrip("_"))
@@ -975,9 +975,9 @@ class SpecWindow(QMainWindow):
             raise RuntimeError("the PDF contains no pages")
 
         self.view = ContinuousPdfView(self.doc, self)
-        # Gorunum kuruldugu ANDAN itibaren bir is parcacigi calisiyor.
-        # Buradan sonra atilacak HER hata onu durdurmadan cikarsa,
-        # calisan bir QThread yok edilir ve surec sessizce olur.
+        # A thread has been running FROM THE MOMENT the view was built. Any error
+        # thrown from here on that leaves without stopping it destroys a running
+        # QThread and the process dies silently.
         try:
             self._kur()
         except Exception:                      # noqa: BLE001
@@ -998,10 +998,10 @@ class SpecWindow(QMainWindow):
 
         self._build_toolbar()
 
-        # Sayfa gostergesi KALICI parcacik olmali, gecici mesaj degil.
-        # Arac cubugu eylemlerinin durum ipuclari (setStatusTip) gecici
-        # mesaj alanini kullanir: bir dugmenin ustunden gecmek gostergeyi
-        # eziyor, uzaklasmak ise bos ipucu gonderip tamamen SILIYORDU.
+        # The page indicator has to be a PERMANENT widget, not a temporary message.
+        # The status tips of the toolbar actions (setStatusTip) use the temporary
+        # message area: passing over a button overwrote the indicator, and moving
+        # away sent an empty tip and ERASED it entirely.
         self.lbl_page = QLabel()
         self.lbl_page.setFont(ui_font(9))
         self.lbl_page.setAccessibleName("Current page")
@@ -1020,11 +1020,11 @@ class SpecWindow(QMainWindow):
         self.view.setFocus()
 
     def _pencereyi_olc(self) -> None:
-        """Arac cubugu SIGACAK kadar genis acilir.
+        """Opens the window wide enough for the toolbar TO FIT.
 
-        980 piksellik sabit genislikte cubugun sonundaki eylemler
-        Qt'nin ">>" tasma menusune dusuyordu. Hepsinin klavye kisayolu
-        var, ama gorunmeyen bir dugme kesfedilemez.
+        At a fixed width of 980 pixels the actions at the end of the bar fell
+        into Qt's ">>" overflow menu. They all have a keyboard shortcut, but an
+        invisible button cannot be discovered.
         """
         gerek = self.centralWidget().minimumSizeHint().width()
         for bar in self.findChildren(QToolBar):
@@ -1038,27 +1038,27 @@ class SpecWindow(QMainWindow):
             yukseklik = min(yukseklik, int(alan.height() * 0.92))
         self.resize(genislik, yukseklik)
 
-    def closeEvent(self, olay) -> None:        # noqa: N802 - Qt adlandirmasi
-        # Isci parcacigi belge yok edilmeden ONCE durdurulmali.
+    def closeEvent(self, olay) -> None:        # noqa: N802 - Qt naming
+        # The worker thread must be stopped BEFORE the document is destroyed.
         self.view.shutdown()
-        # pdfium'un kendi sayfa onbellegi de birakilir. Kapatilmis bir
-        # pencere onlarca megabayti tutmaya devam etmemeli; olculdu:
-        # pencere sekiz kez acilip kapatildiginda surec 131 MB'den
-        # 463 MB'ye cikiyordu. Pencere yeniden gosterilmez -- ana
-        # pencere her istekte yenisini kurar (bkz. show_spec).
+        # pdfium's own page cache is released as well. A closed window must not go
+        # on holding tens of megabytes; measured: opening and closing the window
+        # eight times took the process from 131 MB to 463 MB. The window is never
+        # shown again -- the main window builds a new one on every request (see
+        # show_spec).
         try:
             self.doc.close()
         except Exception:                      # noqa: BLE001
             pass
         super().closeEvent(olay)
 
-    # ------------------------------------------------------------ arac cubugu
+    # toolbar
 
     def _eylem(self, bar: QToolBar, metin: str, kisayol: str, geri) -> QAction:
         eylem = QAction(metin, self)
         eylem.setShortcut(kisayol)
-        # Kisayol ipucunda GORUNUR: arac cubugunda simge degil metin var,
-        # tus atamasi baska turlu kesfedilemez.
+        # It is VISIBLE in the shortcut tooltip: the toolbar carries text rather
+        # than icons, and the key assignment cannot be discovered otherwise.
         eylem.setToolTip("%s  (%s)" % (metin, kisayol))
         eylem.setStatusTip(eylem.toolTip())
         eylem.triggered.connect(geri)
@@ -1072,9 +1072,9 @@ class SpecWindow(QMainWindow):
         self.addToolBar(bar)
 
         son = self.doc.pageCount() - 1
-        # Cipilak PageUp/PageDown BILEREK kullanilmadi: bu tuslar belgeyi
-        # kaydirmalidir. Eylemlere baglansalardi gorunume hic ulasmaz,
-        # kaydirma tamamen bozulurdu.
+        # Bare PageUp/PageDown were DELIBERATELY not used: those keys have to
+        # scroll the document. Bound to actions they would never reach the view and
+        # scrolling would break completely.
         self.a_first = self._eylem(bar, "First page", "Ctrl+Home",
                                    lambda: self.view.goto(0))
         self.a_prev = self._eylem(
@@ -1123,10 +1123,10 @@ class SpecWindow(QMainWindow):
                                       self.view.fit_page)
         bar.addSeparator()
 
-        # Bu eylem de _eylem() uzerinden kurulur. Elle kurulurken tek
-        # kisayolsuz eylem oydu; arac cubugu dar kalip tasma menusune
-        # dustugunde klavyeyle ERISILEMEZ oluyordu (arac cubugu dugmeleri
-        # odak almaz, pencerede menu cubugu da yok).
+        # This action is built through _action() as well. Built by hand, it was the
+        # only action without a shortcut; once the toolbar was narrow and it fell
+        # into the overflow menu, it became UNREACHABLE from the keyboard (toolbar
+        # buttons do not take focus and the window has no menu bar).
         self.a_web = self._eylem(
             bar, "Open the spec page", "Ctrl+Shift+O",
             lambda: QDesktopServices.openUrl(QUrl(SPEC_PAGE)))
@@ -1134,13 +1134,13 @@ class SpecWindow(QMainWindow):
                               % SPEC_PAGE)
         self.a_web.setStatusTip(self.a_web.toolTip())
 
-        # Arac cubugu BILEREK satir-ici stil sayfasi almaz. Renk kurulum
-        # aninda gomulurdu ve satir-ici sayfa uygulama sayfasini
-        # ezdiginden, tema degistiginde serit eski zeminde kalir, yazi
-        # 1,05:1 karsitliga duserek OKUNAMAZ olurdu. Uygulama sayfasi
-        # QToolBar'i zaten bicimlendiriyor (bkz. theme.stylesheet).
+        # The toolbar DELIBERATELY gets no inline style sheet. The colour would be
+        # embedded at set-up, and because an inline sheet overrides the application
+        # sheet, the strip would keep the old background on a theme change and the
+        # text would drop to 1.05:1 contrast and become UNREADABLE. The application
+        # sheet already styles QToolBar (see theme.stylesheet).
 
-    # ---------------------------------------------------------------- gezinme
+    # navigation
 
     def _page(self) -> int:
         return self.view.current_page()
